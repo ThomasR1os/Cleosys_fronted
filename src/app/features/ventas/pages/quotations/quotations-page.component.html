@@ -19,54 +19,102 @@
     }
   }
 
-  <div class="overflow-x-auto rounded-lg border border-base-300 bg-base-100">
+  <div class="overflow-hidden rounded-lg border border-base-300 bg-base-100">
     @if (loading()) {
       <div class="flex justify-center p-12">
         <span class="loading loading-spinner loading-lg text-primary"></span>
       </div>
     } @else {
-      <table class="table table-zebra text-sm">
-        <thead>
-          <tr>
-            <th>Correlativo</th>
-            <th>Cliente</th>
-            <th>Estado</th>
-            <th>Total</th>
-            <th>Moneda</th>
-            <th>Tipo de cambio</th>
-            <th>Creado</th>
-            <th class="text-right">Acciones</th>
-          </tr>
-        </thead>
-        <tbody>
-          @for (row of quotations(); track row.id) {
-            <tr [class.bg-base-300]="modalOpen() && editingQuotationId() === row.id">
-              <td class="font-mono font-medium">{{ row.correlativo }}</td>
-              <td>{{ clientName(row.client) }}</td>
-              <td>{{ row.status }}</td>
-              <td class="whitespace-nowrap">{{ formatMoney(netForQuotation(row)) }}</td>
-              <td>{{ row.money }}</td>
-              <td class="whitespace-nowrap tabular-nums">{{ formatExchangeRateDisplay(row) }}</td>
-              <td>{{ formatDate(row.creation_date) }}</td>
-              <td class="text-right space-x-1">
-                <button type="button" class="btn btn-ghost btn-sm" (click)="openViewQuotation(row)">Ver</button>
-                @if (canEditQuotation(row)) {
-                  <button type="button" class="btn btn-ghost btn-sm" (click)="openEditQuotation(row)">
-                    Editar
-                  </button>
-                  <button type="button" class="btn btn-outline btn-error btn-sm" (click)="removeQuotation(row)">
-                    Eliminar
-                  </button>
-                }
-              </td>
-            </tr>
-          } @empty {
+      <div class="overflow-x-auto">
+        <table class="table table-zebra text-sm">
+          <thead>
             <tr>
-              <td colspan="8" class="text-base-content/60 text-center">No hay cotizaciones.</td>
+              <th>Correlativo</th>
+              <th>Cliente</th>
+              <th>Estado</th>
+              <th>Total</th>
+              <th>Moneda</th>
+              <th>Tipo de cambio</th>
+              <th>Creado</th>
+              <th class="text-right">Acciones</th>
             </tr>
-          }
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            @for (row of pagedQuotations(); track row.id) {
+              <tr [class.bg-base-300]="modalOpen() && editingQuotationId() === row.id">
+                <td class="font-mono font-medium">{{ row.correlativo }}</td>
+                <td>{{ clientName(row.client) }}</td>
+                <td>{{ row.status }}</td>
+                <td class="whitespace-nowrap">{{ formatMoney(netForQuotation(row)) }}</td>
+                <td>{{ row.money }}</td>
+                <td class="whitespace-nowrap tabular-nums">{{ formatExchangeRateDisplay(row) }}</td>
+                <td>{{ formatDate(row.creation_date) }}</td>
+                <td class="text-right space-x-1">
+                  <button type="button" class="btn btn-ghost btn-sm" (click)="openViewQuotation(row)">Ver</button>
+                  @if (canEditQuotation(row)) {
+                    <button type="button" class="btn btn-ghost btn-sm" (click)="openEditQuotation(row)">
+                      Editar
+                    </button>
+                    <button type="button" class="btn btn-outline btn-error btn-sm" (click)="removeQuotation(row)">
+                      Eliminar
+                    </button>
+                  }
+                </td>
+              </tr>
+            } @empty {
+              <tr>
+                <td colspan="8" class="text-base-content/60 text-center">No hay cotizaciones.</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+      @if (totalCount() > 0) {
+        <div
+          class="flex flex-col gap-3 border-t border-base-300 bg-base-200/40 px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <p class="text-sm text-base-content/70">
+            Mostrando {{ rangeStart() }}–{{ rangeEnd() }} de {{ totalCount() }}
+          </p>
+          <div class="flex flex-wrap items-center gap-2">
+            <label class="flex items-center gap-2 text-sm text-base-content/70">
+              <span>Por página</span>
+              <select
+                class="select select-bordered select-sm w-[4.75rem] min-h-8"
+                [value]="pageSize()"
+                (change)="setPageSize(+$any($event.target).value)"
+              >
+                @for (opt of pageSizeOptions; track opt) {
+                  <option [value]="opt">{{ opt }}</option>
+                }
+              </select>
+            </label>
+            <div class="join border border-base-300">
+              <button
+                type="button"
+                class="btn btn-sm join-item"
+                [disabled]="pageIndex() === 0"
+                (click)="prevPage()"
+                aria-label="Página anterior"
+              >
+                «
+              </button>
+              <span class="btn btn-sm join-item btn-ghost pointer-events-none cursor-default no-animation">
+                {{ pageIndex() + 1 }} / {{ totalPages() }}
+              </span>
+              <button
+                type="button"
+                class="btn btn-sm join-item"
+                [disabled]="pageIndex() >= totalPages() - 1"
+                (click)="nextPage()"
+                aria-label="Página siguiente"
+              >
+                »
+              </button>
+            </div>
+          </div>
+        </div>
+      }
     }
   </div>
 </div>

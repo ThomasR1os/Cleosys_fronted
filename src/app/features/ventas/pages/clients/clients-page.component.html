@@ -16,52 +16,100 @@
     <div role="alert" class="alert alert-error text-sm">{{ err }}</div>
   }
 
-  <div class="overflow-x-auto rounded-lg border border-base-300 bg-base-100">
+  <div class="overflow-hidden rounded-lg border border-base-300 bg-base-100">
     @if (loading()) {
       <div class="flex justify-center p-12">
         <span class="loading loading-spinner loading-lg text-primary"></span>
       </div>
     } @else {
-      <table class="table table-zebra text-sm">
-        <thead>
-          <tr>
-            <th>ID</th>
-            <th>Nombre</th>
-            <th>RUC</th>
-            <th class="text-right">Acciones</th>
-          </tr>
-        </thead>
-        <tbody>
-          @for (row of items(); track row.id) {
+      <div class="overflow-x-auto">
+        <table class="table table-zebra text-sm">
+          <thead>
             <tr>
-              <td>{{ row.id }}</td>
-              <td class="font-medium">{{ row.name }}</td>
-              <td>{{ row.ruc }}</td>
-              <td class="text-right">
-                <div class="flex flex-wrap gap-1 justify-end">
-                  <a
-                    [routerLink]="['/ventas/contactos']"
-                    [queryParams]="{ cliente: row.id }"
-                    class="btn btn-ghost btn-sm"
-                  >
-                    Contactos
-                  </a>
-                  @if (canEdit(row)) {
-                    <button type="button" class="btn btn-ghost btn-sm" (click)="openEdit(row)">Editar</button>
-                    <button type="button" class="btn btn-outline btn-error btn-sm" (click)="remove(row)">
-                      Eliminar
-                    </button>
-                  }
-                </div>
-              </td>
+              <th>ID</th>
+              <th>Nombre</th>
+              <th>RUC</th>
+              <th class="text-right">Acciones</th>
             </tr>
-          } @empty {
-            <tr>
-              <td colspan="4" class="text-base-content/60 text-center">No hay clientes visibles para su usuario.</td>
-            </tr>
-          }
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            @for (row of pagedItems(); track row.id) {
+              <tr>
+                <td>{{ row.id }}</td>
+                <td class="font-medium">{{ row.name }}</td>
+                <td>{{ row.ruc }}</td>
+                <td class="text-right">
+                  <div class="flex flex-wrap gap-1 justify-end">
+                    <a
+                      [routerLink]="['/ventas/contactos']"
+                      [queryParams]="{ cliente: row.id }"
+                      class="btn btn-ghost btn-sm"
+                    >
+                      Contactos
+                    </a>
+                    @if (canEdit(row)) {
+                      <button type="button" class="btn btn-ghost btn-sm" (click)="openEdit(row)">Editar</button>
+                      <button type="button" class="btn btn-outline btn-error btn-sm" (click)="remove(row)">
+                        Eliminar
+                      </button>
+                    }
+                  </div>
+                </td>
+              </tr>
+            } @empty {
+              <tr>
+                <td colspan="4" class="text-base-content/60 text-center">No hay clientes visibles para su usuario.</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+      @if (totalCount() > 0) {
+        <div
+          class="flex flex-col gap-3 border-t border-base-300 bg-base-200/40 px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <p class="text-sm text-base-content/70">
+            Mostrando {{ rangeStart() }}–{{ rangeEnd() }} de {{ totalCount() }}
+          </p>
+          <div class="flex flex-wrap items-center gap-2">
+            <label class="flex items-center gap-2 text-sm text-base-content/70">
+              <span>Por página</span>
+              <select
+                class="select select-bordered select-sm w-[4.75rem] min-h-8"
+                [value]="pageSize()"
+                (change)="setPageSize(+$any($event.target).value)"
+              >
+                @for (opt of pageSizeOptions; track opt) {
+                  <option [value]="opt">{{ opt }}</option>
+                }
+              </select>
+            </label>
+            <div class="join border border-base-300">
+              <button
+                type="button"
+                class="btn btn-sm join-item"
+                [disabled]="pageIndex() === 0"
+                (click)="prevPage()"
+                aria-label="Página anterior"
+              >
+                «
+              </button>
+              <span class="btn btn-sm join-item btn-ghost pointer-events-none cursor-default no-animation">
+                {{ pageIndex() + 1 }} / {{ totalPages() }}
+              </span>
+              <button
+                type="button"
+                class="btn btn-sm join-item"
+                [disabled]="pageIndex() >= totalPages() - 1"
+                (click)="nextPage()"
+                aria-label="Página siguiente"
+              >
+                »
+              </button>
+            </div>
+          </div>
+        </div>
+      }
     }
   </div>
 </div>
@@ -69,56 +117,61 @@
 @if (modalOpen()) {
   <div class="modal modal-open">
     <div class="modal-box max-w-lg max-h-[90vh] overflow-y-auto">
-      <h2 class="font-bold text-lg mb-4">{{ editingId() == null ? 'Nuevo cliente' : 'Editar cliente' }}</h2>
-      <form class="flex flex-col gap-3" [formGroup]="form" (ngSubmit)="save()">
+      <div class="mb-4">
+        <h2 class="font-bold text-lg">{{ editingId() == null ? 'Nuevo cliente' : 'Editar cliente' }}</h2>
+        @if (editingId() != null) {
+          <p class="text-sm text-base-content/70 mt-1">Cliente #{{ editingId() }}</p>
+        }
+      </div>
+      <form class="flex flex-col gap-4" [formGroup]="form" (ngSubmit)="save()">
         @if (editingId() == null) {
-          <label class="form-control">
-            <span class="label-text">ID del cliente (opcional, si la base lo exige)</span>
-            <input class="input input-bordered" type="number" formControlName="id" />
+          <label class="flex w-full min-w-0 flex-col gap-1.5">
+            <span class="text-sm font-medium text-base-content">ID del cliente (opcional, si la base lo exige)</span>
+            <input class="input input-bordered w-full" type="number" formControlName="id" />
           </label>
         }
         @if (editingId() != null) {
-          <label class="form-control">
-            <span class="label-text">ID</span>
-            <input class="input input-bordered" type="number" formControlName="id" readonly />
-          </label>
+          <div class="divider my-0 text-sm">Datos del cliente</div>
+          <p class="text-xs text-base-content/70">
+            Solo puede modificar RUC y razón social. Los contactos se gestionan en la vista Contactos.
+          </p>
         }
 
-        <label class="form-control">
-          <span class="label-text">RUC</span>
-          <input class="input input-bordered" formControlName="ruc" />
+        <label class="flex w-full min-w-0 flex-col gap-1.5">
+          <span class="text-sm font-medium text-base-content">RUC</span>
+          <input class="input input-bordered w-full" formControlName="ruc" />
         </label>
-        <label class="form-control">
-          <span class="label-text">Nombre (razón social)</span>
-          <input class="input input-bordered" formControlName="name" />
+        <label class="flex w-full min-w-0 flex-col gap-1.5">
+          <span class="text-sm font-medium text-base-content">Nombre (razón social)</span>
+          <input class="input input-bordered w-full" formControlName="name" />
         </label>
 
         @if (editingId() == null) {
-          <div class="divider text-sm">Contacto inicial</div>
-          <p class="text-xs text-base-content/70 -mt-2 mb-1">
+          <div class="divider my-0 text-sm">Contacto inicial</div>
+          <p class="text-xs text-base-content/70">
             Obligatorio en el alta. El vendedor del contacto lo define el servidor según reglas de negocio.
           </p>
-          <label class="form-control">
-            <span class="label-text">Nombre del contacto</span>
-            <input class="input input-bordered" formControlName="contact_first_name" />
+          <label class="flex w-full min-w-0 flex-col gap-1.5">
+            <span class="text-sm font-medium text-base-content">Nombre del contacto</span>
+            <input class="input input-bordered w-full" formControlName="contact_first_name" />
             @if (form.controls.contact_first_name.touched && form.controls.contact_first_name.errors?.['required']) {
-              <span class="label-text-alt text-error">Requerido</span>
+              <span class="text-xs text-error">Requerido</span>
             }
           </label>
-          <label class="form-control">
-            <span class="label-text">Apellido del contacto</span>
-            <input class="input input-bordered" formControlName="contact_last_name" />
+          <label class="flex w-full min-w-0 flex-col gap-1.5">
+            <span class="text-sm font-medium text-base-content">Apellido del contacto</span>
+            <input class="input input-bordered w-full" formControlName="contact_last_name" />
             @if (form.controls.contact_last_name.touched && form.controls.contact_last_name.errors?.['required']) {
-              <span class="label-text-alt text-error">Requerido</span>
+              <span class="text-xs text-error">Requerido</span>
             }
           </label>
-          <label class="form-control">
-            <span class="label-text">Email del contacto (opcional)</span>
-            <input class="input input-bordered" type="email" formControlName="email" />
+          <label class="flex w-full min-w-0 flex-col gap-1.5">
+            <span class="text-sm font-medium text-base-content">Email del contacto (opcional)</span>
+            <input class="input input-bordered w-full" type="email" formControlName="email" />
           </label>
-          <label class="form-control">
-            <span class="label-text">Teléfono (opcional)</span>
-            <input class="input input-bordered" formControlName="phone" />
+          <label class="flex w-full min-w-0 flex-col gap-1.5">
+            <span class="text-sm font-medium text-base-content">Teléfono (opcional)</span>
+            <input class="input input-bordered w-full" formControlName="phone" />
           </label>
         }
 

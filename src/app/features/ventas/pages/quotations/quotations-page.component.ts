@@ -83,6 +83,36 @@ export class QuotationsPageComponent implements OnInit {
   readonly auth = inject(AuthService);
 
   readonly quotations = signal<QuotationRow[]>([]);
+  /** Página actual (0-based) en el listado de cotizaciones. */
+  readonly pageIndex = signal(0);
+  /** Filas por página en el listado. */
+  readonly pageSize = signal(10);
+  readonly pageSizeOptions = [10, 25, 50] as const;
+
+  readonly totalCount = computed(() => this.quotations().length);
+  readonly totalPages = computed(() => {
+    const n = this.totalCount();
+    const ps = this.pageSize();
+    if (n === 0) return 0;
+    return Math.ceil(n / ps);
+  });
+  readonly pagedQuotations = computed(() => {
+    const all = this.quotations();
+    const ps = this.pageSize();
+    const start = this.pageIndex() * ps;
+    return all.slice(start, start + ps);
+  });
+  readonly rangeStart = computed(() => {
+    const n = this.totalCount();
+    if (n === 0) return 0;
+    return this.pageIndex() * this.pageSize() + 1;
+  });
+  readonly rangeEnd = computed(() => {
+    const n = this.totalCount();
+    if (n === 0) return 0;
+    return Math.min((this.pageIndex() + 1) * this.pageSize(), n);
+  });
+
   readonly qpItems = signal<QuotationProductRow[]>([]);
   readonly clients = signal<ClientRow[]>([]);
   readonly paymentMethods = signal<PaymentMethodRow[]>([]);
@@ -523,6 +553,31 @@ export class QuotationsPageComponent implements OnInit {
     return '—';
   }
 
+  setPageSize(size: number): void {
+    this.pageSize.set(size);
+    this.pageIndex.set(0);
+  }
+
+  prevPage(): void {
+    this.pageIndex.update((i) => Math.max(0, i - 1));
+  }
+
+  nextPage(): void {
+    const last = Math.max(0, this.totalPages() - 1);
+    this.pageIndex.update((i) => Math.min(last, i + 1));
+  }
+
+  private clampQuotationPageIndex(): void {
+    const tp = this.totalPages();
+    if (tp === 0) {
+      this.pageIndex.set(0);
+      return;
+    }
+    if (this.pageIndex() >= tp) {
+      this.pageIndex.set(tp - 1);
+    }
+  }
+
   canEditQuotation(q: QuotationRow): boolean {
     if (this.auth.isAdmin()) return true;
     const me = this.myUserId();
@@ -550,6 +605,7 @@ export class QuotationsPageComponent implements OnInit {
     }).subscribe({
       next: ({ q, qp, pm, cl }) => {
         this.quotations.set([...q].sort((a, b) => b.id - a.id));
+        this.clampQuotationPageIndex();
         this.qpItems.set(qp);
         this.paymentMethods.set(pm);
         this.clients.set(cl);

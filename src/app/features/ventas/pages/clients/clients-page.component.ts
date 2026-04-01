@@ -21,6 +21,36 @@ export class ClientsPageComponent implements OnInit {
   readonly auth = inject(AuthService);
 
   readonly items = signal<ClientRow[]>([]);
+  /** Página actual (0-based). */
+  readonly pageIndex = signal(0);
+  /** Filas por página. */
+  readonly pageSize = signal(10);
+  readonly pageSizeOptions = [10, 25, 50] as const;
+
+  readonly totalCount = computed(() => this.items().length);
+  readonly totalPages = computed(() => {
+    const n = this.totalCount();
+    const ps = this.pageSize();
+    if (n === 0) return 0;
+    return Math.ceil(n / ps);
+  });
+  readonly pagedItems = computed(() => {
+    const all = this.items();
+    const ps = this.pageSize();
+    const start = this.pageIndex() * ps;
+    return all.slice(start, start + ps);
+  });
+  readonly rangeStart = computed(() => {
+    const n = this.totalCount();
+    if (n === 0) return 0;
+    return this.pageIndex() * this.pageSize() + 1;
+  });
+  readonly rangeEnd = computed(() => {
+    const n = this.totalCount();
+    if (n === 0) return 0;
+    return Math.min((this.pageIndex() + 1) * this.pageSize(), n);
+  });
+
   readonly loading = signal(false);
   readonly saving = signal(false);
   readonly errorMessage = signal<string | null>(null);
@@ -51,12 +81,38 @@ export class ClientsPageComponent implements OnInit {
     return this.canEditClients();
   }
 
+  setPageSize(size: number): void {
+    this.pageSize.set(size);
+    this.pageIndex.set(0);
+  }
+
+  prevPage(): void {
+    this.pageIndex.update((i) => Math.max(0, i - 1));
+  }
+
+  nextPage(): void {
+    const last = Math.max(0, this.totalPages() - 1);
+    this.pageIndex.update((i) => Math.min(last, i + 1));
+  }
+
+  private clampPageIndex(): void {
+    const tp = this.totalPages();
+    if (tp === 0) {
+      this.pageIndex.set(0);
+      return;
+    }
+    if (this.pageIndex() >= tp) {
+      this.pageIndex.set(tp - 1);
+    }
+  }
+
   reload(): void {
     this.loading.set(true);
     this.errorMessage.set(null);
     this.api.list().subscribe({
       next: (rows) => {
         this.items.set([...rows].sort((a, b) => b.id - a.id));
+        this.clampPageIndex();
         this.loading.set(false);
       },
       error: (err) => {
