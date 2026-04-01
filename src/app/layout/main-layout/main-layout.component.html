@@ -1,0 +1,78 @@
+<div class="drawer lg:drawer-open">
+  <input id="main-drawer" type="checkbox" class="drawer-toggle" />
+
+  <div class="drawer-content flex min-h-screen flex-col">
+    <header class="navbar border-b border-base-300 bg-base-100 px-2 lg:px-4">
+      <div class="flex-none lg:hidden">
+        <label for="main-drawer" class="btn btn-square btn-ghost" aria-label="Abrir menú">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+            class="inline-block h-6 w-6 stroke-current"
+          >
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
+        </label>
+      </div>
+      <div class="flex-1">
+        <span class="text-lg font-semibold">CleoSystem</span>
+        <span class="text-base-content/60 ml-2 hidden text-sm sm:inline">
+          Empresa: {{ authService.companyName() }}
+        </span>
+      </div>
+      <div class="flex-none gap-2">
+        <a routerLink="/perfil" class="btn btn-ghost btn-sm lg:btn-md">Mi perfil</a>
+        <button type="button" class="btn btn-outline btn-sm lg:btn-md" (click)="logout()">
+          Salir
+        </button>
+      </div>
+    </header>
+
+    <main class="flex-1 bg-base-200 p-4 md:p-6">
+      <router-outlet />
+    </main>
+  </div>
+
+  <div class="drawer-side z-40">
+    <label for="main-drawer" aria-label="Cerrar menú" class="drawer-overlay"></label>
+    <aside class="flex min-h-full w-64 flex-col bg-base-200">
+      <div class="border-b border-base-300 p-4">
+        <p class="text-xs uppercase tracking-wide text-base-content/60">Menú</p>
+        <p class="mt-1 truncate text-sm font-medium" [title]="authService.companyName()">
+          {{ authService.companyName() }}
+        </p>
+      </div>
+      <ul class="menu w-full flex-1 gap-1 p-2 text-base">
+        <li>
+          <a routerLink="/inicio" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">
+            Inicio
+          </a>
+        </li>
+        <li>
+          <a routerLink="/perfil" routerLinkActive="active">Mi perfil</a>
+        </li>
+        <li>
+          <a routerLink="/core" routerLinkActive="active">Core</a>
+        </li>
+        <li>
+          <a routerLink="/almacen" routerLinkActive="active">Almacén</a>
+        </li>
+        <li>
+          <a routerLink="/logistica" routerLinkActive="active">Logística</a>
+        </li>
+        <li>
+          <a routerLink="/ventas" routerLinkActive="active">Ventas</a>
+        </li>
+        @if (authService.isAdmin()) {
+          <li>
+            <a routerLink="/admin/usuarios" routerLinkActive="active">Usuarios</a>
+          </li>
+          <li>
+            <a routerLink="/admin/empresas" routerLinkActive="active">Empresas</a>
+          </li>
+        }
+      </ul>
+    </aside>
+  </div>
+</div>

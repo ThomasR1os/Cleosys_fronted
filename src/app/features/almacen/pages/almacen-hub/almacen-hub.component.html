@@ -1,0 +1,37 @@
+<div class="mx-auto max-w-4xl space-y-6">
+  <header>
+    <h1 class="text-3xl font-bold">Almacén</h1>
+    <p class="text-base-content/70 mt-2 text-lg">
+      Stock <strong>compartido</strong> entre empresas (sin filtrar por compañía). El inventario solo cambia con
+      movimientos de entrada o salida.
+    </p>
+  </header>
+
+  <div role="status" class="alert alert-info text-sm">
+    <span>
+      Los listados usan los endpoints actuales de Django. Si <code class="text-xs">warehouse-products</code> crece
+      mucho, conviene añadir en el backend un filtro por almacén (por ejemplo
+      <code class="text-xs">?warehouse=</code>) y conectarlo aquí.
+    </span>
+  </div>
+
+  <div class="grid gap-4 sm:grid-cols-2">
+    <a routerLink="almacenes" class="card bg-base-100 shadow-md transition hover:shadow-lg">
+      <div class="card-body">
+        <h2 class="card-title text-lg">Almacenes</h2>
+        <p class="text-base-content/70 text-sm">
+          Ubicaciones físicas y vista de existencias por almacén.
+        </p>
+      </div>
+    </a>
+
+    <a routerLink="movimientos" class="card bg-base-100 shadow-md transition hover:shadow-lg">
+      <div class="card-body">
+        <h2 class="card-title text-lg">Entradas y salidas</h2>
+        <p class="text-base-content/70 text-sm">
+          Registrar movimientos; el stock se actualiza en el servidor.
+        </p>
+      </div>
+    </a>
+  </div>
+</div>

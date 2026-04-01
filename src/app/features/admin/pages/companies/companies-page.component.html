@@ -1,0 +1,150 @@
+<div class="space-y-4">
+  <a routerLink="/inicio" class="link link-hover text-sm">← Inicio</a>
+
+  <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div>
+      <h1 class="text-3xl font-bold">Empresas</h1>
+      <p class="text-base-content/70 mt-1 text-sm">
+        Catálogo de compañías y logo (una imagen por empresa). Solo administradores.
+      </p>
+    </div>
+    <button type="button" class="btn btn-primary btn-lg" (click)="openNew()">Nueva empresa</button>
+  </div>
+
+  @if (errorMessage(); as err) {
+    <div role="alert" class="alert alert-error text-sm">{{ err }}</div>
+  }
+
+  <div class="overflow-x-auto rounded-lg border border-base-300 bg-base-100">
+    @if (loading()) {
+      <div class="flex justify-center p-12">
+        <span class="loading loading-spinner loading-lg text-primary"></span>
+      </div>
+    } @else {
+      <table class="table table-zebra text-sm">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Logo</th>
+            <th>Nombre</th>
+            <th>Cuentas bancarias</th>
+            <th class="text-right">Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of items(); track row.id) {
+            <tr>
+              <td>{{ row.id }}</td>
+              <td>
+                @if (row.logo) {
+                  <img
+                    [src]="row.logo"
+                    alt=""
+                    class="h-10 w-10 rounded object-contain bg-base-200"
+                  />
+                } @else {
+                  <span class="text-base-content/50">—</span>
+                }
+              </td>
+              <td class="font-medium">{{ row.name }}</td>
+              <td class="max-w-xs">
+                @if (row.bank_accounts?.trim()) {
+                  <span
+                    class="line-clamp-2 break-words"
+                    [title]="row.bank_accounts"
+                    >{{ row.bank_accounts }}</span
+                  >
+                } @else {
+                  <span class="text-base-content/50">—</span>
+                }
+              </td>
+              <td class="text-right space-x-1">
+                <button type="button" class="btn btn-ghost btn-sm" (click)="openEdit(row)">
+                  Editar
+                </button>
+                <button type="button" class="btn btn-outline btn-error btn-sm" (click)="remove(row)">
+                  Eliminar
+                </button>
+              </td>
+            </tr>
+          } @empty {
+            <tr>
+              <td colspan="5" class="text-base-content/60 text-center">No hay empresas.</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    }
+  </div>
+</div>
+
+@if (modalOpen()) {
+  <div class="modal modal-open">
+    <div class="modal-box max-w-2xl max-h-[90vh] overflow-y-auto">
+      <h2 class="font-bold text-lg mb-4">
+        {{ editingId() == null ? 'Nueva empresa' : 'Editar empresa' }}
+      </h2>
+      <form class="flex flex-col gap-4" [formGroup]="form" (ngSubmit)="save()">
+        <label class="form-control">
+          <span class="label-text">Nombre</span>
+          <input
+            class="input input-bordered"
+            type="text"
+            formControlName="name"
+            autocomplete="organization"
+            [class.input-error]="form.controls.name.invalid && form.controls.name.touched"
+          />
+          @if (form.controls.name.invalid && form.controls.name.touched) {
+            <span class="label-text-alt text-error">El nombre es obligatorio.</span>
+          }
+        </label>
+
+        <label class="form-control">
+          <span class="label-text">Cuentas bancarias</span>
+          <textarea
+            class="textarea textarea-bordered"
+            rows="3"
+            formControlName="bank_accounts"
+            placeholder="IBAN, CCI, banco y titular…"
+            autocomplete="off"
+          ></textarea>
+        </label>
+
+        <div class="form-control">
+          <span class="label-text">Logo</span>
+          <p class="text-base-content/60 text-xs mb-2">Una sola imagen por empresa; al subir otra se sustituye la anterior.</p>
+          <input
+            type="file"
+            class="file-input file-input-bordered w-full max-w-full"
+            accept="image/*"
+            (change)="onLogoFile($event)"
+          />
+          @if (logoFile(); as f) {
+            <p class="text-xs mt-1 text-base-content/70">Seleccionado: {{ f.name }}</p>
+          }
+          <div class="mt-3 flex flex-wrap items-center gap-3">
+            @if (modalPreviewSrc(); as src) {
+              <img [src]="src" alt="Vista previa del logo" class="h-20 w-20 rounded border border-base-300 object-contain bg-base-200" />
+            }
+            @if (logoFile()) {
+              <button type="button" class="btn btn-ghost btn-sm" (click)="clearLogoPick()">
+                Quitar imagen nueva
+              </button>
+            }
+          </div>
+        </div>
+
+        <div class="modal-action">
+          <button type="button" class="btn" (click)="closeModal()">Cancelar</button>
+          <button type="submit" class="btn btn-primary" [disabled]="saving()">
+            @if (saving()) {
+              <span class="loading loading-spinner"></span>
+            }
+            Guardar
+          </button>
+        </div>
+      </form>
+    </div>
+    <button type="button" class="modal-backdrop bg-black/50" (click)="closeModal()" aria-label="Cerrar"></button>
+  </div>
+}

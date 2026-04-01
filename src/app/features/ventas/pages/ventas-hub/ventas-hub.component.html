@@ -1,0 +1,28 @@
+<div class="mx-auto max-w-4xl space-y-6">
+  <header>
+    <h1 class="text-3xl font-bold">Ventas</h1>
+    <p class="text-base-content/70 mt-2 text-lg">
+      Clientes (razón social) y cotizaciones con correlativo según el prefijo de su perfil.
+    </p>
+  </header>
+
+  <div class="grid gap-4 sm:grid-cols-2">
+    <a routerLink="clientes" class="card bg-base-100 shadow-md transition hover:shadow-lg">
+      <div class="card-body">
+        <h2 class="card-title text-lg">Clientes</h2>
+        <p class="text-base-content/70 text-sm">
+          Razón social y RUC; los contactos y vendedores por contacto se gestionan con la acción Contactos.
+        </p>
+      </div>
+    </a>
+
+    <a routerLink="cotizaciones" class="card bg-base-100 shadow-md transition hover:shadow-lg">
+      <div class="card-body">
+        <h2 class="card-title text-lg">Cotizaciones</h2>
+        <p class="text-base-content/70 text-sm">
+          Cabecera, correlativo automático y líneas de producto.
+        </p>
+      </div>
+    </a>
+  </div>
+</div>

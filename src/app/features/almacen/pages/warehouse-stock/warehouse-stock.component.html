@@ -1,0 +1,59 @@
+<div class="space-y-4">
+  <a routerLink="/almacen/almacenes" class="link link-hover text-sm">← Volver a almacenes</a>
+
+  @if (errorMessage(); as err) {
+    <div role="alert" class="alert alert-error text-sm">{{ err }}</div>
+  }
+
+  @if (warehouse(); as wh) {
+    <header>
+      <h1 class="text-3xl font-bold">Stock — Almacén #{{ wh.id }}</h1>
+      <p class="text-base-content/70 mt-1">{{ wh.address }}</p>
+    </header>
+  }
+
+  <div role="status" class="alert alert-info text-sm">
+    Las cantidades son <strong>lectura</strong> aquí. Para cambiar stock use
+    <a routerLink="/almacen/movimientos" class="link font-medium">Entradas y salidas</a>.
+  </div>
+
+  <div class="overflow-x-auto rounded-lg border border-base-300 bg-base-100">
+    @if (loading()) {
+      <div class="flex justify-center p-12">
+        <span class="loading loading-spinner loading-lg text-primary"></span>
+      </div>
+    } @else {
+      <table class="table table-zebra">
+        <thead>
+          <tr>
+            <th>Producto</th>
+            <th>SKU</th>
+            <th>Stock</th>
+            <th>Ubicación</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of rows(); track row.id) {
+            <tr>
+              <td>
+                <span class="font-medium">{{ row.product }}</span>
+                @if (description(row.product)) {
+                  <span class="text-base-content/70 block text-sm">{{ description(row.product) }}</span>
+                }
+              </td>
+              <td>{{ sku(row.product) }}</td>
+              <td>{{ row.stock }}</td>
+              <td>{{ row.ubication }}</td>
+            </tr>
+          } @empty {
+            <tr>
+              <td colspan="4" class="text-base-content/60 text-center">
+                Sin líneas de stock en este almacén (o aún no hay movimientos que generen filas).
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    }
+  </div>
+</div>

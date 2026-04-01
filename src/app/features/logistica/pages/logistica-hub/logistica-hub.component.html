@@ -1,0 +1,40 @@
+<div class="mx-auto max-w-4xl space-y-6">
+  <header>
+    <h1 class="text-3xl font-bold">Logística</h1>
+    <p class="text-base-content/70 mt-2 text-lg">
+      Tareas operativas, relación producto–proveedor y acceso al maestro de proveedores (misma pantalla que en Core).
+    </p>
+  </header>
+
+  <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+    <a routerLink="tareas" class="card bg-base-100 shadow-md transition hover:shadow-lg">
+      <div class="card-body">
+        <h2 class="card-title text-lg">Tareas logísticas</h2>
+        <p class="text-base-content/70 text-sm">Listado y seguimiento de tareas.</p>
+      </div>
+    </a>
+
+    <a routerLink="producto-proveedor" class="card bg-base-100 shadow-md transition hover:shadow-lg">
+      <div class="card-body">
+        <h2 class="card-title text-lg">Producto por proveedor</h2>
+        <p class="text-base-content/70 text-sm">Costos, moneda e incoterm por relación.</p>
+      </div>
+    </a>
+
+    <a routerLink="/core/proveedores" class="card border-primary/30 bg-base-100 shadow-md transition hover:shadow-lg">
+      <div class="card-body">
+        <h2 class="card-title text-lg">Proveedores</h2>
+        <p class="text-base-content/70 text-sm">Abre el mismo maestro que en Core (sin duplicar lógica).</p>
+      </div>
+    </a>
+  </div>
+
+  <div role="status" class="alert alert-info text-sm">
+    <span>
+      La API de <strong>producto–proveedor</strong> está en
+      <code class="text-xs">/api/almacen/product-suppliers/</code>; la escritura exige rol
+      <strong>Almacén</strong> o <strong>Admin</strong> (permisos del backend). Las
+      <strong>tareas</strong> usan rol <strong>Logística</strong> o <strong>Admin</strong>.
+    </span>
+  </div>
+</div>

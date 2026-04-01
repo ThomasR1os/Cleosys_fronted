@@ -1,0 +1,47 @@
+<div class="min-h-screen bg-base-200 flex items-center justify-center p-4">
+  <div class="card w-full max-w-md bg-base-100 shadow-xl">
+    <div class="card-body gap-4">
+      <h1 class="card-title text-2xl justify-center">CleoSystem</h1>
+      <p class="text-center text-base-content/70 text-sm">Inicie sesión para continuar</p>
+
+      @if (errorMessage(); as err) {
+        <div role="alert" class="alert alert-error text-sm">{{ err }}</div>
+      }
+
+      <form class="flex flex-col gap-3" (ngSubmit)="submit()" [formGroup]="form">
+        <label class="form-control w-full">
+          <span class="label-text font-medium">Usuario</span>
+          <input
+            type="text"
+            class="input input-bordered input-lg w-full"
+            formControlName="username"
+            autocomplete="username"
+            [attr.aria-invalid]="form.controls.username.invalid && form.controls.username.touched"
+          />
+        </label>
+
+        <label class="form-control w-full">
+          <span class="label-text font-medium">Contraseña</span>
+          <input
+            type="password"
+            class="input input-bordered input-lg w-full"
+            formControlName="password"
+            autocomplete="current-password"
+            [attr.aria-invalid]="form.controls.password.invalid && form.controls.password.touched"
+          />
+        </label>
+
+        <button
+          type="submit"
+          class="btn btn-primary btn-lg mt-2"
+          [disabled]="submitting()"
+        >
+          @if (submitting()) {
+            <span class="loading loading-spinner"></span>
+          }
+          Entrar
+        </button>
+      </form>
+    </div>
+  </div>
+</div>

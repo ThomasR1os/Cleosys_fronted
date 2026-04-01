@@ -1,0 +1,105 @@
+<div class="space-y-4">
+  <a routerLink="/almacen" class="link link-hover text-sm">← Volver a Almacén</a>
+
+  <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div>
+      <h1 class="text-3xl font-bold">Almacenes</h1>
+      <p class="text-base-content/70 mt-1 text-sm">Ubicaciones asociadas a un proveedor.</p>
+    </div>
+    @if (auth.canWriteAlmacen()) {
+      <button type="button" class="btn btn-primary btn-lg" (click)="openNew()">Nuevo almacén</button>
+    }
+  </div>
+
+  @if (!auth.canWriteAlmacen()) {
+    <div role="status" class="alert alert-warning text-sm">
+      Solo tiene permiso de lectura. Para crear o editar almacenes se requiere rol <strong>Almacén</strong> o
+      <strong>Administrador</strong>.
+    </div>
+  }
+
+  @if (errorMessage(); as err) {
+    <div role="alert" class="alert alert-error text-sm">{{ err }}</div>
+  }
+
+  <div class="overflow-x-auto rounded-lg border border-base-300 bg-base-100">
+    @if (loading()) {
+      <div class="flex justify-center p-12">
+        <span class="loading loading-spinner loading-lg text-primary"></span>
+      </div>
+    } @else {
+      <table class="table table-zebra">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Proveedor</th>
+            <th>Dirección</th>
+            <th class="text-right">Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of items(); track row.id) {
+            <tr>
+              <td>{{ row.id }}</td>
+              <td>{{ supplierById().get(row.supplier) ?? row.supplier }}</td>
+              <td>{{ row.address }}</td>
+              <td class="text-right space-x-1">
+                <a class="btn btn-ghost btn-sm" [routerLink]="['/almacen/almacenes', row.id, 'stock']"
+                  >Ver stock</a
+                >
+                @if (auth.canWriteAlmacen()) {
+                  <button type="button" class="btn btn-ghost btn-sm" (click)="openEdit(row)">Editar</button>
+                  <button type="button" class="btn btn-outline btn-error btn-sm" (click)="remove(row)">
+                    Eliminar
+                  </button>
+                }
+              </td>
+            </tr>
+          } @empty {
+            <tr>
+              <td colspan="4" class="text-base-content/60 text-center">No hay almacenes.</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    }
+  </div>
+</div>
+
+@if (modalOpen()) {
+  <div class="modal modal-open">
+    <div class="modal-box max-w-lg">
+      <h2 class="font-bold text-lg mb-4">{{ editingId() == null ? 'Nuevo almacén' : 'Editar almacén' }}</h2>
+      <form class="flex flex-col gap-3" [formGroup]="form" (ngSubmit)="save()">
+        @if (editingId() != null) {
+          <label class="form-control">
+            <span class="label-text">ID</span>
+            <input class="input input-bordered" type="number" formControlName="id" readonly />
+          </label>
+        }
+        <label class="form-control">
+          <span class="label-text">Proveedor</span>
+          <select class="select select-bordered" formControlName="supplier">
+            @for (s of suppliers(); track s.id) {
+              <option [ngValue]="s.id">{{ s.name }}</option>
+            }
+          </select>
+        </label>
+        <label class="form-control">
+          <span class="label-text">Dirección</span>
+          <input class="input input-bordered" formControlName="address" />
+        </label>
+        <div class="modal-action">
+          <button type="button" class="btn" (click)="closeModal()">Cancelar</button>
+          <button type="submit" class="btn btn-primary" [disabled]="saving()">
+            @if (saving()) {
+              <span class="loading loading-spinner"></span>
+            }
+            Guardar
+          </button>
+        </div>
+      </form>
+    </div>
+    <button type="button" class="modal-backdrop bg-black/50" (click)="closeModal()" aria-label="Cerrar"></button>
+  </div>
+}

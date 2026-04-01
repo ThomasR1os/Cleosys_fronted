@@ -1,0 +1,573 @@
+<div class="space-y-6">
+  <a routerLink="/ventas" class="link link-hover text-sm">← Volver a Ventas</a>
+
+  <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div>
+      <h1 class="text-3xl font-bold">Cotizaciones</h1>
+      <p class="text-base-content/70 mt-1 max-w-2xl text-sm">
+        Use «Ver» para el detalle (incluye «Ver en PDF») o «Editar» para modificar. Cabecera, líneas de producto y
+        totales van en un mismo modal. Los textos de línea se rellenan desde el producto; si no los cambia, se envían
+        vacíos y el servidor usa el catálogo.
+      </p>
+    </div>
+    <button type="button" class="btn btn-primary btn-lg" (click)="openNewQuotation()">Nueva cotización</button>
+  </div>
+
+  @if (errorMessage(); as err) {
+    @if (!modalOpen()) {
+      <div role="alert" class="alert alert-error text-sm">{{ err }}</div>
+    }
+  }
+
+  <div class="overflow-x-auto rounded-lg border border-base-300 bg-base-100">
+    @if (loading()) {
+      <div class="flex justify-center p-12">
+        <span class="loading loading-spinner loading-lg text-primary"></span>
+      </div>
+    } @else {
+      <table class="table table-zebra text-sm">
+        <thead>
+          <tr>
+            <th>Correlativo</th>
+            <th>Cliente</th>
+            <th>Estado</th>
+            <th>Total</th>
+            <th>Moneda</th>
+            <th>Tipo de cambio</th>
+            <th>Creado</th>
+            <th class="text-right">Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of quotations(); track row.id) {
+            <tr [class.bg-base-300]="modalOpen() && editingQuotationId() === row.id">
+              <td class="font-mono font-medium">{{ row.correlativo }}</td>
+              <td>{{ clientName(row.client) }}</td>
+              <td>{{ row.status }}</td>
+              <td class="whitespace-nowrap">{{ formatMoney(netForQuotation(row)) }}</td>
+              <td>{{ row.money }}</td>
+              <td class="whitespace-nowrap tabular-nums">{{ formatExchangeRateDisplay(row) }}</td>
+              <td>{{ formatDate(row.creation_date) }}</td>
+              <td class="text-right space-x-1">
+                <button type="button" class="btn btn-ghost btn-sm" (click)="openViewQuotation(row)">Ver</button>
+                @if (canEditQuotation(row)) {
+                  <button type="button" class="btn btn-ghost btn-sm" (click)="openEditQuotation(row)">
+                    Editar
+                  </button>
+                  <button type="button" class="btn btn-outline btn-error btn-sm" (click)="removeQuotation(row)">
+                    Eliminar
+                  </button>
+                }
+              </td>
+            </tr>
+          } @empty {
+            <tr>
+              <td colspan="8" class="text-base-content/60 text-center">No hay cotizaciones.</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    }
+  </div>
+</div>
+
+@if (modalOpen()) {
+  <div class="modal modal-open">
+    <div class="modal-box max-h-[94vh] max-w-3xl overflow-y-auto">
+      <div class="mb-4 flex flex-col gap-1 border-b border-base-300 pb-3">
+        <h2 class="text-lg font-bold">
+          @if (quotationModalReadonly()) {
+            Ver cotización
+          } @else if (editingQuotationId() == null) {
+            Nueva cotización
+          } @else {
+            Editar cotización
+          }
+        </h2>
+        @if (editingQuotationId() != null) {
+          <p class="text-base-content/70 text-sm">
+            Correlativo:
+            <span class="text-base-content font-mono font-medium">{{ correlativoEditing() }}</span>
+          </p>
+        }
+      </div>
+      @if (errorMessage(); as modalErr) {
+        <div role="alert" class="alert alert-error text-sm mb-4">{{ modalErr }}</div>
+      }
+      <div class="grid gap-4 sm:grid-cols-2" [formGroup]="form">
+        @if (editingQuotationId() != null) {
+          <label class="form-control w-full sm:col-span-2">
+            <span class="label-text">ID</span>
+            <input class="input input-bordered w-full" type="number" formControlName="id" readonly />
+          </label>
+        }
+        <label class="form-control w-full">
+          <span class="label-text">Tipo</span>
+          <select class="select select-bordered w-full" formControlName="quotation_type">
+            @for (opt of typeOpts; track opt.value) {
+              <option [ngValue]="opt.value">{{ opt.label }}</option>
+            }
+          </select>
+        </label>
+        <label class="form-control w-full">
+          <span class="label-text">Moneda</span>
+          <select class="select select-bordered w-full" formControlName="money">
+            @for (opt of moneyOpts; track opt.value) {
+              <option [ngValue]="opt.value">{{ opt.label }}</option>
+            }
+          </select>
+        </label>
+        <label class="form-control w-full">
+          <span class="label-text">Estado</span>
+          <select class="select select-bordered w-full" formControlName="status">
+            @for (opt of statusOpts; track opt.value) {
+              <option [ngValue]="opt.value">{{ opt.label }}</option>
+            }
+          </select>
+        </label>
+
+        @if (isPenCurrency()) {
+          <label class="form-control w-full sm:col-span-2">
+            <span class="label-text">
+              Tipo de cambio (PEN por 1 USD)
+              <span class="text-error">*</span>
+            </span>
+            <input
+              class="input input-bordered w-full"
+              type="number"
+              formControlName="exchangeRate"
+              step="0.0001"
+              min="0"
+              placeholder="Ej. 3.7500"
+              [readonly]="quotationModalReadonly()"
+            />
+            <span class="label-text-alt">
+              Precios de catálogo en USD. Indique el tipo de cambio para mostrar y guardar la cotización en soles.
+            </span>
+          </label>
+        }
+
+        <label class="form-control w-full sm:col-span-2">
+          <span class="label-text">Cliente</span>
+          <div class="relative w-full">
+            <input
+              class="input input-bordered w-full"
+              type="text"
+              [value]="clientSearchQuery()"
+              (input)="onClientSearchInput($event)"
+              (focus)="openClientPicker()"
+              (blur)="closeClientPickerSoon()"
+              placeholder="Buscar por nombre, RUC o ID…"
+              autocomplete="off"
+              [disabled]="quotationModalReadonly()"
+            />
+            @if (clientPickerOpen() && filteredClients().length && !quotationModalReadonly()) {
+              <ul
+                class="border-base-300 bg-base-100 absolute z-30 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border shadow-lg"
+                role="listbox"
+              >
+                @for (c of filteredClients(); track c.id) {
+                  <li>
+                    <button
+                      type="button"
+                      class="hover:bg-base-200 flex w-full flex-col items-start px-3 py-2 text-left text-sm"
+                      (mousedown)="$event.preventDefault(); selectClient(c)"
+                    >
+                      <span class="font-medium">{{ c.name }}</span>
+                      <span class="text-base-content/60 text-xs">{{ c.ruc }} · id {{ c.id }}</span>
+                    </button>
+                  </li>
+                }
+              </ul>
+            }
+          </div>
+          @if (clientsLoading()) {
+            <span class="label-text-alt text-base-content/50">Cargando clientes…</span>
+          }
+        </label>
+
+        @if (auth.isAdmin()) {
+          <label class="form-control w-full sm:col-span-2">
+            <span class="label-text">Usuario vendedor</span>
+            <div class="relative w-full">
+              <input
+                class="input input-bordered w-full"
+                type="text"
+                [value]="sellerSearchQuery()"
+                (input)="onSellerSearchInput($event)"
+                (focus)="openSellerPicker()"
+                (blur)="closeSellerPickerSoon()"
+                placeholder="Buscar por nombre, usuario, correo o ID…"
+                autocomplete="off"
+                [disabled]="salesUsersLoading() || sellerContactsLoading() || quotationModalReadonly()"
+              />
+              @if (
+                sellerPickerOpen() &&
+                sellersForPicker().length &&
+                !salesUsersLoading() &&
+                !sellerContactsLoading() &&
+                !quotationModalReadonly()
+              ) {
+                <ul
+                  class="border-base-300 bg-base-100 absolute z-30 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border shadow-lg"
+                  role="listbox"
+                >
+                  @for (u of sellersForPicker(); track u.id) {
+                    <li>
+                      <button
+                        type="button"
+                        class="hover:bg-base-200 flex w-full flex-col items-start px-3 py-2 text-left text-sm"
+                        (mousedown)="$event.preventDefault(); selectSeller(u)"
+                      >
+                        <span class="font-medium">{{ sellerDisplay(u) }}</span>
+                        <span class="text-base-content/60 text-xs">{{ u.username }} · id {{ u.id }}</span>
+                      </button>
+                    </li>
+                  }
+                </ul>
+              }
+            </div>
+            <span class="label-text-alt text-base-content/60">{{ sellerEligibilityHint() }}</span>
+            @if (salesUsersLoading()) {
+              <span class="label-text-alt text-base-content/50">Cargando usuarios…</span>
+            }
+          </label>
+        }
+
+        <!-- Líneas de producto (mismo modal) -->
+        <div class="border-base-300 sm:col-span-2 space-y-3 rounded-box border border-base-300/80 bg-base-200/20 p-4">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <h3 class="font-semibold">Productos / líneas</h3>
+            @if (canEditLinesInModal()) {
+              <button type="button" class="btn btn-primary btn-sm" (click)="beginAddLineInModal()">
+                Añadir producto
+              </button>
+            }
+          </div>
+
+          @if (editingQuotationId() == null) {
+            <div class="overflow-x-auto">
+              <table class="table table-sm">
+                <thead>
+                  <tr>
+                    <th>SKU</th>
+                    <th>Descripción</th>
+                    <th>Cant.</th>
+                    <th>P. unit.</th>
+                    <th>Subt.</th>
+                    @if (canEditLinesInModal()) {
+                      <th class="text-right">Acciones</th>
+                    }
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (d of draftLines(); track d.tempId) {
+                    <tr>
+                      <td class="font-mono text-xs">{{ draftLineSku(d) }}</td>
+                      <td class="max-w-xs truncate">{{ draftLineDescription(d) }}</td>
+                      <td>{{ d.cant }}</td>
+                      <td>{{ formatMoney(d.product_price) }}</td>
+                      <td>{{ formatMoney(d.cant * d.product_price) }}</td>
+                      @if (canEditLinesInModal()) {
+                        <td class="text-right space-x-1">
+                          <button type="button" class="btn btn-ghost btn-xs" (click)="beginEditDraftLineInModal(d)">
+                            Editar
+                          </button>
+                          <button type="button" class="btn btn-outline btn-error btn-xs" (click)="removeDraftLine(d.tempId)">
+                            Quitar
+                          </button>
+                        </td>
+                      }
+                    </tr>
+                  } @empty {
+                    <tr>
+                      <td [attr.colspan]="!canEditLinesInModal() ? 5 : 6" class="text-base-content/60">
+                        Añada productos; el texto de cada línea viene del catálogo si no lo modifica.
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          } @else {
+            <div class="overflow-x-auto">
+              <table class="table table-sm">
+                <thead>
+                  <tr>
+                    <th>SKU</th>
+                    <th>Descripción</th>
+                    <th>Cant.</th>
+                    <th>P. unit.</th>
+                    <th>Subt.</th>
+                    @if (canEditLinesInModal()) {
+                      <th class="text-right">Acciones</th>
+                    }
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (line of linesForQuotationId(editingQuotationId()!); track line.id) {
+                    <tr>
+                      <td class="font-mono text-xs">{{ productLineLabel(line) }}</td>
+                      <td class="max-w-xs truncate" [title]="productLineDescription(line)">
+                        {{ productLineDescription(line) }}
+                      </td>
+                      <td>{{ line.cant }}</td>
+                      <td>{{ formatMoney(+line.product_price) }}</td>
+                      <td>{{ formatMoney(line.cant * +line.product_price) }}</td>
+                      @if (canEditLinesInModal()) {
+                        <td class="text-right space-x-1">
+                          <button type="button" class="btn btn-ghost btn-xs" (click)="beginEditServerLineInModal(line)">
+                            Editar
+                          </button>
+                          <button type="button" class="btn btn-outline btn-error btn-xs" (click)="removeServerLineInModal(line)">
+                            Quitar
+                          </button>
+                        </td>
+                      }
+                    </tr>
+                  } @empty {
+                    <tr>
+                      <td [attr.colspan]="!canEditLinesInModal() ? 5 : 6" class="text-base-content/60">
+                        Sin líneas aún.
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          }
+
+          @if (lineEditorMode() !== 'idle' && canEditLinesInModal()) {
+            <div
+              class="border-base-300 bg-base-200/50 flex w-full min-w-0 flex-col gap-4 rounded-lg border p-4"
+              formGroupName="lineEdit"
+            >
+              <p class="text-base-content text-sm font-medium">
+                {{ lineEditorMode() === 'new' ? 'Nueva línea' : 'Editar línea' }}
+              </p>
+              @if (productsCatalogLoading()) {
+                <div class="flex justify-center py-4">
+                  <span class="loading loading-spinner loading-md text-primary"></span>
+                </div>
+              }
+              <label class="form-control w-full">
+                <span class="label-text">Producto</span>
+                <div class="relative z-30 w-full">
+                  <input
+                    class="input input-bordered w-full"
+                    type="text"
+                    [value]="productSearchQuery()"
+                    (input)="onProductSearchInput($event)"
+                    (focus)="openProductPicker()"
+                    (blur)="closeProductPickerSoon()"
+                    placeholder="Buscar por SKU, descripción o ID…"
+                    autocomplete="off"
+                    [disabled]="productsCatalogLoading()"
+                  />
+                  @if (productPickerOpen() && filteredProducts().length && !productsCatalogLoading()) {
+                    <ul
+                      class="border-base-300 bg-base-100 absolute z-50 mt-1 max-h-48 w-full overflow-y-auto rounded-lg border shadow-lg"
+                    >
+                      @for (p of filteredProducts(); track p.id) {
+                        <li>
+                          <button
+                            type="button"
+                            class="hover:bg-base-200 flex w-full flex-col items-start px-3 py-2 text-left text-sm"
+                            (mousedown)="$event.preventDefault(); selectProduct(p)"
+                          >
+                            <span class="font-mono text-xs">{{ p.sku }}</span>
+                            <span class="line-clamp-2">{{ p.description }}</span>
+                          </button>
+                        </li>
+                      }
+                    </ul>
+                  }
+                </div>
+              </label>
+              <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <label class="form-control w-full min-w-0">
+                  <span class="label-text">Cantidad</span>
+                  <input
+                    class="input input-bordered w-full"
+                    type="number"
+                    min="1"
+                    formControlName="cant"
+                  />
+                </label>
+                <label class="form-control w-full min-w-0">
+                  <span class="label-text">Precio unitario</span>
+                  <input
+                    class="input input-bordered w-full"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    formControlName="product_price"
+                  />
+                </label>
+              </div>
+              <p class="text-base-content/60 text-xs leading-relaxed">
+                Textos de línea (del catálogo). Si no los cambia respecto al producto, se guardan vacíos y el servidor
+                mantiene el dato del catálogo.
+              </p>
+              <div class="flex flex-col gap-3">
+                <label class="form-control w-full">
+                  <span class="label-text">SKU en línea</span>
+                  <input
+                    class="input input-bordered w-full"
+                    type="text"
+                    formControlName="line_sku"
+                    maxlength="100"
+                  />
+                </label>
+                <label class="form-control w-full">
+                  <span class="label-text">Descripción en línea</span>
+                  <input
+                    class="input input-bordered w-full"
+                    type="text"
+                    formControlName="line_description"
+                    maxlength="250"
+                  />
+                </label>
+                <label class="form-control w-full">
+                  <span class="label-text">Ficha / datasheet</span>
+                  <textarea
+                    class="textarea textarea-bordered w-full min-h-[5rem] resize-y text-sm"
+                    rows="3"
+                    formControlName="line_datasheet"
+                  ></textarea>
+                </label>
+              </div>
+              <div class="flex flex-wrap justify-end gap-2 border-t border-base-300/60 pt-3">
+                <button type="button" class="btn btn-ghost btn-sm" (click)="cancelLineEditorInModal()">Cancelar</button>
+                <button
+                  type="button"
+                  class="btn btn-primary btn-sm"
+                  [disabled]="savingLine() || productsCatalogLoading()"
+                  (click)="commitLineEditorInModal()"
+                >
+                  @if (savingLine()) {
+                    <span class="loading loading-spinner loading-xs"></span>
+                  }
+                  Guardar línea
+                </button>
+              </div>
+            </div>
+          }
+        </div>
+
+        <label class="form-control w-full">
+          <span class="label-text">Descuento (%)</span>
+          <div class="relative w-full">
+            <input
+              class="input input-bordered w-full pr-10"
+              type="number"
+              step="0.01"
+              min="0"
+              max="100"
+              formControlName="discountPercent"
+              [readonly]="quotationModalReadonly()"
+            />
+            <span class="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-base-content/50 text-sm"
+              >%</span
+            >
+          </div>
+          <span class="label-text-alt">Sobre el subtotal de líneas (se envía el importe a la API).</span>
+        </label>
+        <label class="form-control w-full">
+          <span class="label-text">Plazo entrega (días)</span>
+          <input
+            class="input input-bordered w-full"
+            type="number"
+            min="0"
+            formControlName="delivery_time"
+            [readonly]="quotationModalReadonly()"
+          />
+          @if (form.controls.delivery_time.value === 0) {
+            <span class="label-text-alt text-base-content/70">En cotización PDF: Stock Inmediato</span>
+          }
+        </label>
+
+        <div class="bg-base-200/60 sm:col-span-2 rounded-box border border-base-300/80 p-4 text-sm">
+          @if (isPenCurrency()) {
+            <div class="mb-2 flex justify-between gap-2 border-b border-base-300/80 pb-2">
+              <span class="text-base-content/80">Tipo de cambio (PEN por 1 USD)</span>
+              <span class="whitespace-nowrap font-medium tabular-nums">{{ previewExchangeRateLabel() }}</span>
+            </div>
+          }
+          <div class="flex justify-between gap-2">
+            <span class="text-base-content/80">Subtotal líneas</span>
+            <span class="whitespace-nowrap font-medium tabular-nums">{{ formatMoney(previewSubtotal()) }}</span>
+          </div>
+          <div class="flex justify-between gap-2">
+            <span class="text-base-content/80">Descuento ({{ formatPercent(form.controls.discountPercent.value) }}%)</span>
+            <span class="whitespace-nowrap tabular-nums">− {{ formatMoney(previewDiscountAmount()) }}</span>
+          </div>
+          <div class="mt-2 flex justify-between gap-2 border-t border-base-300 pt-2 font-semibold">
+            <span>Total neto</span>
+            <span class="whitespace-nowrap tabular-nums">{{ formatMoney(previewFinal()) }}</span>
+          </div>
+        </div>
+
+        <div class="border-base-300 sm:col-span-2 space-y-4 border-t pt-4">
+          <p class="text-base-content/70 text-xs font-medium uppercase tracking-wide">Términos</p>
+          <label class="form-control w-full">
+            <span class="label-text">Método de pago</span>
+            <select class="select select-bordered w-full" formControlName="payment_methods">
+              @for (p of paymentMethods(); track p.id) {
+                <option [ngValue]="p.id">{{ p.name }}</option>
+              }
+            </select>
+          </label>
+          <label class="form-control w-full">
+            <span class="label-text">Condiciones</span>
+            <textarea
+              class="textarea textarea-bordered w-full min-h-[5rem] resize-y"
+              rows="3"
+              formControlName="conditions"
+              [readOnly]="quotationModalReadonly()"
+            ></textarea>
+          </label>
+          <label class="form-control w-full">
+            <span class="label-text">Trabajos / alcance</span>
+            <textarea
+              class="textarea textarea-bordered w-full min-h-[5rem] resize-y"
+              rows="3"
+              formControlName="works"
+              [readOnly]="quotationModalReadonly()"
+            ></textarea>
+          </label>
+          <label class="label w-full cursor-pointer justify-start gap-3 py-1">
+            <input type="checkbox" class="checkbox" formControlName="see_sku" />
+            <span class="label-text">Mostrar SKU</span>
+          </label>
+        </div>
+        @if (!quotationModalReadonly()) {
+          <div class="modal-action sm:col-span-2 mt-2 flex flex-wrap justify-end gap-2 border-t border-base-300/80 pt-4">
+            <button type="button" class="btn" (click)="closeQuotationModal()">Cancelar</button>
+            <button type="button" class="btn btn-primary" [disabled]="saving()" (click)="saveQuotation()">
+              @if (saving()) {
+                <span class="loading loading-spinner"></span>
+              }
+              Guardar cotización
+            </button>
+          </div>
+        } @else {
+          <div class="modal-action sm:col-span-2 mt-2 flex flex-wrap justify-end gap-2 border-t border-base-300/80 pt-4">
+            @if (editingQuotationId() != null) {
+              <button type="button" class="btn btn-outline" (click)="viewQuotationPdfFromModal()">
+                Ver en PDF
+              </button>
+            }
+            <button type="button" class="btn btn-primary" (click)="closeQuotationModal()">Cerrar</button>
+          </div>
+        }
+      </div>
+    </div>
+    <button
+      type="button"
+      class="modal-backdrop bg-black/50"
+      (click)="closeQuotationModal()"
+      aria-label="Cerrar"
+    ></button>
+  </div>
+}

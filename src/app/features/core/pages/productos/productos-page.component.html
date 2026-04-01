@@ -1,0 +1,412 @@
+<div class="space-y-4">
+  <a routerLink="/core" class="link link-hover text-sm">← Volver a Core</a>
+
+  <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div>
+      <h1 class="text-3xl font-bold">Productos</h1>
+      <p class="text-base-content/70 mt-1 text-sm">
+        Catálogo maestro (SKU, descripción y clasificación). El stock se gestiona en Almacén.
+      </p>
+    </div>
+    @if (auth.canWriteAlmacen()) {
+      <div class="flex flex-wrap items-center gap-2">
+        <button type="button" class="btn btn-outline btn-sm" (click)="downloadProductTemplate()">
+          Plantilla Excel
+        </button>
+        <label class="btn btn-outline btn-sm cursor-pointer">
+          @if (importBusy()) {
+            <span class="loading loading-spinner loading-xs"></span>
+            Importando…
+          } @else {
+            Importar Excel
+          }
+          <input
+            type="file"
+            class="hidden"
+            accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            [disabled]="importBusy()"
+            (change)="onExcelFileSelected($event)"
+          />
+        </label>
+        <button type="button" class="btn btn-primary btn-lg" (click)="openNew()">Nuevo producto</button>
+      </div>
+    }
+  </div>
+
+  @if (!auth.canWriteAlmacen()) {
+    <div role="status" class="alert alert-warning text-sm">
+      Solo consulta. Alta y edición requieren rol <strong>Almacén</strong> o <strong>Administrador</strong>.
+    </div>
+  }
+
+  @if (errorMessage(); as err) {
+    <div role="alert" class="alert alert-error text-sm">{{ err }}</div>
+  }
+
+  @if (importSummary(); as sum) {
+    <div role="status" class="alert alert-success text-sm">
+      <span>
+        Importación: <strong>{{ sum.created }}</strong> altas,
+        <strong>{{ sum.updated }}</strong> actualizaciones.
+      </span>
+      @if (sum.errors.length) {
+        <ul class="mt-2 list-inside list-disc text-left">
+          @for (e of sum.errors; track e.sku + e.message) {
+            <li><span class="font-medium">{{ e.sku }}</span>: {{ e.message }}</li>
+          }
+        </ul>
+      }
+    </div>
+  }
+
+  <div
+    class="flex flex-col gap-3 rounded-lg border border-base-300 bg-base-100 p-4 sm:flex-row sm:flex-wrap sm:items-end"
+  >
+    <label class="form-control w-full min-w-[14rem] flex-1">
+      <span class="label-text">Buscar</span>
+      <input
+        type="search"
+        class="input input-bordered input-sm w-full"
+        placeholder="SKU, descripción, ID, estado, precio…"
+        [value]="searchQuery()"
+        (input)="setSearchQuery($any($event.target).value)"
+      />
+    </label>
+    <label class="form-control w-full max-w-[10rem]">
+      <span class="label-text">Por página</span>
+      <select
+        class="select select-bordered select-sm w-full"
+        [value]="pageSize()"
+        (change)="setPageSize(+$any($event.target).value)"
+      >
+        @for (n of pageSizeOptions; track n) {
+          <option [value]="n">{{ n }}</option>
+        }
+      </select>
+    </label>
+  </div>
+
+  <div class="overflow-x-auto rounded-lg border border-base-300 bg-base-100">
+    @if (loading()) {
+      <div class="flex justify-center p-12">
+        <span class="loading loading-spinner loading-lg text-primary"></span>
+      </div>
+    } @else if (items().length === 0) {
+      <p class="text-base-content/60 p-8 text-center text-sm">No hay productos cargados.</p>
+    } @else if (totalFiltered() === 0) {
+      <p class="text-base-content/60 p-8 text-center text-sm">
+        Ningún resultado coincide con la búsqueda.
+      </p>
+    } @else {
+      <table class="table table-zebra text-sm">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>SKU</th>
+            <th>Descripción</th>
+            <th>Precio</th>
+            <th>Estado</th>
+            <th class="text-right">Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of pagedItems(); track row.id) {
+            <tr>
+              <td>{{ row.id }}</td>
+              <td class="font-medium">{{ row.sku }}</td>
+              <td class="max-w-md truncate">{{ row.description }}</td>
+              <td>
+                @if (row.price != null) {
+                  {{ row.price | number: '1.2-2' }}
+                } @else {
+                  —
+                }
+              </td>
+              <td>{{ statusLabel(row.status) }}</td>
+              <td class="text-right space-x-1 whitespace-nowrap">
+                <a
+                  class="btn btn-ghost btn-sm"
+                  [routerLink]="['/core/productos', row.id]"
+                  >Imágenes</a
+                >
+                @if (auth.canWriteAlmacen()) {
+                  <button type="button" class="btn btn-ghost btn-sm" (click)="openEdit(row)">
+                    Editar
+                  </button>
+                  <button type="button" class="btn btn-outline btn-error btn-sm" (click)="remove(row)">
+                    Eliminar
+                  </button>
+                }
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+      <div
+        class="flex flex-col gap-3 border-t border-base-300 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+      >
+        <p class="text-base-content/70 text-xs sm:text-sm">
+          {{ rangeLabel() }}
+          @if (searchQuery().trim()) {
+            <span class="text-base-content/50"> ({{ items().length }} en catálogo)</span>
+          }
+        </p>
+        <div class="join justify-center sm:justify-end">
+          <button
+            type="button"
+            class="btn btn-sm join-item"
+            [disabled]="currentPage() <= 1"
+            (click)="goPage(-1)"
+            aria-label="Página anterior"
+          >
+            «
+          </button>
+          <span class="btn btn-sm join-item btn-ghost pointer-events-none no-animation">
+            {{ currentPage() }} / {{ totalPages() }}
+          </span>
+          <button
+            type="button"
+            class="btn btn-sm join-item"
+            [disabled]="currentPage() >= totalPages()"
+            (click)="goPage(1)"
+            aria-label="Página siguiente"
+          >
+            »
+          </button>
+        </div>
+      </div>
+    }
+  </div>
+</div>
+
+@if (modalOpen()) {
+  <div class="modal modal-open">
+    <div class="modal-box max-h-[92vh] max-w-4xl overflow-y-auto px-4 py-5 sm:px-8">
+      <header class="mb-5 border-b border-base-300 pb-4">
+        <h2 class="text-lg font-bold">
+          {{ editingId() == null ? 'Nuevo producto' : 'Editar producto' }}
+        </h2>
+        <p class="text-base-content/60 mt-1 text-sm">
+          Los apartados van de lo general a la ficha técnica. Solo SKU y descripción son obligatorios.
+        </p>
+      </header>
+
+      <form [formGroup]="form" (ngSubmit)="save()" class="flex flex-col gap-5">
+        <!-- 1 · Identidad -->
+        <div class="rounded-box border border-base-300 bg-base-200/25 p-4 sm:p-5">
+          <h3 class="text-sm font-semibold text-base-content">1 · Identidad</h3>
+          <p class="text-base-content/50 mb-4 text-xs">Código, visibilidad y descripción corta.</p>
+          <div class="grid grid-cols-1 gap-4 md:grid-cols-12 md:gap-x-4 md:gap-y-4">
+            @if (editingId() != null) {
+              <label class="flex w-full min-w-0 flex-col gap-1 md:col-span-3">
+                <div class="label">
+                  <span class="label-text">ID</span>
+                </div>
+                <input class="input input-bordered input-sm w-full" type="number" formControlName="id" readonly />
+              </label>
+            }
+            <label
+              class="flex w-full min-w-0 flex-col gap-1"
+              [class.md:col-span-5]="editingId() != null"
+              [class.md:col-span-8]="editingId() == null"
+            >
+              <div class="label">
+                <span class="label-text">SKU</span>
+              </div>
+              <input class="input input-bordered w-full min-w-0" formControlName="sku" />
+            </label>
+            <label class="flex w-full min-w-0 flex-col gap-1 md:col-span-4">
+              <div class="label">
+                <span class="label-text">Estado</span>
+              </div>
+              <select class="select select-bordered w-full min-w-0" formControlName="status">
+                @for (opt of statusOptions; track opt.value) {
+                  <option [value]="opt.value">{{ opt.label }}</option>
+                }
+              </select>
+            </label>
+            <label class="flex w-full min-w-0 flex-col gap-1 md:col-span-12">
+              <div class="label">
+                <span class="label-text">Descripción</span>
+              </div>
+              <textarea
+                class="textarea textarea-bordered min-h-[5rem] w-full min-w-0"
+                formControlName="description"
+              ></textarea>
+            </label>
+          </div>
+        </div>
+
+        <!-- 2 · Clasificación -->
+        <div class="rounded-box border border-base-300 bg-base-200/25 p-4 sm:p-5">
+          <h3 class="text-sm font-semibold text-base-content">2 · Clasificación</h3>
+          <p class="text-base-content/50 mb-4 text-xs">Categorización del catálogo (opcional).</p>
+          <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <label class="flex w-full min-w-0 flex-col gap-1">
+              <div class="label">
+                <span class="label-text">Categoría</span>
+              </div>
+              <select
+                class="select select-bordered w-full min-w-0"
+                formControlName="category"
+                (change)="onCategoryChange()"
+              >
+                <option [ngValue]="null">—</option>
+                @for (c of categories(); track c.id) {
+                  <option [ngValue]="c.id">{{ c.name }}</option>
+                }
+              </select>
+            </label>
+            <label class="flex w-full min-w-0 flex-col gap-1">
+              <div class="label">
+                <span class="label-text">Subcategoría</span>
+              </div>
+              <select class="select select-bordered w-full min-w-0" formControlName="subcategory">
+                <option [ngValue]="null">—</option>
+                @for (s of filteredSubcategories(); track s.id) {
+                  <option [ngValue]="s.id">{{ s.name }}</option>
+                }
+              </select>
+            </label>
+            <label class="flex w-full min-w-0 flex-col gap-1">
+              <div class="label">
+                <span class="label-text">Tipo</span>
+              </div>
+              <select class="select select-bordered w-full min-w-0" formControlName="type">
+                <option [ngValue]="null">—</option>
+                @for (t of types(); track t.id) {
+                  <option [ngValue]="t.id">{{ t.name }}</option>
+                }
+              </select>
+            </label>
+            <label class="flex w-full min-w-0 flex-col gap-1">
+              <div class="label">
+                <span class="label-text">Marca</span>
+              </div>
+              <select class="select select-bordered w-full min-w-0" formControlName="brand">
+                <option [ngValue]="null">—</option>
+                @for (b of brands(); track b.id) {
+                  <option [ngValue]="b.id">{{ b.name }}</option>
+                }
+              </select>
+            </label>
+            <label class="flex w-full min-w-0 flex-col gap-1 sm:col-span-2 sm:max-w-md">
+              <div class="label">
+                <span class="label-text">Unidad de medida</span>
+              </div>
+              <select class="select select-bordered w-full min-w-0" formControlName="unit_measurement">
+                <option [ngValue]="null">—</option>
+                @for (u of units(); track u.id) {
+                  <option [ngValue]="u.id">{{ u.name }}</option>
+                }
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <!-- 3 · Precios -->
+        <div class="rounded-box border border-base-300 bg-base-200/25 p-4 sm:p-5">
+          <h3 class="text-sm font-semibold text-base-content">3 · Precios</h3>
+          <p class="text-base-content/50 mb-4 text-xs">Venta y alquileres (opcionales).</p>
+          <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <label class="flex w-full min-w-0 flex-col gap-1 sm:col-span-2 sm:max-w-xs">
+              <div class="label">
+                <span class="label-text">Precio</span>
+              </div>
+              <input
+                class="input input-bordered w-full min-w-0"
+                type="number"
+                step="0.01"
+                inputmode="decimal"
+                formControlName="price"
+                placeholder="99.90"
+              />
+            </label>
+            <label class="flex w-full min-w-0 flex-col gap-1">
+              <div class="label">
+                <span class="label-text">Alquiler sin operador</span>
+              </div>
+              <input
+                class="input input-bordered w-full min-w-0"
+                type="number"
+                step="0.01"
+                inputmode="decimal"
+                formControlName="rental_price_without_operator"
+              />
+            </label>
+            <label class="flex w-full min-w-0 flex-col gap-1">
+              <div class="label">
+                <span class="label-text">Alquiler con operador</span>
+              </div>
+              <input
+                class="input input-bordered w-full min-w-0"
+                type="number"
+                step="0.01"
+                inputmode="decimal"
+                formControlName="rental_price_with_operator"
+              />
+            </label>
+          </div>
+        </div>
+
+        <!-- 4 · Ficha técnica -->
+        <div class="rounded-box border border-base-300 bg-base-200/25 p-4 sm:p-5">
+          <h3 class="text-sm font-semibold text-base-content">4 · Ficha técnica</h3>
+          <p class="text-base-content/50 mb-4 text-xs">Especificaciones y logística (opcionales).</p>
+          <div class="flex flex-col gap-4">
+            <label class="flex w-full min-w-0 flex-col gap-1">
+              <div class="label">
+                <span class="label-text">Especificaciones / datasheet</span>
+              </div>
+              <textarea
+                class="textarea textarea-bordered min-h-[6rem] w-full min-w-0"
+                formControlName="datasheet"
+              ></textarea>
+            </label>
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <label class="flex w-full min-w-0 flex-col gap-1">
+                <div class="label">
+                  <span class="label-text">Garantía</span>
+                </div>
+                <input
+                  class="input input-bordered w-full min-w-0"
+                  type="text"
+                  formControlName="warrannty"
+                  placeholder="p. ej. 12 meses"
+                />
+              </label>
+              <label class="flex w-full min-w-0 flex-col gap-1">
+                <div class="label">
+                  <span class="label-text">Dimensiones</span>
+                </div>
+                <input class="input input-bordered w-full min-w-0" type="text" formControlName="dimensions" />
+              </label>
+              <label class="flex w-full min-w-0 flex-col gap-1">
+                <div class="label">
+                  <span class="label-text">Peso bruto</span>
+                </div>
+                <input class="input input-bordered w-full min-w-0" type="text" formControlName="gross_weight" />
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-action mt-1 flex-wrap gap-2 border-t border-base-300 pt-5">
+          <button type="button" class="btn" (click)="closeModal()">Cancelar</button>
+          <button type="submit" class="btn btn-primary" [disabled]="saving() || !auth.canWriteAlmacen()">
+            @if (saving()) {
+              <span class="loading loading-spinner"></span>
+            }
+            Guardar
+          </button>
+        </div>
+      </form>
+    </div>
+    <button
+      type="button"
+      class="modal-backdrop bg-black/50"
+      (click)="closeModal()"
+      aria-label="Cerrar"
+    ></button>
+  </div>
+}

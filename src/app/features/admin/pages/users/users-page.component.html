@@ -1,0 +1,161 @@
+<div class="space-y-4">
+  <a routerLink="/inicio" class="link link-hover text-sm">← Inicio</a>
+
+  <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div>
+      <h1 class="text-3xl font-bold">Usuarios</h1>
+      <p class="text-base-content/70 mt-1 text-sm">Alta, edición y baja de usuarios (solo administradores).</p>
+    </div>
+    <button type="button" class="btn btn-primary btn-lg" (click)="openNew()">Nuevo usuario</button>
+  </div>
+
+  @if (errorMessage(); as err) {
+    <div role="alert" class="alert alert-error text-sm">{{ err }}</div>
+  }
+
+  <div class="overflow-x-auto rounded-lg border border-base-300 bg-base-100">
+    @if (loading()) {
+      <div class="flex justify-center p-12">
+        <span class="loading loading-spinner loading-lg text-primary"></span>
+      </div>
+    } @else {
+      <table class="table table-zebra text-sm">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Usuario</th>
+            <th>Nombre</th>
+            <th>Celular</th>
+            <th>Activo</th>
+            <th>Rol</th>
+            <th>Empresa</th>
+            <th>Prefijo</th>
+            <th class="text-right">Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of items(); track row.id) {
+            <tr [class.opacity-60]="!row.is_active">
+              <td>{{ row.id }}</td>
+              <td class="font-mono">{{ row.username }}</td>
+              <td class="font-medium">{{ displayName(row) }}</td>
+              <td class="whitespace-nowrap">{{ row.cellphone?.trim() || '—' }}</td>
+              <td>
+                @if (row.is_active) {
+                  <span class="badge badge-success badge-sm">Sí</span>
+                } @else {
+                  <span class="badge badge-ghost badge-sm">No</span>
+                }
+              </td>
+              <td>{{ roleLabel(row.profile?.role) }}</td>
+              <td>{{ companyLabel(row) }}</td>
+              <td class="font-mono">{{ prefixLabel(row) }}</td>
+              <td class="text-right space-x-1">
+                <button type="button" class="btn btn-ghost btn-sm" (click)="openEdit(row)">Editar</button>
+                <button
+                  type="button"
+                  class="btn btn-outline btn-error btn-sm"
+                  (click)="remove(row)"
+                  [disabled]="auth.me()?.user?.id === row.id"
+                >
+                  Eliminar
+                </button>
+              </td>
+            </tr>
+          } @empty {
+            <tr>
+              <td colspan="9" class="text-base-content/60 text-center">No hay usuarios o no se pudo cargar la lista.</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    }
+  </div>
+</div>
+
+@if (modalOpen()) {
+  <div class="modal modal-open">
+    <div class="modal-box max-w-lg max-h-[90vh] overflow-y-auto">
+      <h2 class="font-bold text-lg mb-4">{{ editingId() == null ? 'Nuevo usuario' : 'Editar usuario' }}</h2>
+      <form class="flex flex-col gap-3" [formGroup]="form" (ngSubmit)="save()">
+        <label class="form-control">
+          <span class="label-text">Nombre de usuario</span>
+          <input class="input input-bordered" type="text" formControlName="username" autocomplete="username" />
+        </label>
+        <label class="form-control">
+          <span class="label-text">{{ editingId() == null ? 'Contraseña' : 'Nueva contraseña (opcional)' }}</span>
+          <input
+            class="input input-bordered"
+            type="password"
+            formControlName="password"
+            autocomplete="new-password"
+          />
+        </label>
+        <label class="form-control">
+          <span class="label-text">Email</span>
+          <input class="input input-bordered" type="email" formControlName="email" autocomplete="email" />
+        </label>
+        <label class="form-control">
+          <span class="label-text">Celular</span>
+          <input
+            class="input input-bordered"
+            type="tel"
+            formControlName="cellphone"
+            autocomplete="tel"
+            inputmode="tel"
+          />
+        </label>
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <label class="form-control">
+            <span class="label-text">Nombre</span>
+            <input class="input input-bordered" type="text" formControlName="first_name" />
+          </label>
+          <label class="form-control">
+            <span class="label-text">Apellidos</span>
+            <input class="input input-bordered" type="text" formControlName="last_name" />
+          </label>
+        </div>
+        <label class="label cursor-pointer justify-start gap-3">
+          <input type="checkbox" class="checkbox checkbox-primary" formControlName="is_active" />
+          <span class="label-text">Usuario activo</span>
+        </label>
+        <label class="form-control">
+          <span class="label-text">Rol</span>
+          <select class="select select-bordered" formControlName="role">
+            @for (opt of roleOpts; track opt.value) {
+              <option [value]="opt.value">{{ opt.label }}</option>
+            }
+          </select>
+        </label>
+        <label class="form-control">
+          <span class="label-text">Empresa</span>
+          <select class="select select-bordered" formControlName="company_id">
+            @for (c of companies(); track c.id) {
+              <option [value]="c.id">{{ c.name }}</option>
+            }
+          </select>
+        </label>
+        <label class="form-control">
+          <span class="label-text">Prefijo cotizaciones</span>
+          <input
+            class="input input-bordered uppercase"
+            type="text"
+            formControlName="quotation_prefix"
+            maxlength="10"
+            placeholder="p. ej. GER"
+          />
+        </label>
+        <div class="modal-action">
+          <button type="button" class="btn" (click)="closeModal()">Cancelar</button>
+          <button type="submit" class="btn btn-primary" [disabled]="saving()">
+            @if (saving()) {
+              <span class="loading loading-spinner"></span>
+            }
+            Guardar
+          </button>
+        </div>
+      </form>
+    </div>
+    <button type="button" class="modal-backdrop bg-black/50" (click)="closeModal()" aria-label="Cerrar"></button>
+  </div>
+}

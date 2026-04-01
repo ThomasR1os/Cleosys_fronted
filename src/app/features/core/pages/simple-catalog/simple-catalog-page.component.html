@@ -1,0 +1,118 @@
+@if (errorMessage(); as err) {
+  <div role="alert" class="alert alert-error text-sm mb-4">{{ err }}</div>
+}
+
+@if (def) {
+  <div class="space-y-4">
+    <a routerLink="/core" class="link link-hover text-sm">← Volver a Core</a>
+    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div>
+        <h1 class="text-3xl font-bold">{{ def.title }}</h1>
+        <p class="text-base-content/70 mt-1 text-sm">{{ def.description }}</p>
+      </div>
+      <button type="button" class="btn btn-primary btn-lg" (click)="openNew()">Nuevo</button>
+    </div>
+
+    <div class="overflow-x-auto rounded-lg border border-base-300 bg-base-100">
+      @if (loading()) {
+        <div class="flex justify-center p-12">
+          <span class="loading loading-spinner loading-lg text-primary"></span>
+        </div>
+      } @else {
+        <table class="table table-zebra">
+          <thead>
+            <tr>
+              @for (col of def.listColumns; track col.key) {
+                <th>{{ col.label }}</th>
+              }
+              <th class="text-right">Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (row of items(); track row['id']) {
+              <tr>
+                @for (col of def.listColumns; track col.key) {
+                  <td>{{ row[col.key] }}</td>
+                }
+                <td class="text-right space-x-1">
+                  <button type="button" class="btn btn-ghost btn-sm" (click)="openEdit(row)">
+                    Editar
+                  </button>
+                  <button type="button" class="btn btn-outline btn-error btn-sm" (click)="remove(row)">
+                    Eliminar
+                  </button>
+                </td>
+              </tr>
+            } @empty {
+              <tr>
+                <td [attr.colspan]="def.listColumns.length + 1" class="text-base-content/60 text-center">
+                  Sin registros.
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      }
+    </div>
+  </div>
+}
+
+@if (modalOpen() && def) {
+  <div class="modal modal-open">
+    <div class="modal-box max-h-[90vh] max-w-lg overflow-y-auto">
+      <h2 class="font-bold text-lg mb-4">
+        {{ editingId() == null ? 'Nuevo' : 'Editar' }} — {{ def.title }}
+      </h2>
+      <form class="flex flex-col gap-3" [formGroup]="form" (ngSubmit)="save()">
+        @if (editingId() != null) {
+          <label class="form-control">
+            <span class="label-text">ID</span>
+            <input class="input input-bordered" type="number" formControlName="id" readonly />
+          </label>
+        }
+        @for (f of def.formFields; track f.key) {
+          @if (f.type === 'textarea') {
+            <label class="form-control">
+              <span class="label-text">{{ f.label }}</span>
+              <textarea class="textarea textarea-bordered" [formControlName]="f.key" rows="3"></textarea>
+            </label>
+          } @else if (f.type === 'select') {
+            <label class="form-control">
+              <span class="label-text">{{ f.label }}</span>
+              <select class="select select-bordered" [formControlName]="f.key">
+                <option [ngValue]="null">— Elija —</option>
+                @for (opt of optionsFor(f.key); track opt.value) {
+                  <option [ngValue]="opt.value">{{ opt.label }}</option>
+                }
+              </select>
+            </label>
+          } @else {
+            <label class="form-control">
+              <span class="label-text">{{ f.label }}</span>
+              <input
+                class="input input-bordered"
+                [type]="f.type === 'number' ? 'number' : 'text'"
+                [formControlName]="f.key"
+              />
+            </label>
+          }
+        }
+        <div class="modal-action">
+          <button type="button" class="btn" (click)="closeModal()">Cancelar</button>
+          <button type="submit" class="btn btn-primary" [disabled]="saving()">
+            @if (saving()) {
+              <span class="loading loading-spinner"></span>
+            }
+            Guardar
+          </button>
+        </div>
+      </form>
+    </div>
+    <button
+      type="button"
+      class="modal-backdrop bg-black/50"
+      (click)="closeModal()"
+      aria-label="Cerrar"
+    ></button>
+  </div>
+}

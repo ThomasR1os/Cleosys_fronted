@@ -1,0 +1,173 @@
+<div class="mx-auto max-w-xl space-y-4">
+  <a routerLink="/inicio" class="link link-hover text-sm">← Inicio</a>
+
+  <div>
+    <h1 class="text-3xl font-bold">Mi perfil</h1>
+    <p class="text-base-content/70 mt-1 text-sm">
+      Actualice sus datos personales. La empresa y el rol solo los puede cambiar un administrador del sistema.
+    </p>
+  </div>
+
+  @if (errorMessage(); as err) {
+    <div role="alert" class="alert alert-error text-sm">{{ err }}</div>
+  }
+  @if (successMessage(); as ok) {
+    <div role="alert" class="alert alert-success text-sm">{{ ok }}</div>
+  }
+
+  <div class="rounded-lg border border-base-300 bg-base-100 p-4 md:p-6">
+    <form class="flex flex-col gap-3" [formGroup]="form" (ngSubmit)="save()">
+      <label
+        class="flex w-full flex-col gap-1 sm:flex-row sm:items-start sm:gap-4"
+      >
+        <span class="label-text shrink-0 pt-1 sm:w-56 sm:pt-2">Usuario</span>
+        <input
+          type="text"
+          class="input input-bordered w-full min-w-0 flex-1 bg-base-200"
+          [value]="auth.me()?.user?.username ?? ''"
+          disabled
+        />
+      </label>
+
+      <label
+        class="flex w-full flex-col gap-1 sm:flex-row sm:items-start sm:gap-4"
+      >
+        <span class="label-text shrink-0 pt-1 sm:w-56 sm:pt-2">Empresa</span>
+        <input
+          type="text"
+          class="input input-bordered w-full min-w-0 flex-1 bg-base-200"
+          [value]="auth.companyName()"
+          disabled
+        />
+      </label>
+
+      <label
+        class="flex w-full flex-col gap-1 sm:flex-row sm:items-start sm:gap-4"
+      >
+        <span class="label-text shrink-0 pt-1 sm:w-56 sm:pt-2">Rol</span>
+        <input
+          type="text"
+          class="input input-bordered w-full min-w-0 flex-1 bg-base-200"
+          [value]="auth.roleLabel()"
+          disabled
+        />
+      </label>
+
+      <label
+        class="flex w-full flex-col gap-1 sm:flex-row sm:items-start sm:gap-4"
+      >
+        <span class="label-text shrink-0 pt-1 sm:w-56 sm:pt-2">Nombre</span>
+        <input
+          type="text"
+          class="input input-bordered w-full min-w-0 flex-1"
+          formControlName="first_name"
+        />
+      </label>
+
+      <label
+        class="flex w-full flex-col gap-1 sm:flex-row sm:items-start sm:gap-4"
+      >
+        <span class="label-text shrink-0 pt-1 sm:w-56 sm:pt-2">Apellidos</span>
+        <input
+          type="text"
+          class="input input-bordered w-full min-w-0 flex-1"
+          formControlName="last_name"
+        />
+      </label>
+
+      <label
+        class="flex w-full flex-col gap-1 sm:flex-row sm:items-start sm:gap-4"
+      >
+        <span class="label-text shrink-0 pt-1 sm:w-56 sm:pt-2">Correo</span>
+        <span class="flex min-w-0 flex-1 flex-col gap-1">
+          <input
+            type="email"
+            class="input input-bordered w-full"
+            formControlName="email"
+          />
+          @if (form.controls.email.touched && form.controls.email.errors?.['email']) {
+            <span class="label-text-alt text-error">Correo no válido</span>
+          }
+        </span>
+      </label>
+
+      <label
+        class="flex w-full flex-col gap-1 sm:flex-row sm:items-start sm:gap-4"
+      >
+        <span class="label-text shrink-0 pt-1 sm:w-56 sm:pt-2">Celular</span>
+        <input
+          type="tel"
+          class="input input-bordered w-full min-w-0 flex-1"
+          formControlName="cellphone"
+          autocomplete="tel"
+          inputmode="tel"
+        />
+      </label>
+
+      @if (auth.me()?.profile) {
+        <label
+          class="flex w-full flex-col gap-1 sm:flex-row sm:items-start sm:gap-4"
+        >
+          <span class="label-text shrink-0 pt-1 sm:w-56 sm:pt-2">Prefijo cotizaciones</span>
+          <span class="flex min-w-0 flex-1 flex-col gap-1">
+            <input
+              type="text"
+              class="input input-bordered w-full font-mono"
+              formControlName="quotation_prefix"
+              maxlength="10"
+            />
+            @if (
+              form.controls.quotation_prefix.touched &&
+              form.controls.quotation_prefix.errors?.['maxlength']
+            ) {
+              <span class="label-text-alt text-error">Máximo 10 caracteres</span>
+            }
+          </span>
+        </label>
+      }
+
+      <div class="divider text-xs">Cambiar contraseña (opcional)</div>
+
+      <label
+        class="flex w-full flex-col gap-1 sm:flex-row sm:items-start sm:gap-4"
+      >
+        <span class="label-text shrink-0 pt-1 sm:w-56 sm:pt-2">Nueva contraseña</span>
+        <input
+          type="password"
+          class="input input-bordered w-full min-w-0 flex-1"
+          formControlName="new_password"
+          autocomplete="new-password"
+        />
+      </label>
+
+      <label
+        class="flex w-full flex-col gap-1 sm:flex-row sm:items-start sm:gap-4"
+      >
+        <span class="label-text shrink-0 pt-1 sm:w-56 sm:pt-2">Confirmar contraseña</span>
+        <span class="flex min-w-0 flex-1 flex-col gap-1">
+          <input
+            type="password"
+            class="input input-bordered w-full"
+            formControlName="confirm_password"
+            autocomplete="new-password"
+          />
+          @if (form.touched && form.errors?.['passwordMismatch']) {
+            <span class="label-text-alt text-error">Las contraseñas no coinciden</span>
+          }
+        </span>
+      </label>
+
+      <div class="mt-2 flex flex-wrap gap-2">
+        <button type="submit" class="btn btn-primary" [disabled]="saving()">
+          @if (saving()) {
+            <span class="loading loading-spinner loading-sm"></span>
+            Guardando…
+          } @else {
+            Guardar cambios
+          }
+        </button>
+        <a routerLink="/inicio" class="btn btn-ghost">Cancelar</a>
+      </div>
+    </form>
+  </div>
+</div>

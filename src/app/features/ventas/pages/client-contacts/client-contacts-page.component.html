@@ -1,0 +1,92 @@
+<div class="space-y-4">
+  <a routerLink="/ventas/clientes" class="link link-hover text-sm">← Volver a Clientes</a>
+
+  <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div>
+      <h1 class="text-3xl font-bold">Contactos del cliente</h1>
+      @if (filterClientId(); as cid) {
+        @if (clientRow(); as cl) {
+          <p class="text-base-content/90 mt-1 font-medium">
+            {{ cl.name }}
+            @if (cl.ruc) {
+              <span class="text-base-content/70 font-normal"> · RUC {{ cl.ruc }}</span>
+            }
+          </p>
+        } @else {
+          <p class="text-base-content/70 mt-1 text-sm">Cliente #{{ cid }}</p>
+        }
+        <p class="text-base-content/70 mt-2 text-sm">
+          Cada contacto puede tener un <strong>vendedor distinto</strong>. El correo y el teléfono solo los muestran ese
+          vendedor asignado o un administrador.
+        </p>
+      }
+    </div>
+    <button type="button" class="btn btn-outline btn-lg" (click)="reload()" [disabled]="loading()">
+      @if (loading()) {
+        <span class="loading loading-spinner loading-sm"></span>
+      }
+      Actualizar
+    </button>
+  </div>
+
+  @if (errorMessage(); as err) {
+    <div role="alert" class="alert alert-error text-sm">{{ err }}</div>
+  }
+
+  <div class="overflow-x-auto rounded-lg border border-base-300 bg-base-100 min-h-[120px]">
+    @if (loading()) {
+      <div class="flex flex-col items-center justify-center gap-2 p-12 text-base-content/70">
+        <span class="loading loading-spinner loading-lg text-primary"></span>
+        <span class="text-sm">Cargando contactos…</span>
+      </div>
+    } @else {
+      <table class="table table-zebra text-sm">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Cliente</th>
+            <th>Persona contacto</th>
+            <th>Email</th>
+            <th>Teléfono</th>
+            <th class="text-right w-[1%] whitespace-nowrap">Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of items(); track row.id) {
+            <tr>
+              <td>{{ row.id }}</td>
+              <td class="max-w-[18rem]">
+                <div class="font-medium leading-snug">{{ clientNombreDisplay(row) }}</div>
+                @if (row.client_detail?.ruc; as rucCliente) {
+                  <div class="text-xs text-base-content/60">RUC {{ rucCliente }}</div>
+                }
+                <div class="text-xs mt-1">
+                  <span class="text-base-content/60">Encargado:</span>
+                  <span class="font-medium text-base-content">{{ encargadoLabel(row) }}</span>
+                </div>
+              </td>
+              <td>{{ contactFullName(row) }}</td>
+              <td class="font-mono">{{ displayEmail(row) }}</td>
+              <td class="font-mono">{{ displayPhone(row) }}</td>
+              <td class="text-right">
+                @if (canRevealContact(row)) {
+                  <button type="button" class="btn btn-ghost btn-xs" (click)="toggleReveal(row)">
+                    {{ revealButtonLabel(row) }}
+                  </button>
+                } @else {
+                  <span class="text-base-content/40 text-xs">—</span>
+                }
+              </td>
+            </tr>
+          } @empty {
+            <tr>
+              <td colspan="6" class="text-base-content/60 text-center py-8">
+                No hay contactos para este cliente.
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    }
+  </div>
+</div>

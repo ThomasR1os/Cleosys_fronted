@@ -1,0 +1,124 @@
+<div class="space-y-6">
+  <a routerLink="/core/productos" class="link link-hover text-sm">← Volver a productos</a>
+
+  @if (errorMessage(); as err) {
+    <div role="alert" class="alert alert-error text-sm">{{ err }}</div>
+  }
+
+  @if (loading()) {
+    <div class="flex justify-center p-12">
+      <span class="loading loading-spinner loading-lg text-primary"></span>
+    </div>
+  } @else if (product(); as p) {
+    <header class="space-y-1">
+      <h1 class="text-3xl font-bold">{{ p.sku }}</h1>
+      <p class="text-base-content/70 max-w-3xl">{{ p.description }}</p>
+      <p class="text-xs text-base-content/50">ID {{ p.id }}</p>
+    </header>
+
+    <section class="rounded-lg border border-base-300 bg-base-100 p-4">
+      <h2 class="font-semibold text-lg mb-3">Imágenes</h2>
+
+      @if (!auth.canWriteAlmacen()) {
+        <div role="status" class="alert alert-warning text-sm mb-4">
+          Solo consulta. Subir o editar imágenes requiere rol <strong>Almacén</strong> o
+          <strong>Administrador</strong>.
+        </div>
+      }
+
+      @if (auth.canWriteAlmacen()) {
+        <div class="mb-6 flex flex-col gap-3 rounded-lg bg-base-200/50 p-4 sm:flex-row sm:flex-wrap sm:items-end">
+          <label class="form-control w-full max-w-sm">
+            <span class="label-text">Archivo</span>
+            <input
+              type="file"
+              class="file-input file-input-bordered w-full"
+              accept="image/*"
+              (change)="onFileSelected($event)"
+            />
+          </label>
+          <label class="form-control w-full max-w-xs">
+            <span class="label-text">Nombre (opcional)</span>
+            <input
+              class="input input-bordered input-sm"
+              type="text"
+              [value]="uploadName()"
+              (input)="uploadName.set($any($event.target).value)"
+            />
+          </label>
+          <label class="label cursor-pointer gap-2 self-center">
+            <input
+              type="checkbox"
+              class="checkbox checkbox-sm"
+              [checked]="uploadPrimary()"
+              (change)="uploadPrimary.set($any($event.target).checked)"
+            />
+            <span class="label-text">Marcar como principal al subir</span>
+          </label>
+          <button
+            type="button"
+            class="btn btn-primary btn-sm"
+            [disabled]="uploadBusy()"
+            (click)="upload()"
+          >
+            @if (uploadBusy()) {
+              <span class="loading loading-spinner loading-sm"></span>
+            }
+            Subir
+          </button>
+        </div>
+      }
+
+      @if (imagesLoading()) {
+        <div class="flex justify-center p-8">
+          <span class="loading loading-spinner text-primary"></span>
+        </div>
+      } @else {
+        <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          @for (img of images(); track img.id) {
+            <div class="card border border-base-300 bg-base-100 shadow-sm">
+              <figure class="aspect-square bg-base-200 px-2 pt-2">
+                <img
+                  [src]="img.url"
+                  [alt]="img.name || 'Imagen'"
+                  class="h-full w-full object-contain"
+                />
+              </figure>
+              <div class="card-body gap-1 py-3">
+                <p class="card-title text-sm line-clamp-2">{{ img.name || 'Sin nombre' }}</p>
+                @if (img.primary) {
+                  <span class="badge badge-primary badge-sm w-fit">Principal</span>
+                }
+                <div class="card-actions justify-end mt-2">
+                  @if (auth.canWriteAlmacen() && !img.primary) {
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-xs"
+                      [disabled]="savingPrimaryId() === img.id"
+                      (click)="setPrimary(img)"
+                    >
+                      @if (savingPrimaryId() === img.id) {
+                        <span class="loading loading-spinner loading-xs"></span>
+                      } @else {
+                        Principal
+                      }
+                    </button>
+                  }
+                  @if (auth.canWriteAlmacen()) {
+                    <button type="button" class="btn btn-outline btn-error btn-xs" (click)="removeImage(img)">
+                      Eliminar
+                    </button>
+                  }
+                </div>
+              </div>
+            </div>
+          } @empty {
+            <p class="text-base-content/60 text-sm col-span-full">No hay imágenes para este producto.</p>
+          }
+        </div>
+      }
+    </section>
+  } @else {
+    <p class="text-base-content/60">Producto no encontrado.</p>
+  }
+</div>

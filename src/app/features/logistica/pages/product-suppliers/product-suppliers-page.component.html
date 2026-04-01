@@ -1,0 +1,170 @@
+<div class="space-y-4">
+  <a routerLink="/logistica" class="link link-hover text-sm">← Volver a Logística</a>
+
+  <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div>
+      <h1 class="text-3xl font-bold">Producto por proveedor</h1>
+      <p class="text-base-content/70 mt-1 text-sm">
+        Costo, moneda e incoterm. Filtros en pantalla (sin parámetros en el API por ahora).
+      </p>
+    </div>
+    @if (auth.canWriteAlmacen()) {
+      <button type="button" class="btn btn-primary btn-lg" (click)="openNew()">Nueva relación</button>
+    }
+  </div>
+
+  @if (!auth.canWriteAlmacen()) {
+    <div role="status" class="alert alert-warning text-sm">
+      Solo consulta. Este recurso usa permisos de <strong>Almacén</strong> en el servidor; para crear o editar se
+      requiere rol <strong>Almacén</strong> o <strong>Administrador</strong>.
+    </div>
+  }
+
+  @if (errorMessage(); as err) {
+    <div role="alert" class="alert alert-error text-sm">{{ err }}</div>
+  }
+
+  <div class="flex flex-col gap-3 rounded-lg border border-base-300 bg-base-100 p-4 sm:flex-row sm:flex-wrap sm:items-end">
+    <label class="form-control w-full max-w-xs">
+      <span class="label-text">Filtrar por producto</span>
+      <select
+        class="select select-bordered select-sm"
+        [value]="filterProductId() ?? ''"
+        (change)="filterProductId.set($any($event.target).value === '' ? null : +$any($event.target).value)"
+      >
+        <option value="">Todos</option>
+        @for (p of products(); track p.id) {
+          <option [value]="p.id">{{ p.sku }}</option>
+        }
+      </select>
+    </label>
+    <label class="form-control w-full max-w-xs">
+      <span class="label-text">Filtrar por proveedor</span>
+      <select
+        class="select select-bordered select-sm"
+        [value]="filterSupplierId() ?? ''"
+        (change)="filterSupplierId.set($any($event.target).value === '' ? null : +$any($event.target).value)"
+      >
+        <option value="">Todos</option>
+        @for (s of suppliers(); track s.id) {
+          <option [value]="s.id">{{ s.name }}</option>
+        }
+      </select>
+    </label>
+  </div>
+
+  <div class="overflow-x-auto rounded-lg border border-base-300 bg-base-100">
+    @if (loading()) {
+      <div class="flex justify-center p-12">
+        <span class="loading loading-spinner loading-lg text-primary"></span>
+      </div>
+    } @else {
+      <table class="table table-zebra text-sm">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Producto</th>
+            <th>Proveedor</th>
+            <th>Moneda</th>
+            <th>Costo</th>
+            <th>Incoterm</th>
+            <th class="text-right">Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of filteredItems(); track row.id) {
+            <tr>
+              <td>{{ row.id }}</td>
+              <td class="max-w-[12rem]">
+                <span class="font-medium">{{ row.product }}</span>
+                <span class="text-base-content/70 block truncate text-xs">{{
+                  productLabel().get(row.product) ?? ''
+                }}</span>
+              </td>
+              <td>{{ supplierLabel().get(row.supplier) ?? row.supplier }}</td>
+              <td>{{ row.money }}</td>
+              <td>{{ row.cost }}</td>
+              <td>{{ row.incoterm }}</td>
+              <td class="text-right space-x-1">
+                @if (auth.canWriteAlmacen()) {
+                  <button type="button" class="btn btn-ghost btn-sm" (click)="openEdit(row)">Editar</button>
+                  <button type="button" class="btn btn-outline btn-error btn-sm" (click)="remove(row)">
+                    Eliminar
+                  </button>
+                }
+              </td>
+            </tr>
+          } @empty {
+            <tr>
+              <td colspan="7" class="text-base-content/60 text-center">
+                @if (items().length === 0) {
+                  No hay relaciones producto–proveedor.
+                } @else {
+                  Ninguna fila coincide con el filtro.
+                }
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    }
+  </div>
+</div>
+
+@if (modalOpen()) {
+  <div class="modal modal-open">
+    <div class="modal-box max-h-[90vh] max-w-lg overflow-y-auto">
+      <h2 class="font-bold text-lg mb-4">{{ editingId() == null ? 'Nueva relación' : 'Editar relación' }}</h2>
+      <form class="flex flex-col gap-3" [formGroup]="form" (ngSubmit)="save()">
+        @if (editingId() != null) {
+          <label class="form-control">
+            <span class="label-text">ID</span>
+            <input class="input input-bordered" type="number" formControlName="id" readonly />
+          </label>
+        }
+        <label class="form-control">
+          <span class="label-text">Producto</span>
+          <select class="select select-bordered" formControlName="product">
+            @for (p of products(); track p.id) {
+              <option [ngValue]="p.id">{{ p.sku }} — {{ p.description }}</option>
+            }
+          </select>
+        </label>
+        <label class="form-control">
+          <span class="label-text">Proveedor</span>
+          <select class="select select-bordered" formControlName="supplier">
+            @for (s of suppliers(); track s.id) {
+              <option [ngValue]="s.id">{{ s.name }}</option>
+            }
+          </select>
+        </label>
+        <label class="form-control">
+          <span class="label-text">Moneda</span>
+          <select class="select select-bordered" formControlName="money">
+            @for (opt of moneyOptions; track opt.value) {
+              <option [ngValue]="opt.value">{{ opt.label }}</option>
+            }
+          </select>
+        </label>
+        <label class="form-control">
+          <span class="label-text">Costo</span>
+          <input class="input input-bordered" type="number" step="0.01" min="0" formControlName="cost" />
+        </label>
+        <label class="form-control">
+          <span class="label-text">Incoterm (3 letras)</span>
+          <input class="input input-bordered uppercase" maxlength="3" formControlName="incoterm" />
+        </label>
+        <div class="modal-action">
+          <button type="button" class="btn" (click)="closeModal()">Cancelar</button>
+          <button type="submit" class="btn btn-primary" [disabled]="saving()">
+            @if (saving()) {
+              <span class="loading loading-spinner"></span>
+            }
+            Guardar
+          </button>
+        </div>
+      </form>
+    </div>
+    <button type="button" class="modal-backdrop bg-black/50" (click)="closeModal()" aria-label="Cerrar"></button>
+  </div>
+}

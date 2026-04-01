@@ -1,0 +1,100 @@
+<div class="space-y-4">
+  <a routerLink="/logistica" class="link link-hover text-sm">← Volver a Logística</a>
+
+  <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div>
+      <h1 class="text-3xl font-bold">Tareas logísticas</h1>
+      <p class="text-base-content/70 mt-1 text-sm">Estado y notas de seguimiento.</p>
+    </div>
+    @if (auth.canWriteLogistica()) {
+      <button type="button" class="btn btn-primary btn-lg" (click)="openNew()">Nueva tarea</button>
+    }
+  </div>
+
+  @if (!auth.canWriteLogistica()) {
+    <div role="status" class="alert alert-warning text-sm">
+      Solo consulta. Para crear o editar se requiere rol <strong>Logística</strong> o
+      <strong>Administrador</strong>.
+    </div>
+  }
+
+  @if (errorMessage(); as err) {
+    <div role="alert" class="alert alert-error text-sm">{{ err }}</div>
+  }
+
+  <div class="overflow-x-auto rounded-lg border border-base-300 bg-base-100">
+    @if (loading()) {
+      <div class="flex justify-center p-12">
+        <span class="loading loading-spinner loading-lg text-primary"></span>
+      </div>
+    } @else {
+      <table class="table table-zebra text-sm">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Nombre</th>
+            <th>Estado</th>
+            <th>Notas</th>
+            <th>Creado</th>
+            <th class="text-right">Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of items(); track row.id) {
+            <tr>
+              <td>{{ row.id }}</td>
+              <td class="font-medium">{{ row.name }}</td>
+              <td>{{ row.status }}</td>
+              <td class="max-w-[14rem] truncate" [title]="row.notes">{{ row.notes || '—' }}</td>
+              <td>{{ formatDate(row.created_at) }}</td>
+              <td class="text-right space-x-1">
+                @if (auth.canWriteLogistica()) {
+                  <button type="button" class="btn btn-ghost btn-sm" (click)="openEdit(row)">Editar</button>
+                  <button type="button" class="btn btn-outline btn-error btn-sm" (click)="remove(row)">
+                    Eliminar
+                  </button>
+                }
+              </td>
+            </tr>
+          } @empty {
+            <tr>
+              <td colspan="6" class="text-base-content/60 text-center">No hay tareas.</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    }
+  </div>
+</div>
+
+@if (modalOpen()) {
+  <div class="modal modal-open">
+    <div class="modal-box max-w-lg">
+      <h2 class="font-bold text-lg mb-4">{{ editingId() == null ? 'Nueva tarea' : 'Editar tarea' }}</h2>
+      <form class="flex flex-col gap-3" [formGroup]="form" (ngSubmit)="save()">
+        <label class="form-control">
+          <span class="label-text">Nombre</span>
+          <input class="input input-bordered" formControlName="name" />
+        </label>
+        <label class="form-control">
+          <span class="label-text">Estado</span>
+          <input class="input input-bordered" formControlName="status" placeholder="PENDIENTE" />
+        </label>
+        <label class="form-control">
+          <span class="label-text">Notas</span>
+          <textarea class="textarea textarea-bordered" rows="4" formControlName="notes"></textarea>
+        </label>
+        <div class="modal-action">
+          <button type="button" class="btn" (click)="closeModal()">Cancelar</button>
+          <button type="submit" class="btn btn-primary" [disabled]="saving()">
+            @if (saving()) {
+              <span class="loading loading-spinner"></span>
+            }
+            Guardar
+          </button>
+        </div>
+      </form>
+    </div>
+    <button type="button" class="modal-backdrop bg-black/50" (click)="closeModal()" aria-label="Cerrar"></button>
+  </div>
+}

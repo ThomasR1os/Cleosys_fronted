@@ -1,0 +1,132 @@
+<div class="space-y-4">
+  <a routerLink="/almacen" class="link link-hover text-sm">← Volver a Almacén</a>
+
+  <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div>
+      <h1 class="text-3xl font-bold">Entradas y salidas</h1>
+      <p class="text-base-content/70 mt-1 text-sm">
+        Cada movimiento actualiza el stock en el servidor (entradas suman, salidas restan).
+      </p>
+    </div>
+    @if (auth.canWriteAlmacen()) {
+      <button type="button" class="btn btn-primary btn-lg" (click)="openNew()">Registrar movimiento</button>
+    }
+  </div>
+
+  @if (!auth.canWriteAlmacen()) {
+    <div role="status" class="alert alert-warning text-sm">
+      Solo consulta. Para registrar o eliminar movimientos se requiere rol <strong>Almacén</strong> o
+      <strong>Administrador</strong>.
+    </div>
+  }
+
+  @if (errorMessage(); as err) {
+    <div role="alert" class="alert alert-error text-sm">{{ err }}</div>
+  }
+
+  <div class="overflow-x-auto rounded-lg border border-base-300 bg-base-100">
+    @if (loading()) {
+      <div class="flex justify-center p-12">
+        <span class="loading loading-spinner loading-lg text-primary"></span>
+      </div>
+    } @else {
+      <table class="table table-zebra text-sm">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Fecha</th>
+            <th>Almacén</th>
+            <th>Producto</th>
+            <th>Cantidad</th>
+            <th>Tipo</th>
+            <th>Obs. (nº)</th>
+            <th class="text-right">Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of movements(); track row.id) {
+            <tr>
+              <td>{{ row.id }}</td>
+              <td>{{ formatDate(row.creation_date) }}</td>
+              <td class="max-w-[12rem] truncate" [title]="warehouseLabel().get(row.warehouse) ?? ''">
+                {{ warehouseLabel().get(row.warehouse) ?? row.warehouse }}
+              </td>
+              <td class="max-w-[14rem] truncate" [title]="productLabel().get(row.product) ?? ''">
+                {{ productLabel().get(row.product) ?? row.product }}
+              </td>
+              <td>{{ row.cant }}</td>
+              <td>{{ tipoLabel(row.movement_type) }}</td>
+              <td>{{ row.observation }}</td>
+              <td class="text-right">
+                @if (auth.canWriteAlmacen()) {
+                  <button type="button" class="btn btn-outline btn-error btn-sm" (click)="remove(row)">
+                    Eliminar
+                  </button>
+                }
+              </td>
+            </tr>
+          } @empty {
+            <tr>
+              <td colspan="8" class="text-base-content/60 text-center">No hay movimientos registrados.</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    }
+  </div>
+</div>
+
+@if (modalOpen()) {
+  <div class="modal modal-open">
+    <div class="modal-box max-h-[90vh] max-w-lg overflow-y-auto">
+      <h2 class="font-bold text-lg mb-4">Nuevo movimiento</h2>
+      <form class="flex flex-col gap-3" [formGroup]="form" (ngSubmit)="save()">
+        <label class="form-control">
+          <span class="label-text">Almacén</span>
+          <select class="select select-bordered" formControlName="warehouse">
+            @for (w of warehouses(); track w.id) {
+              <option [ngValue]="w.id">{{ warehouseLabel().get(w.id) }}</option>
+            }
+          </select>
+        </label>
+        <label class="form-control">
+          <span class="label-text">Producto</span>
+          <select class="select select-bordered max-w-full" formControlName="product">
+            @for (p of products(); track p.id) {
+              <option [ngValue]="p.id">{{ p.sku }} — {{ p.description }}</option>
+            }
+          </select>
+        </label>
+        <label class="form-control">
+          <span class="label-text">Cantidad</span>
+          <input class="input input-bordered" type="number" step="0.01" min="0" formControlName="cant" />
+        </label>
+        <label class="form-control">
+          <span class="label-text">Tipo</span>
+          <select class="select select-bordered" formControlName="movement_type">
+            @for (opt of typeOptions; track opt.value) {
+              <option [ngValue]="opt.value">{{ opt.label }}</option>
+            }
+          </select>
+        </label>
+        <label class="form-control">
+          <span class="label-text">Observación (código numérico)</span>
+          <input class="input input-bordered" type="number" step="1" formControlName="observation" />
+        </label>
+        <p class="text-base-content/60 text-xs">
+          El campo «observación» en el sistema es numérico según el modelo de datos.
+        </p>
+        <div class="modal-action">
+          <button type="button" class="btn" (click)="closeModal()">Cancelar</button>
+          <button type="submit" class="btn btn-primary" [disabled]="saving()">
+            @if (saving()) {
+              <span class="loading loading-spinner"></span>
+            }
+            Guardar
+          </button>
+        </div>
+      </form>
+    </div>
+    <button type="button" class="modal-backdrop bg-black/50" (click)="closeModal()" aria-label="Cerrar"></button>
+  </div>
+}
