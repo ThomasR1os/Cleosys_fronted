@@ -1963,9 +1963,52 @@ export class QuotationsPageComponent implements OnInit {
     const sumFont = 9;
     const sumPad = { top: 3.5, bottom: 3, left: 2, right: 2 };
     const sumTopPad = { ...sumPad, top: 6 };
+    const sumRowStyle = {
+      halign: 'right' as const,
+      fontSize: sumFont,
+      cellPadding: sumTopPad,
+      fillColor: T.primaryLight,
+      textColor: T.totalBar,
+      fontStyle: 'bold' as const,
+    };
+    const sumRowStylePad = {
+      halign: 'right' as const,
+      fontSize: sumFont,
+      cellPadding: sumPad,
+      fillColor: T.primaryLight,
+      textColor: T.totalBar,
+      fontStyle: 'bold' as const,
+    };
 
     /** Misma tabla: líneas + totales con colSpan (sin segunda tabla suelta). */
-    const summaryRows: RowInput[] = [
+    const summaryRows: RowInput[] = [];
+    if (disc > 0) {
+      summaryRows.push(
+        [
+          {
+            content: 'Subtotal',
+            colSpan: labelSpan,
+            styles: { ...sumRowStyle },
+          },
+          {
+            content: this.formatMoneyPdf(money, subtotal),
+            styles: { ...sumRowStyle },
+          },
+        ],
+        [
+          {
+            content: 'Descuento',
+            colSpan: labelSpan,
+            styles: { ...sumRowStylePad },
+          },
+          {
+            content: `- ${this.formatMoneyPdf(money, disc)}`,
+            styles: { ...sumRowStylePad },
+          },
+        ],
+      );
+    }
+    summaryRows.push(
       [
         {
           content: 'Valor Venta',
@@ -1973,7 +2016,7 @@ export class QuotationsPageComponent implements OnInit {
           styles: {
             halign: 'right',
             fontSize: sumFont,
-            cellPadding: sumTopPad,
+            cellPadding: disc > 0 ? sumPad : sumTopPad,
             fillColor: T.primaryLight,
             textColor: T.totalBar,
             fontStyle: 'bold',
@@ -1984,7 +2027,7 @@ export class QuotationsPageComponent implements OnInit {
           styles: {
             halign: 'right',
             fontSize: sumFont,
-            cellPadding: sumTopPad,
+            cellPadding: disc > 0 ? sumPad : sumTopPad,
             fillColor: T.primaryLight,
             textColor: T.totalBar,
             fontStyle: 'bold',
@@ -2041,7 +2084,7 @@ export class QuotationsPageComponent implements OnInit {
           },
         },
       ],
-    ];
+    );
 
     const body: RowInput[] = [...lineBody, ...summaryRows];
 
