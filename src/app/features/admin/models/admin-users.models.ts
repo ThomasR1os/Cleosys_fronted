@@ -1,5 +1,19 @@
 /** Alineado con Django: AdminUserListSerializer / AdminUserWriteSerializer. */
 
+/** Solo lectura en `CompanySerializer`; escritura vía PATCH `/companies/{id}/branding/`. */
+export interface CompanyBranding {
+  primary: string;
+  primary_light: string;
+  muted: string;
+  border: string;
+  table_stripe: string;
+  emphasis_bar: string;
+  text_body: string;
+  text_label: string;
+  text_caption: string;
+  extensions?: Record<string, unknown>;
+}
+
 export interface Company {
   id: number;
   name: string;
@@ -7,6 +21,8 @@ export interface Company {
   logo?: string | null;
   /** Texto libre; campo `bank_accounts` en API Django */
   bank_accounts?: string;
+  /** Paleta PDF/documentos (API anida `branding` o defaults si no hay fila). */
+  branding?: CompanyBranding;
 }
 
 export type UserRole = 'ALMACEN' | 'VENTAS' | 'LOGISTICA' | 'ADMIN';

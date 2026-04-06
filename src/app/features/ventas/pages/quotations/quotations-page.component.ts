@@ -21,9 +21,14 @@ import {
   of,
 } from 'rxjs';
 import { map, toArray } from 'rxjs/operators';
-import type { AdminUser, UserRole } from '../../../admin/models/admin-users.models';
+import type { AdminUser, CompanyBranding, UserRole } from '../../../admin/models/admin-users.models';
 import { AdminUserService } from '../../../admin/services/admin-user.service';
 import { CompanyService } from '../../../admin/services/company.service';
+import {
+  brandingToPdfTheme,
+  DEFAULT_COMPANY_BRANDING,
+  type PdfQuotationTheme,
+} from '../../../admin/utils/company-branding.utils';
 import { AuthService } from '../../../../core/services/auth.service';
 import { ProductImageService } from '../../../almacen/services/product-image.service';
 import { ProductService } from '../../../almacen/services/product.service';
@@ -44,12 +49,6 @@ import { QuotationService } from '../../services/quotation.service';
 
 /** Máximo de filas en desplegables buscables (rendimiento con catálogos grandes). */
 const PICKER_PAGE = 100;
-
-/** Icono usuario (SVG) para el pie de cotización PDF; se rasteriza a PNG en cliente. */
-const PDF_USER_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
-  <circle cx="12" cy="8" r="4" stroke="rgb(30,58,95)" stroke-width="1.75" stroke-linecap="round"/>
-  <path d="M4 20c0-3.5 3.5-6 8-6s8 2.5 8 6" stroke="rgb(30,58,95)" stroke-width="1.75" stroke-linecap="round"/>
-</svg>`;
 
 /** Línea pendiente antes de existir la cotización (POST cotización → POST líneas). */
 interface DraftQuotationLine {
@@ -1421,15 +1420,18 @@ export class QuotationsPageComponent implements OnInit {
       this.ensureProductsCatalog(() => {
         void (async () => {
           const qpLines = this.linesForQuotationId(row.id);
-          const [companyPdf, sellerLabel, productImages, creatorUser, creatorIconPng] = await Promise.all([
-            this.loadCompanyPdfAssets(),
+          const creatorUser = await this.resolveCreatorUserForPdf(row);
+          const companyId = this.resolveQuotationPdfCompanyId(row, creatorUser);
+          const companyPdf = await this.loadCompanyPdfAssets(companyId);
+          const T = brandingToPdfTheme(companyPdf.branding);
+          const [sellerLabel, productImages, creatorIconPng] = await Promise.all([
             this.resolveSellerLabelForPdf(row),
             this.loadProductImageDataUrlsForPdf(qpLines.map((l) => l.product)),
-            this.resolveCreatorUserForPdf(row),
-            this.rasterizePdfUserIconSvg(),
+            this.rasterizePdfUserIconSvg(T.primary),
           ]);
           this.generateQuotationPdf(
             row,
+            T,
             companyPdf.logoDataUrl,
             sellerLabel,
             productImages,
@@ -1473,15 +1475,33 @@ export class QuotationsPageComponent implements OnInit {
     }
   }
 
+  /**
+   * Empresa cuyo branding y logo deben usarse en el PDF: FK en cotización, si no la del vendedor, si no la del usuario actual.
+   */
+  private resolveQuotationPdfCompanyId(row: QuotationRow, creator: AdminUser | null): number | null {
+    const fromRow = row.company;
+    if (fromRow != null && fromRow > 0) return fromRow;
+    const fromCreator = creator?.profile?.company?.id;
+    if (fromCreator != null && fromCreator > 0) return fromCreator;
+    const me = this.auth.me()?.profile?.company?.id;
+    if (me != null && me > 0) return me;
+    return null;
+  }
+
   /** Convierte el SVG del icono usuario a PNG (data URL) para `addImage` en jsPDF. */
-  private rasterizePdfUserIconSvg(): Promise<string | null> {
+  private rasterizePdfUserIconSvg(primary: [number, number, number]): Promise<string | null> {
+    const [r, g, b] = primary;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+  <circle cx="12" cy="8" r="4" stroke="rgb(${r},${g},${b})" stroke-width="1.75" stroke-linecap="round"/>
+  <path d="M4 20c0-3.5 3.5-6 8-6s8 2.5 8 6" stroke="rgb(${r},${g},${b})" stroke-width="1.75" stroke-linecap="round"/>
+</svg>`;
     return new Promise((resolve) => {
       if (typeof document === 'undefined') {
         resolve(null);
         return;
       }
       const img = new Image();
-      const blob = new Blob([PDF_USER_ICON_SVG], { type: 'image/svg+xml;charset=utf-8' });
+      const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
       const url = URL.createObjectURL(blob);
       img.onload = () => {
         const canvas = document.createElement('canvas');
@@ -1526,19 +1546,24 @@ export class QuotationsPageComponent implements OnInit {
   }
 
   /**
-   * Logo (`logo` API o `public/branding/`) y texto de cuentas bancarias de la empresa (un solo GET empresa).
+   * Logo (`logo` API o `public/branding/`), cuentas bancarias y paleta (`branding`) de la empresa emisora.
    */
-  private async loadCompanyPdfAssets(): Promise<{ logoDataUrl: string | null; bankAccounts: string }> {
+  private async loadCompanyPdfAssets(companyId: number | null): Promise<{
+    logoDataUrl: string | null;
+    bankAccounts: string;
+    branding: CompanyBranding;
+  }> {
     let bankAccounts = '';
-    const companyId = this.auth.me()?.profile?.company?.id;
+    let branding: CompanyBranding = { ...DEFAULT_COMPANY_BRANDING };
     if (companyId != null && companyId > 0) {
       try {
         const co = await firstValueFrom(this.companyApi.retrieve(companyId));
         bankAccounts = co.bank_accounts?.trim() ?? '';
+        if (co.branding) branding = { ...DEFAULT_COMPANY_BRANDING, ...co.branding };
         if (co.logo?.trim()) {
           const fromUrl = await this.blobUrlToDataUrl(co.logo.trim());
           if (fromUrl) {
-            return { logoDataUrl: fromUrl, bankAccounts };
+            return { logoDataUrl: fromUrl, bankAccounts, branding };
           }
         }
       } catch {
@@ -1551,12 +1576,12 @@ export class QuotationsPageComponent implements OnInit {
         const blob = await firstValueFrom(this.http.get(p, { responseType: 'blob' }));
         if (blob.size === 0) continue;
         const logoDataUrl = await this.blobToDataUrl(blob);
-        return { logoDataUrl, bankAccounts };
+        return { logoDataUrl, bankAccounts, branding };
       } catch {
         continue;
       }
     }
-    return { logoDataUrl: null, bankAccounts };
+    return { logoDataUrl: null, bankAccounts, branding };
   }
 
   private blobToDataUrl(blob: Blob): Promise<string | null> {
@@ -1652,8 +1677,8 @@ export class QuotationsPageComponent implements OnInit {
     line: QuotationProductRow,
     descColWidthMm: number,
     productImages: Map<number, string | null>,
+    T: PdfQuotationTheme,
   ): number {
-    const T = QuotationsPageComponent.pdfTheme;
     const padV = 3.5;
     const hasImg = !!productImages.get(line.product);
     const innerW = Math.max(18, descColWidthMm - 4);
@@ -1682,19 +1707,6 @@ export class QuotationsPageComponent implements OnInit {
     return Math.max(h, 16) + T.pdfDescExtraPadding + 2;
   }
 
-  /** Paleta PDF cotización (jsPDF no usa CSS; valores RGB). */
-  private static readonly pdfTheme = {
-    primary: [30, 58, 95] as [number, number, number],
-    primaryLight: [241, 245, 249] as [number, number, number],
-    muted: [100, 116, 139] as [number, number, number],
-    border: [226, 232, 240] as [number, number, number],
-    stripe: [248, 250, 252] as [number, number, number],
-    totalBar: [15, 23, 42] as [number, number, number],
-    white: 255,
-    /** Espacio extra bajo la celda descripción (ficha + miniatura). */
-    pdfDescExtraPadding: 2,
-  };
-
   /**
    * jsPDF-AutoTable usa `row.index === -1` en la fila continuación al partir una fila entre páginas.
    * El índice de línea de producto se obtiene desde la 1.ª columna (# ítem).
@@ -1720,7 +1732,7 @@ export class QuotationsPageComponent implements OnInit {
     tableInnerW: number,
     yStart: number,
     bankAccounts: string,
-    T: typeof QuotationsPageComponent.pdfTheme,
+    T: PdfQuotationTheme,
   ): number {
     const text = bankAccounts?.trim();
     if (!text) return yStart;
@@ -1747,7 +1759,7 @@ export class QuotationsPageComponent implements OnInit {
     y += 5;
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
-    doc.setTextColor(60, 60, 60);
+    doc.setTextColor(...T.textBody);
 
     const paragraphs = text.split(/\r?\n/);
     for (const para of paragraphs) {
@@ -1779,7 +1791,7 @@ export class QuotationsPageComponent implements OnInit {
     row: QuotationRow,
     creator: AdminUser | null,
     creatorIconPng: string | null,
-    T: typeof QuotationsPageComponent.pdfTheme,
+    T: PdfQuotationTheme,
   ): number {
     let y = yStart + 10;
     const pageH = doc.internal.pageSize.getHeight();
@@ -1821,7 +1833,7 @@ export class QuotationsPageComponent implements OnInit {
           ? `Usuario #${row.user}`
           : '—';
     doc.setFontSize(10);
-    doc.setTextColor(15, 23, 42);
+    doc.setTextColor(...T.totalBar);
     doc.text(displayName, cx, y, { align: 'center' });
     y += 5.5;
 
@@ -1851,6 +1863,7 @@ export class QuotationsPageComponent implements OnInit {
 
   private generateQuotationPdf(
     row: QuotationRow,
+    T: PdfQuotationTheme,
     logoDataUrl: string | null = null,
     sellerLabel: string = '—',
     productImages: Map<number, string | null> = new Map(),
@@ -1858,7 +1871,6 @@ export class QuotationsPageComponent implements OnInit {
     creatorUser: AdminUser | null = null,
     creatorIconPng: string | null = null,
   ): void {
-    const T = QuotationsPageComponent.pdfTheme;
     const doc = new jsPDF();
     const margin = 16;
     const pageW = doc.internal.pageSize.getWidth();
@@ -1881,7 +1893,7 @@ export class QuotationsPageComponent implements OnInit {
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(...T.primary);
     doc.text('Cotización', margin, y);
-    doc.setTextColor(15, 23, 42);
+    doc.setTextColor(...T.totalBar);
     doc.text(`  ${row.correlativo}`, margin + doc.getTextWidth('Cotización'), y);
     y += 4;
     doc.setDrawColor(...T.primary);
@@ -1894,7 +1906,7 @@ export class QuotationsPageComponent implements OnInit {
     doc.setTextColor(...T.primary);
     doc.text('Cliente', margin, y);
     doc.setFont('helvetica', 'normal');
-    doc.setTextColor(15, 23, 42);
+    doc.setTextColor(...T.totalBar);
     y += 4.5;
     doc.setFont('helvetica', 'bold');
     doc.text(client?.name ?? `#${row.client}`, margin, y);
@@ -1908,7 +1920,7 @@ export class QuotationsPageComponent implements OnInit {
       doc.setTextColor(...T.muted);
       doc.text(label, margin, y);
       const lw = doc.getTextWidth(`${label} `);
-      doc.setTextColor(15, 23, 42);
+      doc.setTextColor(...T.totalBar);
       doc.text(value, margin + lw, y);
       y += 5;
     };
@@ -2101,7 +2113,7 @@ export class QuotationsPageComponent implements OnInit {
         valign: 'middle',
         lineColor: T.border,
         lineWidth: 0.15,
-        textColor: [15, 23, 42],
+        textColor: [...T.totalBar],
       },
       headStyles: {
         fillColor: T.primary,
@@ -2149,6 +2161,7 @@ export class QuotationsPageComponent implements OnInit {
                 qLine,
                 descColWidthMm,
                 productImages,
+                T,
               );
               data.cell.styles.valign = 'top';
             }
@@ -2194,7 +2207,7 @@ export class QuotationsPageComponent implements OnInit {
         let cy = cell.y + padT + 3.3;
         const main = this.productLineDescription(qLine);
         doc.setFont('helvetica', 'normal');
-        doc.setTextColor(15, 23, 42);
+        doc.setTextColor(...T.totalBar);
         doc.setFontSize(8.5);
         const mainLines = doc.splitTextToSize(main, textW);
         for (const ml of mainLines) {
@@ -2208,12 +2221,12 @@ export class QuotationsPageComponent implements OnInit {
           if (cy <= maxY) {
             doc.setFont('times', 'bold');
             doc.setFontSize(7.5);
-            doc.setTextColor(55, 65, 81);
+            doc.setTextColor(...T.textLabel);
             doc.text('Ficha técnica', left, cy);
             cy += 4;
             doc.setFont('times', 'italic');
             doc.setFontSize(7);
-            doc.setTextColor(71, 85, 105);
+            doc.setTextColor(...T.textCaption);
             for (const dl of doc.splitTextToSize(ds, textW)) {
               if (cy > maxY) break;
               doc.text(dl, left, cy);
@@ -2222,7 +2235,7 @@ export class QuotationsPageComponent implements OnInit {
           }
         }
         doc.setFont('helvetica', 'normal');
-        doc.setTextColor(15, 23, 42);
+        doc.setTextColor(...T.totalBar);
         if (hasImg && imgData) {
           try {
             cy += 3;
@@ -2262,7 +2275,7 @@ export class QuotationsPageComponent implements OnInit {
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(...T.muted);
     doc.text(`Método de pago: `, margin, y);
-    doc.setTextColor(15, 23, 42);
+    doc.setTextColor(...T.totalBar);
     doc.text(pay?.name ?? '—', margin + doc.getTextWidth('Método de pago: '), y);
     y += 7;
 
@@ -2273,7 +2286,7 @@ export class QuotationsPageComponent implements OnInit {
       doc.setTextColor(...T.primary);
       doc.text('Condiciones', margin, y);
       doc.setFont('helvetica', 'normal');
-      doc.setTextColor(60, 60, 60);
+      doc.setTextColor(...T.textBody);
       y += 4.5;
       const condBody = doc.splitTextToSize(cond, tableInnerW);
       doc.text(condBody, margin, y);
@@ -2287,7 +2300,7 @@ export class QuotationsPageComponent implements OnInit {
       doc.setTextColor(...T.primary);
       doc.text('Trabajos / alcance', margin, y);
       doc.setFont('helvetica', 'normal');
-      doc.setTextColor(60, 60, 60);
+      doc.setTextColor(...T.textBody);
       y += 4.5;
       const worksBody = doc.splitTextToSize(works, tableInnerW);
       doc.text(worksBody, margin, y);
@@ -2306,12 +2319,11 @@ export class QuotationsPageComponent implements OnInit {
       T,
     );
 
-    doc.setTextColor(0, 0, 0);
     const pageH = doc.internal.pageSize.getHeight();
     doc.setFontSize(7);
     doc.setTextColor(...T.muted);
     doc.text(
-      'Documento referencial. Los importes y condiciones definitivas quedan sujetos a confirmación.',
+      'Documento generado por CleoSystem',
       margin,
       pageH - 10,
       { maxWidth: tableInnerW },

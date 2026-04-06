@@ -5,7 +5,7 @@
     <div>
       <h1 class="text-3xl font-bold">Empresas</h1>
       <p class="text-base-content/70 mt-1 text-sm">
-        Catálogo de compañías y logo (una imagen por empresa). Solo administradores.
+        Catálogo de compañías, logo y paleta de colores para documentos (PDF). Solo administradores.
       </p>
     </div>
     <button type="button" class="btn btn-primary btn-lg" (click)="openNew()">Nueva empresa</button>
@@ -26,6 +26,7 @@
           <tr>
             <th>ID</th>
             <th>Logo</th>
+            <th>Paleta PDF</th>
             <th>Nombre</th>
             <th>Cuentas bancarias</th>
             <th class="text-right">Acciones</th>
@@ -42,6 +43,26 @@
                     alt=""
                     class="h-10 w-10 rounded object-contain bg-base-200"
                   />
+                } @else {
+                  <span class="text-base-content/50">—</span>
+                }
+              </td>
+              <td>
+                @if (row.branding; as b) {
+                  <div class="flex gap-0.5" [title]="'Colores de documentos'">
+                    <span
+                      class="h-6 w-6 rounded-sm border border-base-300 shrink-0"
+                      [style.background]="b.primary"
+                    ></span>
+                    <span
+                      class="h-6 w-6 rounded-sm border border-base-300 shrink-0"
+                      [style.background]="b.primary_light"
+                    ></span>
+                    <span
+                      class="h-6 w-6 rounded-sm border border-base-300 shrink-0"
+                      [style.background]="b.emphasis_bar"
+                    ></span>
+                  </div>
                 } @else {
                   <span class="text-base-content/50">—</span>
                 }
@@ -69,7 +90,7 @@
             </tr>
           } @empty {
             <tr>
-              <td colspan="5" class="text-base-content/60 text-center">No hay empresas.</td>
+              <td colspan="6" class="text-base-content/60 text-center">No hay empresas.</td>
             </tr>
           }
         </tbody>
@@ -80,7 +101,7 @@
 
 @if (modalOpen()) {
   <div class="modal modal-open">
-    <div class="modal-box max-w-2xl max-h-[90vh] overflow-y-auto">
+    <div class="modal-box max-w-3xl max-h-[90vh] overflow-y-auto">
       <h2 class="font-bold text-lg mb-4">
         {{ editingId() == null ? 'Nueva empresa' : 'Editar empresa' }}
       </h2>
@@ -133,6 +154,37 @@
             }
           </div>
         </div>
+
+        <details class="collapse collapse-arrow bg-base-200 rounded-box">
+          <summary class="collapse-title font-medium py-3 min-h-0">
+            Paleta de documentos (cotizaciones PDF)
+          </summary>
+          <div class="collapse-content">
+            <p class="text-xs text-base-content/60 mb-3">
+              Estos colores se aplican al exportar cotizaciones de usuarios de esta empresa. El backend valida y
+              normaliza el formato (#RRGGBB).
+            </p>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3" [formGroup]="brandingForm">
+              @for (f of brandingFields; track f.key) {
+                <label class="form-control">
+                  <span class="label-text text-sm">{{ f.label }}</span>
+                  <span class="label-text-alt text-xs opacity-70">{{ f.hint }}</span>
+                  <div class="flex items-center gap-2 mt-1">
+                    <input
+                      type="color"
+                      class="h-10 w-14 cursor-pointer rounded border border-base-300 bg-base-100 p-0.5 shrink-0"
+                      [formControlName]="f.key"
+                    />
+                    <span
+                      class="input input-bordered input-sm font-mono flex-1 min-w-0 inline-flex items-center px-2 opacity-90"
+                      >{{ brandingForm.get(f.key)?.value }}</span
+                    >
+                  </div>
+                </label>
+              }
+            </div>
+          </div>
+        </details>
 
         <div class="modal-action">
           <button type="button" class="btn" (click)="closeModal()">Cancelar</button>

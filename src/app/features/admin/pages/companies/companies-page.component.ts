@@ -6,8 +6,13 @@ import {
   Validators,
 } from '@angular/forms';
 import { RouterLink } from '@angular/router';
-import type { Company } from '../../models/admin-users.models';
+import { switchMap } from 'rxjs';
+import type { Company, CompanyBranding } from '../../models/admin-users.models';
 import { CompanyService } from '../../services/company.service';
+import {
+  COMPANY_BRANDING_FIELD_META,
+  DEFAULT_COMPANY_BRANDING,
+} from '../../utils/company-branding.utils';
 
 @Component({
   selector: 'app-companies-page',
@@ -32,9 +37,24 @@ export class CompaniesPageComponent implements OnInit, OnDestroy {
   /** Vista previa local o null si no hay selección. */
   readonly logoPreviewUrl = signal<string | null>(null);
 
+  /** Meta para pintar controles de color con etiquetas (documentos PDF). */
+  readonly brandingFields = COMPANY_BRANDING_FIELD_META;
+
   readonly form = this.fb.nonNullable.group({
     name: ['', Validators.required],
     bank_accounts: [''],
+  });
+
+  readonly brandingForm = this.fb.nonNullable.group({
+    primary: [DEFAULT_COMPANY_BRANDING.primary, Validators.required],
+    primary_light: [DEFAULT_COMPANY_BRANDING.primary_light, Validators.required],
+    muted: [DEFAULT_COMPANY_BRANDING.muted, Validators.required],
+    border: [DEFAULT_COMPANY_BRANDING.border, Validators.required],
+    table_stripe: [DEFAULT_COMPANY_BRANDING.table_stripe, Validators.required],
+    emphasis_bar: [DEFAULT_COMPANY_BRANDING.emphasis_bar, Validators.required],
+    text_body: [DEFAULT_COMPANY_BRANDING.text_body, Validators.required],
+    text_label: [DEFAULT_COMPANY_BRANDING.text_label, Validators.required],
+    text_caption: [DEFAULT_COMPANY_BRANDING.text_caption, Validators.required],
   });
 
   ngOnInit(): void {
@@ -64,6 +84,7 @@ export class CompaniesPageComponent implements OnInit, OnDestroy {
     this.editingId.set(null);
     this.editingRow.set(null);
     this.form.reset({ name: '', bank_accounts: '' });
+    this.brandingForm.reset({ ...DEFAULT_COMPANY_BRANDING });
     this.clearLogoPick();
     this.modalOpen.set(true);
   }
@@ -74,6 +95,9 @@ export class CompaniesPageComponent implements OnInit, OnDestroy {
     this.form.patchValue({
       name: row.name,
       bank_accounts: row.bank_accounts ?? '',
+    });
+    this.brandingForm.patchValue({
+      ...(row.branding ?? DEFAULT_COMPANY_BRANDING),
     });
     this.clearLogoPick();
     this.modalOpen.set(true);
@@ -118,8 +142,9 @@ export class CompaniesPageComponent implements OnInit, OnDestroy {
   }
 
   save(): void {
-    if (this.form.invalid) {
+    if (this.form.invalid || this.brandingForm.invalid) {
       this.form.markAllAsTouched();
+      this.brandingForm.markAllAsTouched();
       return;
     }
     const raw = this.form.getRawValue();
@@ -127,16 +152,17 @@ export class CompaniesPageComponent implements OnInit, OnDestroy {
     const bank_accounts = raw.bank_accounts.trim();
     const id = this.editingId();
     const file = this.logoFile();
+    const brandingBody = this.brandingForm.getRawValue() as CompanyBranding;
 
     this.saving.set(true);
     this.errorMessage.set(null);
 
-    const req =
+    const companyReq =
       id == null
         ? this.api.createWithOptionalLogo(name, bank_accounts, file)
         : this.api.updateWithOptionalLogo(id, name, bank_accounts, file);
 
-    req.subscribe({
+    companyReq.pipe(switchMap((co) => this.api.patchBranding(co.id, brandingBody))).subscribe({
       next: () => {
         this.saving.set(false);
         this.modalOpen.set(false);

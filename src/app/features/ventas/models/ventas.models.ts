@@ -69,6 +69,8 @@ export type QuotationStatus = 'APROBADA' | 'PENDIENTE' | 'RECHAZADA';
 
 export interface QuotationRow {
   id: number;
+  /** Empresa emisora (si la API expone el FK); si no, el PDF usa la empresa del vendedor o la del usuario actual. */
+  company?: number;
   quotation_type: QuotationType;
   money: QuotationMoney;
   status: QuotationStatus;
