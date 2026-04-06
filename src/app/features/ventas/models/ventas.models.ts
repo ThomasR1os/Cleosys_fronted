@@ -28,6 +28,16 @@ export interface ClientCreatePayload {
   contact: ClientContactPayload;
 }
 
+/** Objeto `encargado` en GET /ventas/client-contacts/ (nombre preformateado en el backend). */
+export interface ClientContactEncargado {
+  id: number;
+  username?: string;
+  first_name?: string;
+  last_name?: string;
+  /** first_name + last_name, o username, o fallback a id (según API). */
+  nombre?: string;
+}
+
 /**
  * GET /ventas/client-contacts/
  *
@@ -45,6 +55,8 @@ export interface ClientContactRow {
   user?: number | null;
   /** Datos legibles del vendedor / encargado del contacto. */
   owner_user?: ClientOwnerUser | null;
+  /** Encargado anidado (preferir `nombre` para mostrar en UI). */
+  encargado?: ClientContactEncargado | null;
   /** Si el serializer usa otro nombre para el FK de usuario. */
   owner?: number | null;
   /** Opcional: ids adicionales con permiso de ver datos sensibles (si el backend lo expone). */

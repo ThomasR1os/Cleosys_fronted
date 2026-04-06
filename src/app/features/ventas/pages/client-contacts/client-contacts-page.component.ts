@@ -25,7 +25,7 @@ export class ClientContactsPageComponent implements OnInit {
   readonly auth = inject(AuthService);
 
   readonly items = signal<ClientContactRow[]>([]);
-  /** Nombres para ids de usuario cuando el contacto no trae `owner_user` anidado. */
+  /** Nombres para ids de usuario cuando el contacto no trae `encargado.nombre` ni `owner_user`. */
   readonly userLabelById = signal<ReadonlyMap<number, string>>(new Map());
   readonly clientRow = signal<ClientRow | null>(null);
   readonly loading = signal(false);
@@ -74,6 +74,7 @@ export class ClientContactsPageComponent implements OnInit {
     const me = this.auth.me()?.user;
     for (const r of rows) {
       if (r.owner_user) continue;
+      if (r.encargado?.nombre?.trim()) continue;
       const id = r.user ?? r.owner;
       if (id == null) continue;
       if (known.has(id)) continue;
@@ -184,6 +185,8 @@ export class ClientContactsPageComponent implements OnInit {
 
   /** Vendedor / encargado asignado a este contacto. */
   encargadoLabel(row: ClientContactRow): string {
+    const nombreApi = row.encargado?.nombre?.trim();
+    if (nombreApi) return nombreApi;
     const u = row.owner_user;
     if (u) {
       const full = [u.first_name, u.last_name].filter(Boolean).join(' ').trim();

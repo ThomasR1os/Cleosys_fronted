@@ -124,12 +124,6 @@
         }
       </div>
       <form class="flex flex-col gap-4" [formGroup]="form" (ngSubmit)="save()">
-        @if (editingId() == null) {
-          <label class="flex w-full min-w-0 flex-col gap-1.5">
-            <span class="text-sm font-medium text-base-content">ID del cliente (opcional, si la base lo exige)</span>
-            <input class="input input-bordered w-full" type="number" formControlName="id" />
-          </label>
-        }
         @if (editingId() != null) {
           <div class="divider my-0 text-sm">Datos del cliente</div>
           <p class="text-xs text-base-content/70">
