@@ -11,6 +11,7 @@ import { RouterLink } from '@angular/router';
 import { lastValueFrom } from 'rxjs';
 import { environment } from '../../../../../environments/environment';
 import { AuthService } from '../../../../core/services/auth.service';
+import { textMatchesLooseQuery } from '../../../../core/utils/text-search.utils';
 import type { Product } from '../../../almacen/models/almacen.models';
 import { ProductService } from '../../../almacen/services/product.service';
 import {
@@ -42,9 +43,9 @@ export class ProductosPageComponent implements OnInit {
   readonly currentPage = signal(1);
 
   readonly filteredItems = computed(() => {
-    const q = this.searchQuery().trim().toLowerCase();
+    const q = this.searchQuery();
     const all = this.items();
-    if (!q) return all;
+    if (!q.trim()) return all;
     return all.filter((p) => {
       const blob = [
         String(p.id),
@@ -53,10 +54,8 @@ export class ProductosPageComponent implements OnInit {
         p.status ?? '',
         p.price ?? '',
         p.datasheet ?? '',
-      ]
-        .join(' ')
-        .toLowerCase();
-      return blob.includes(q);
+      ].join(' ');
+      return textMatchesLooseQuery(blob, q);
     });
   });
 

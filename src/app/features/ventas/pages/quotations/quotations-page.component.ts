@@ -11,6 +11,7 @@ import {
   Validators,
 } from '@angular/forms';
 import { RouterLink } from '@angular/router';
+import { textMatchesLooseQuery } from '../../../../core/utils/text-search.utils';
 import {
   concatMap,
   debounceTime,
@@ -166,15 +167,14 @@ export class QuotationsPageComponent implements OnInit {
   });
 
   readonly filteredProducts = computed(() => {
-    const q = this.productSearchQuery().trim().toLowerCase();
+    const raw = this.productSearchQuery();
     const all = this.productsCatalog();
-    const list = !q
+    const list = !raw.trim()
       ? all
       : all.filter(
           (p) =>
-            p.sku.toLowerCase().includes(q) ||
-            p.description.toLowerCase().includes(q) ||
-            String(p.id).includes(q),
+            textMatchesLooseQuery(`${p.sku} ${p.description}`, raw) ||
+            String(p.id).includes(raw.trim()),
         );
     return list.slice(0, PICKER_PAGE);
   });
