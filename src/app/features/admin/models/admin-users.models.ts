@@ -16,6 +16,8 @@ export interface CompanyBranding {
 
 export interface Company {
   id: number;
+  /** Campo `ruc` en tabla/API company (antes de `name` en el modelo Django). */
+  ruc?: string;
   name: string;
   /** URL del logo (ImageField en API) */
   logo?: string | null;

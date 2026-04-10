@@ -41,6 +41,7 @@ export class CompaniesPageComponent implements OnInit, OnDestroy {
   readonly brandingFields = COMPANY_BRANDING_FIELD_META;
 
   readonly form = this.fb.nonNullable.group({
+    ruc: [''],
     name: ['', Validators.required],
     bank_accounts: [''],
   });
@@ -83,7 +84,7 @@ export class CompaniesPageComponent implements OnInit, OnDestroy {
   openNew(): void {
     this.editingId.set(null);
     this.editingRow.set(null);
-    this.form.reset({ name: '', bank_accounts: '' });
+    this.form.reset({ ruc: '', name: '', bank_accounts: '' });
     this.brandingForm.reset({ ...DEFAULT_COMPANY_BRANDING });
     this.clearLogoPick();
     this.modalOpen.set(true);
@@ -93,6 +94,7 @@ export class CompaniesPageComponent implements OnInit, OnDestroy {
     this.editingId.set(row.id);
     this.editingRow.set(row);
     this.form.patchValue({
+      ruc: row.ruc ?? '',
       name: row.name,
       bank_accounts: row.bank_accounts ?? '',
     });
@@ -148,6 +150,7 @@ export class CompaniesPageComponent implements OnInit, OnDestroy {
       return;
     }
     const raw = this.form.getRawValue();
+    const ruc = raw.ruc.trim();
     const name = raw.name.trim();
     const bank_accounts = raw.bank_accounts.trim();
     const id = this.editingId();
@@ -159,8 +162,8 @@ export class CompaniesPageComponent implements OnInit, OnDestroy {
 
     const companyReq =
       id == null
-        ? this.api.createWithOptionalLogo(name, bank_accounts, file)
-        : this.api.updateWithOptionalLogo(id, name, bank_accounts, file);
+        ? this.api.createWithOptionalLogo(ruc, name, bank_accounts, file)
+        : this.api.updateWithOptionalLogo(id, ruc, name, bank_accounts, file);
 
     companyReq.pipe(switchMap((co) => this.api.patchBranding(co.id, brandingBody))).subscribe({
       next: () => {

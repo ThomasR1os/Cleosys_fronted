@@ -27,6 +27,7 @@
             <th>ID</th>
             <th>Logo</th>
             <th>Paleta PDF</th>
+            <th>RUC</th>
             <th>Nombre</th>
             <th>Cuentas bancarias</th>
             <th class="text-right">Acciones</th>
@@ -67,6 +68,7 @@
                   <span class="text-base-content/50">—</span>
                 }
               </td>
+              <td class="font-mono whitespace-nowrap">{{ row.ruc?.trim() || '—' }}</td>
               <td class="font-medium">{{ row.name }}</td>
               <td class="max-w-xs">
                 @if (row.bank_accounts?.trim()) {
@@ -90,7 +92,7 @@
             </tr>
           } @empty {
             <tr>
-              <td colspan="6" class="text-base-content/60 text-center">No hay empresas.</td>
+              <td colspan="7" class="text-base-content/60 text-center">No hay empresas.</td>
             </tr>
           }
         </tbody>
@@ -106,6 +108,17 @@
         {{ editingId() == null ? 'Nueva empresa' : 'Editar empresa' }}
       </h2>
       <form class="flex flex-col gap-4" [formGroup]="form" (ngSubmit)="save()">
+        <label class="form-control">
+          <span class="label-text">RUC</span>
+          <input
+            class="input input-bordered font-mono"
+            type="text"
+            formControlName="ruc"
+            autocomplete="off"
+            placeholder="Ej. 20XXXXXXXXX"
+          />
+        </label>
+
         <label class="form-control">
           <span class="label-text">Nombre</span>
           <input

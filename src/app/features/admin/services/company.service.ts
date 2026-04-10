@@ -49,6 +49,7 @@ function normalizeCompany(row: Record<string, unknown>): Company {
     normalizeBranding(row['branding']) ?? { ...DEFAULT_COMPANY_BRANDING };
   return {
     id: Number(row['id']),
+    ruc: String(row['ruc'] ?? ''),
     name: String(row['name'] ?? ''),
     logo,
     bank_accounts: String(row['bank_accounts'] ?? ''),
@@ -76,13 +77,16 @@ export class CompanyService {
     );
   }
 
-  create(body: Pick<Company, 'name' | 'bank_accounts'>): Observable<Company> {
+  create(body: Pick<Company, 'ruc' | 'name' | 'bank_accounts'>): Observable<Company> {
     return this.http.post<Record<string, unknown>>(`${this.base}/`, body).pipe(
       map((r) => normalizeCompany(r)),
     );
   }
 
-  update(id: number, body: Partial<Pick<Company, 'name' | 'bank_accounts'>>): Observable<Company> {
+  update(
+    id: number,
+    body: Partial<Pick<Company, 'ruc' | 'name' | 'bank_accounts'>>,
+  ): Observable<Company> {
     return this.http.patch<Record<string, unknown>>(`${this.base}/${id}/`, body).pipe(
       map((r) => normalizeCompany(r)),
     );
@@ -108,11 +112,12 @@ export class CompanyService {
    * Alta: JSON y opcionalmente un logo en segunda petición.
    */
   createWithOptionalLogo(
+    ruc: string,
     name: string,
     bank_accounts: string,
     logoFile: File | null,
   ): Observable<Company> {
-    return this.create({ name, bank_accounts }).pipe(
+    return this.create({ ruc, name, bank_accounts }).pipe(
       switchMap((co) => (logoFile ? this.uploadLogo(co.id, logoFile) : of(co))),
     );
   }
@@ -122,11 +127,12 @@ export class CompanyService {
    */
   updateWithOptionalLogo(
     id: number,
+    ruc: string,
     name: string,
     bank_accounts: string,
     logoFile: File | null,
   ): Observable<Company> {
-    return this.update(id, { name, bank_accounts }).pipe(
+    return this.update(id, { ruc, name, bank_accounts }).pipe(
       switchMap((co) => (logoFile ? this.uploadLogo(id, logoFile) : of(co))),
     );
   }
