@@ -19,6 +19,10 @@ export interface Company {
   /** Campo `ruc` en tabla/API company (antes de `name` en el modelo Django). */
   ruc?: string;
   name: string;
+  /** PDF / datos fiscales (si el backend los expone). */
+  legal_name?: string;
+  address?: string;
+  district?: string;
   /** URL del logo (ImageField en API) */
   logo?: string | null;
   /** Texto libre; campo `bank_accounts` en API Django */

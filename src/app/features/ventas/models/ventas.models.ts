@@ -12,6 +12,8 @@ export interface ClientRow {
   id: number;
   ruc: string;
   name: string;
+  /** Si la API lo devuelve (dirección fiscal o de entrega). */
+  address?: string;
 }
 
 /** POST /clients/: cuerpo `contact` obligatorio. */
@@ -67,27 +69,71 @@ export type QuotationType = 'VENTA' | 'ALQUILER' | 'SERVICIO';
 export type QuotationMoney = 'USD' | 'PEN';
 export type QuotationStatus = 'APROBADA' | 'PENDIENTE' | 'RECHAZADA';
 
+/**
+ * Asesor anidado en cotizaciones (`user_detail`).
+ * `QuotationSerializer` / detalle de usuario: nombre para UI; email y cellphone según permisos (p. ej. PDF).
+ */
+export interface QuotationUserDetail {
+  id: number;
+  username: string;
+  first_name: string;
+  last_name: string;
+  /** Texto listo para UI: nombre apellido, o username, o id. */
+  nombre: string;
+  email?: string | null;
+  cellphone?: string | null;
+}
+
+/**
+ * Contacto del cliente anidado en cotización (`client_contact_detail`, solo lectura).
+ * `nombre` siempre; `email` y `phone` pueden ser null (misma regla que `GET /ventas/client-contacts/`).
+ */
+export interface QuotationClientContactDetail {
+  id: number;
+  contact_first_name: string;
+  contact_last_name: string;
+  nombre: string;
+  email?: string | null;
+  phone?: string | null;
+}
+
+/**
+ * Recurso cotización: `GET|POST /api/ventas/quotations/`, `GET|PATCH|PUT|DELETE /api/ventas/quotations/{id}/`.
+ * JSON producido por `QuotationSerializer` (ventas/serializers.py).
+ */
 export interface QuotationRow {
   id: number;
-  /** Empresa emisora (si la API expone el FK); si no, el PDF usa la empresa del vendedor o la del usuario actual. */
-  company?: number;
   quotation_type: QuotationType;
   money: QuotationMoney;
+  /** PEN por 1 USD o null si no aplica. */
+  exchange_rate?: string | number | null;
   status: QuotationStatus;
+  /** FK a `core.Client`. */
   client: number;
+  /** FK opcional a contacto del cliente; escritura en POST/PATCH. */
+  client_contact?: number | null;
+  /** Solo lectura: anidado desde serializer; null si no hay contacto. */
+  client_contact_detail?: QuotationClientContactDetail | null;
+  /** FK al usuario asesor/creador. */
   user: number;
+  /** Asesor anidado (PDF, listado). */
+  user_detail?: QuotationUserDetail | null;
+  /** Generado en servidor; solo lectura en API. */
   correlativo: string;
+  /** Importes como string decimal típico de DRF. */
   discount: string;
   final_price: string;
   delivery_time: number;
-  conditions: string;
+  /** Texto libre o null. */
+  conditions: string | null;
   payment_methods: number;
-  works: string;
+  /** Alcance / trabajos; texto o null. */
+  works: string | null;
   see_sku: boolean;
-  /** Tipo de cambio PEN por 1 USD (si el backend lo expone). */
-  exchange_rate?: string | number | null;
   creation_date?: string;
   update_date?: string;
+  /** Empresa emisora si el backend expone FK (p. ej. branding PDF). */
+  company?: number;
 }
 
 export interface QuotationProductRow {

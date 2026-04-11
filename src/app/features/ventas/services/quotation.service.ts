@@ -4,6 +4,7 @@ import { Observable } from 'rxjs';
 import { environment } from '../../../../environments/environment';
 import type { QuotationRow } from '../models/ventas.models';
 
+/** Cliente HTTP: `GET|POST …/api/ventas/quotations/`, `GET|PATCH|PUT|DELETE …/quotations/{id}/`. */
 @Injectable({ providedIn: 'root' })
 export class QuotationService {
   private readonly http = inject(HttpClient);

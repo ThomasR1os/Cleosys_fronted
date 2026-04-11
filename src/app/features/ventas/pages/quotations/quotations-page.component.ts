@@ -13,6 +13,7 @@ import {
 import { RouterLink } from '@angular/router';
 import { textMatchesLooseQuery } from '../../../../core/utils/text-search.utils';
 import {
+  catchError,
   concatMap,
   debounceTime,
   distinctUntilChanged,
@@ -22,7 +23,7 @@ import {
   of,
 } from 'rxjs';
 import { map, toArray } from 'rxjs/operators';
-import type { AdminUser, CompanyBranding, UserRole } from '../../../admin/models/admin-users.models';
+import type { AdminUser, Company, CompanyBranding, UserRole } from '../../../admin/models/admin-users.models';
 import { AdminUserService } from '../../../admin/services/admin-user.service';
 import { CompanyService } from '../../../admin/services/company.service';
 import {
@@ -30,13 +31,17 @@ import {
   DEFAULT_COMPANY_BRANDING,
   type PdfQuotationTheme,
 } from '../../../admin/utils/company-branding.utils';
+import { ShortDateTimePipe } from '../../../../core/pipes/short-datetime.pipe';
 import { AuthService } from '../../../../core/services/auth.service';
 import { ProductImageService } from '../../../almacen/services/product-image.service';
 import { ProductService } from '../../../almacen/services/product.service';
 import type { Product } from '../../../almacen/models/almacen.models';
 import type {
+  ClientContactRow,
   ClientRow,
   PaymentMethodRow,
+  QuotationClientContactDetail,
+  QuotationMoney,
   QuotationProductRow,
   QuotationRow,
   QuotationStatus,
@@ -64,7 +69,7 @@ interface DraftQuotationLine {
 
 @Component({
   selector: 'app-quotations-page',
-  imports: [ReactiveFormsModule, RouterLink],
+  imports: [ReactiveFormsModule, RouterLink, ShortDateTimePipe],
   templateUrl: './quotations-page.component.html',
 })
 export class QuotationsPageComponent implements OnInit {
@@ -83,13 +88,84 @@ export class QuotationsPageComponent implements OnInit {
   readonly auth = inject(AuthService);
 
   readonly quotations = signal<QuotationRow[]>([]);
+
+  /** Búsqueda en listado (correlativo, cliente, asesor, estado, etc.). */
+  readonly listSearchQuery = signal('');
+  /** null = todos los asesores. */
+  readonly filterSellerUserId = signal<number | null>(null);
+  readonly filterStatus = signal<'ALL' | QuotationStatus>('ALL');
+  readonly filterQuotationType = signal<'ALL' | QuotationType>('ALL');
+  readonly filterMoney = signal<'ALL' | QuotationMoney>('ALL');
+
+  readonly filteredQuotations = computed(() => {
+    let rows = this.quotations();
+    const sellerId = this.filterSellerUserId();
+    if (sellerId != null) rows = rows.filter((r) => r.user === sellerId);
+    const st = this.filterStatus();
+    if (st !== 'ALL') rows = rows.filter((r) => r.status === st);
+    const qt = this.filterQuotationType();
+    if (qt !== 'ALL') rows = rows.filter((r) => r.quotation_type === qt);
+    const mo = this.filterMoney();
+    if (mo !== 'ALL') rows = rows.filter((r) => r.money === mo);
+    const raw = this.listSearchQuery().trim();
+    if (raw) {
+      rows = rows.filter((r) => {
+        const cat = this.salesUsersCatalog().find((x) => x.id === r.user);
+        const haystack = [
+          r.correlativo,
+          String(r.id),
+          this.clientName(r.client),
+          this.quotationClientContactDisplayName(r),
+          r.status,
+          r.quotation_type,
+          r.money,
+          this.asesorDisplayFromRow(r),
+          r.user_detail?.nombre ?? '',
+          r.user_detail?.username ?? '',
+          r.user_detail?.first_name ?? '',
+          r.user_detail?.last_name ?? '',
+          cat?.username ?? '',
+          this.formatDate(r.creation_date),
+        ].join(' ');
+        return textMatchesLooseQuery(haystack, raw);
+      });
+    }
+    return rows;
+  });
+
+  /** Asesores que aparecen en el listado cargado (para el filtro por usuario). */
+  readonly quotationSellerFilterOptions = computed(() => {
+    const quotes = this.quotations();
+    const ids = [...new Set(quotes.map((q) => q.user))].filter((id) => id > 0);
+    const labelById = new Map<number, string>();
+    for (const q of quotes) {
+      if (q.user > 0 && !labelById.has(q.user)) {
+        labelById.set(q.user, this.asesorDisplayFromRow(q));
+      }
+    }
+    ids.sort((a, b) =>
+      (labelById.get(a) ?? '').localeCompare(labelById.get(b) ?? '', 'es', { sensitivity: 'base' }),
+    );
+    return ids.map((id) => ({ id, label: labelById.get(id) ?? this.asesorNombreApellidosById(id) }));
+  });
+
+  readonly hasActiveListFilters = computed(() => {
+    return (
+      this.listSearchQuery().trim() !== '' ||
+      this.filterSellerUserId() != null ||
+      this.filterStatus() !== 'ALL' ||
+      this.filterQuotationType() !== 'ALL' ||
+      this.filterMoney() !== 'ALL'
+    );
+  });
+
   /** Página actual (0-based) en el listado de cotizaciones. */
   readonly pageIndex = signal(0);
   /** Filas por página en el listado. */
   readonly pageSize = signal(10);
   readonly pageSizeOptions = [10, 25, 50] as const;
 
-  readonly totalCount = computed(() => this.quotations().length);
+  readonly totalCount = computed(() => this.filteredQuotations().length);
   readonly totalPages = computed(() => {
     const n = this.totalCount();
     const ps = this.pageSize();
@@ -97,7 +173,7 @@ export class QuotationsPageComponent implements OnInit {
     return Math.ceil(n / ps);
   });
   readonly pagedQuotations = computed(() => {
-    const all = this.quotations();
+    const all = this.filteredQuotations();
     const ps = this.pageSize();
     const start = this.pageIndex() * ps;
     return all.slice(start, start + ps);
@@ -145,6 +221,8 @@ export class QuotationsPageComponent implements OnInit {
   /** Usuarios rol VENTAS (cuenta admin). */
   readonly salesUsersCatalog = signal<AdminUser[]>([]);
   readonly salesUsersLoading = signal(false);
+  /** Contactos del cliente del modal (selector «Atención» + filtro vendedores admin). */
+  readonly quotationClientContacts = signal<ClientContactRow[]>([]);
   /** Contactos del cliente seleccionado (para filtrar vendedores). */
   readonly sellerContactsLoading = signal(false);
   /** Hay al menos un contacto para el cliente (GET contactos). */
@@ -258,6 +336,8 @@ export class QuotationsPageComponent implements OnInit {
     exchangeRate: this.fb.control<number | null>(null),
     status: this.fb.nonNullable.control<QuotationStatus>('PENDIENTE', Validators.required),
     client: this.fb.nonNullable.control<number>(0, Validators.required),
+    /** Contacto del cliente (opcional); validación en API. */
+    client_contact: this.fb.control<number | null>(null),
     user: this.fb.control<number | null>(null),
     /** Porcentaje 0–100; el importe enviado al API se calcula sobre el subtotal de líneas. */
     discountPercent: this.fb.nonNullable.control<number>(0, [
@@ -300,6 +380,60 @@ export class QuotationsPageComponent implements OnInit {
       .subscribe(() => this.tryApplyUsdToPenWhenRateFilled());
 
     this.reload();
+    this.adminUsersApi.list().subscribe({
+      next: (users) => this.mergeSalesUsersIntoCatalog(users),
+      error: () => {},
+    });
+  }
+
+  /** Une usuarios al catálogo sin borrar filas ya cargadas (p. ej. hydrate por id). */
+  private mergeSalesUsersIntoCatalog(users: AdminUser[]): void {
+    const map = new Map(this.salesUsersCatalog().map((u) => [u.id, u] as const));
+    for (const u of users) map.set(u.id, u);
+    this.salesUsersCatalog.set([...map.values()].sort((a, b) => a.id - b.id));
+  }
+
+  onListSearchInput(ev: Event): void {
+    this.listSearchQuery.set((ev.target as HTMLInputElement).value);
+    this.resetListPagingAfterFilter();
+  }
+
+  onFilterSellerChange(ev: Event): void {
+    const v = (ev.target as HTMLSelectElement).value;
+    this.filterSellerUserId.set(v === '' ? null : Number(v));
+    this.resetListPagingAfterFilter();
+  }
+
+  onFilterStatusChange(ev: Event): void {
+    const v = (ev.target as HTMLSelectElement).value;
+    this.filterStatus.set(v === 'ALL' ? 'ALL' : (v as QuotationStatus));
+    this.resetListPagingAfterFilter();
+  }
+
+  onFilterQuotationTypeChange(ev: Event): void {
+    const v = (ev.target as HTMLSelectElement).value;
+    this.filterQuotationType.set(v === 'ALL' ? 'ALL' : (v as QuotationType));
+    this.resetListPagingAfterFilter();
+  }
+
+  onFilterMoneyChange(ev: Event): void {
+    const v = (ev.target as HTMLSelectElement).value;
+    this.filterMoney.set(v === 'ALL' ? 'ALL' : (v as QuotationMoney));
+    this.resetListPagingAfterFilter();
+  }
+
+  clearListFilters(): void {
+    this.listSearchQuery.set('');
+    this.filterSellerUserId.set(null);
+    this.filterStatus.set('ALL');
+    this.filterQuotationType.set('ALL');
+    this.filterMoney.set('ALL');
+    this.resetListPagingAfterFilter();
+  }
+
+  private resetListPagingAfterFilter(): void {
+    this.pageIndex.set(0);
+    this.clampQuotationPageIndex();
   }
 
   /** PEN: tipo de cambio obligatorio; USD: se limpia. */
@@ -605,6 +739,8 @@ export class QuotationsPageComponent implements OnInit {
       next: ({ q, qp, pm, cl }) => {
         this.quotations.set([...q].sort((a, b) => b.id - a.id));
         this.clampQuotationPageIndex();
+        this.mergeUserDetailsFromQuotations(q);
+        this.hydrateSalesUsersFromQuotations(q);
         this.qpItems.set(qp);
         this.paymentMethods.set(pm);
         this.clients.set(cl);
@@ -625,6 +761,49 @@ export class QuotationsPageComponent implements OnInit {
     });
   }
 
+  /** Incorpora `user_detail` del API al catálogo para pickers y etiquetas sin GET extra. */
+  private mergeUserDetailsFromQuotations(rows: QuotationRow[]): void {
+    const additions: AdminUser[] = [];
+    const have = new Set(this.salesUsersCatalog().map((u) => u.id));
+    for (const row of rows) {
+      const d = row.user_detail;
+      if (!d || have.has(d.id)) continue;
+      additions.push({
+        id: d.id,
+        username: d.username ?? '',
+        email: d.email?.trim() ?? '',
+        first_name: d.first_name ?? '',
+        last_name: d.last_name ?? '',
+        cellphone: d.cellphone?.trim(),
+        is_active: true,
+        is_superuser: false,
+        profile: null,
+      });
+      have.add(d.id);
+    }
+    if (additions.length > 0) this.mergeSalesUsersIntoCatalog(additions);
+  }
+
+  /**
+   * Completa `salesUsersCatalog` con GET por id para asesores que aparecen en cotizaciones
+   * pero no vinieron en el listado global (p. ej. permisos distintos o lista incompleta).
+   */
+  private hydrateSalesUsersFromQuotations(rows: QuotationRow[]): void {
+    const ids = [...new Set(rows.map((r) => r.user))].filter((id) => id > 0);
+    const have = new Set(this.salesUsersCatalog().map((u) => u.id));
+    const missing = ids.filter((id) => !have.has(id));
+    if (missing.length === 0) return;
+    forkJoin(
+      missing.map((id) =>
+        this.adminUsersApi.retrieve(id).pipe(catchError(() => of<AdminUser | null>(null))),
+      ),
+    ).subscribe((results) => {
+      const additions = results.filter((u): u is AdminUser => u != null);
+      if (additions.length === 0) return;
+      this.mergeSalesUsersIntoCatalog(additions);
+    });
+  }
+
   /** Catálogo de usuarios para el selector de vendedor (solo admin en modal). */
   ensureSalesUsersLoaded(cb?: () => void): void {
     if (this.salesUsersCatalog().length > 0) {
@@ -635,7 +814,7 @@ export class QuotationsPageComponent implements OnInit {
     this.salesUsersLoading.set(true);
     this.adminUsersApi.list().subscribe({
       next: (users) => {
-        this.salesUsersCatalog.set(users);
+        this.mergeSalesUsersIntoCatalog(users);
         this.salesUsersLoading.set(false);
         cb?.();
       },
@@ -647,25 +826,22 @@ export class QuotationsPageComponent implements OnInit {
   }
 
   /**
-   * Filtra vendedores según contactos del cliente.
-   * Regla UX: vendedor debe ser uno asignado a un contacto de ese cliente (cuando existan esos datos).
+   * Carga contactos del cliente (selector «Atención» + filtro de vendedores para admin).
    */
   refreshSellerEligibility(clientId: number, done?: () => void): void {
-    if (!this.auth.isAdmin()) {
-      done?.();
-      return;
-    }
     if (clientId <= 0) {
+      this.quotationClientContacts.set([]);
       this.sellerHasContacts.set(false);
       this.sellerEligibleIdsFromContacts.set(new Set());
       this.sellerContactsLoading.set(false);
-      this.syncSellerFormToAllowedList();
+      if (this.auth.isAdmin()) this.syncSellerFormToAllowedList();
       done?.();
       return;
     }
     this.sellerContactsLoading.set(true);
     this.clientContactsApi.listForClient(clientId).subscribe({
       next: (contacts) => {
+        this.quotationClientContacts.set(contacts);
         const ids = new Set<number>();
         for (const c of contacts) {
           const uid = c.user ?? c.owner;
@@ -674,10 +850,20 @@ export class QuotationsPageComponent implements OnInit {
         this.sellerHasContacts.set(contacts.length > 0);
         this.sellerEligibleIdsFromContacts.set(ids);
         this.sellerContactsLoading.set(false);
-        this.syncSellerFormToAllowedList();
+        if (this.auth.isAdmin()) this.syncSellerFormToAllowedList();
+        /** Un solo contacto en el cliente → es el atendido habitual; preseleccionar si aún no hay FK. */
+        if (
+          this.modalOpen() &&
+          !this.quotationModalReadonly() &&
+          contacts.length === 1 &&
+          this.form.controls.client_contact.value == null
+        ) {
+          this.form.patchValue({ client_contact: contacts[0].id }, { emitEvent: false });
+        }
         done?.();
       },
       error: () => {
+        this.quotationClientContacts.set([]);
         this.sellerContactsLoading.set(false);
         this.sellerHasContacts.set(false);
         this.sellerEligibleIdsFromContacts.set(new Set());
@@ -694,6 +880,99 @@ export class QuotationsPageComponent implements OnInit {
   sellerLabelById(id: number): string {
     const u = this.salesUsersCatalog().find((x) => x.id === id);
     return u ? this.sellerDisplay(u) : `Usuario #${id}`;
+  }
+
+  /** Nombre para mostrar del contacto de atención (listado, PDF, búsqueda). */
+  quotationClientContactDisplayName(row: QuotationRow): string {
+    const d = row.client_contact_detail;
+    if (d) {
+      const n = d.nombre?.trim();
+      if (n) return n;
+      const full = `${d.contact_first_name ?? ''} ${d.contact_last_name ?? ''}`.trim();
+      if (full) return full;
+    }
+    const cid = row.client_contact;
+    if (cid != null && cid > 0) {
+      const c = this.quotationClientContacts().find((x) => x.id === cid);
+      if (c) return this.contactOptionLabel(c);
+    }
+    return '—';
+  }
+
+  /**
+   * Completa nombre de atención para el PDF: detalle del API, contacto por id, o —si hay un único contacto en el cliente— ese.
+   */
+  private async enrichQuotationRowWithClientContactDetail(row: QuotationRow): Promise<QuotationRow> {
+    const detailFromContact = (c: ClientContactRow): QuotationClientContactDetail => ({
+      id: c.id,
+      contact_first_name: c.contact_first_name,
+      contact_last_name: c.contact_last_name,
+      nombre: this.contactOptionLabel(c),
+      email: c.email ?? null,
+      phone: c.phone ?? null,
+    });
+
+    const hasDisplayName = (r: QuotationRow): boolean => {
+      const d = r.client_contact_detail;
+      if (!d) return false;
+      return !!(
+        d.nombre?.trim() ||
+        `${d.contact_first_name ?? ''} ${d.contact_last_name ?? ''}`.trim()
+      );
+    };
+
+    if (hasDisplayName(row)) return row;
+    if (row.client <= 0) return row;
+
+    const contacts = await firstValueFrom(
+      this.clientContactsApi.listForClient(row.client).pipe(catchError(() => of([] as ClientContactRow[]))),
+    );
+
+    const cid = row.client_contact;
+    if (cid != null && cid > 0) {
+      const c = contacts.find((x) => x.id === cid);
+      if (c) return { ...row, client_contact_detail: detailFromContact(c) };
+    }
+
+    /** Cotización sin FK pero el cliente tiene un solo contacto (registrado en Clientes): misma persona atendida. */
+    if (contacts.length === 1) {
+      const c = contacts[0];
+      return {
+        ...row,
+        client_contact: c.id,
+        client_contact_detail: detailFromContact(c),
+      };
+    }
+
+    return row;
+  }
+
+  contactOptionLabel(c: ClientContactRow): string {
+    const full = `${c.contact_first_name ?? ''} ${c.contact_last_name ?? ''}`.trim();
+    return full || `Contacto #${c.id}`;
+  }
+
+  /** Listado / PDF: prioriza `user_detail` del API, luego catálogo. */
+  asesorDisplayFromRow(row: QuotationRow): string {
+    const d = row.user_detail;
+    if (d?.nombre?.trim()) return d.nombre.trim();
+    if (d) {
+      const full = `${(d.first_name ?? '').trim()} ${(d.last_name ?? '').trim()}`.trim();
+      if (full) return full;
+      if (d.username?.trim()) return d.username.trim();
+    }
+    return this.asesorNombreApellidosById(row.user);
+  }
+
+  /** Listado y filtros: nombre y apellidos del asesor (prioridad sobre usuario). */
+  asesorNombreApellidosById(id: number): string {
+    const u = this.salesUsersCatalog().find((x) => x.id === id);
+    if (!u) return `Usuario #${id}`;
+    const first = (u.first_name ?? '').trim();
+    const last = (u.last_name ?? '').trim();
+    const full = `${first} ${last}`.trim();
+    if (full) return full;
+    return u.username || `Usuario #${id}`;
   }
 
   /** Si el vendedor elegido no está permitido, se ajusta al primero de la lista o null. */
@@ -793,11 +1072,15 @@ export class QuotationsPageComponent implements OnInit {
   }
 
   selectClient(c: ClientRow): void {
-    this.form.patchValue({ client: c.id });
+    this.form.patchValue({ client: c.id, client_contact: null });
     this.clientSearchQuery.set(`${c.name}${c.ruc ? ` · ${c.ruc}` : ''}`);
     this.clientPickerOpen.set(false);
-    if (this.auth.isAdmin() && this.modalOpen()) {
-      this.ensureSalesUsersLoaded(() => this.refreshSellerEligibility(c.id));
+    if (this.modalOpen()) {
+      if (this.auth.isAdmin()) {
+        this.ensureSalesUsersLoaded(() => this.refreshSellerEligibility(c.id));
+      } else {
+        this.refreshSellerEligibility(c.id);
+      }
     }
   }
 
@@ -932,6 +1215,7 @@ export class QuotationsPageComponent implements OnInit {
         client: cl,
         /** Admin elige vendedor; ventas envía siempre su propio usuario al guardar. */
         user: this.auth.isAdmin() ? null : (sellerId ?? null),
+        client_contact: null,
         discountPercent: 0,
         delivery_time: 0,
         conditions: '',
@@ -949,11 +1233,15 @@ export class QuotationsPageComponent implements OnInit {
     this.sellerPickerOpen.set(false);
     this.sellerSearchQuery.set('');
     this.applyQuotationModalReadonlyToForm();
-    if (this.auth.isAdmin()) {
-      this.sellerContactsLoading.set(true);
-      this.ensureSalesUsersLoaded(() => {
-        this.refreshSellerEligibility(this.form.controls.client.value);
-      });
+    if (cl > 0) {
+      if (this.auth.isAdmin()) {
+        this.sellerContactsLoading.set(true);
+        this.ensureSalesUsersLoaded(() => {
+          this.refreshSellerEligibility(this.form.controls.client.value);
+        });
+      } else {
+        this.refreshSellerEligibility(cl);
+      }
     }
   }
 
@@ -973,12 +1261,13 @@ export class QuotationsPageComponent implements OnInit {
         exchangeRate: this.exchangeRateFromRow(row),
         status: row.status,
         client: row.client,
+        client_contact: row.client_contact ?? null,
         user: row.user,
         discountPercent: this.discountPercentFromStoredAmount(sub, Number(row.discount)),
         delivery_time: row.delivery_time,
-        conditions: row.conditions,
+        conditions: row.conditions ?? '',
         payment_methods: row.payment_methods,
-        works: row.works,
+        works: row.works ?? '',
         see_sku: row.see_sku,
       },
       { emitEvent: false },
@@ -994,6 +1283,7 @@ export class QuotationsPageComponent implements OnInit {
       this.ensureSalesUsersLoaded(() => this.refreshSellerEligibility(row.client));
     } else {
       this.sellerSearchQuery.set('');
+      this.refreshSellerEligibility(row.client);
     }
     this.applyQuotationModalReadonlyToForm();
     this.ensureProductsCatalog();
@@ -1015,12 +1305,13 @@ export class QuotationsPageComponent implements OnInit {
         exchangeRate: this.exchangeRateFromRow(row),
         status: row.status,
         client: row.client,
+        client_contact: row.client_contact ?? null,
         user: row.user,
         discountPercent: this.discountPercentFromStoredAmount(sub, Number(row.discount)),
         delivery_time: row.delivery_time,
-        conditions: row.conditions,
+        conditions: row.conditions ?? '',
         payment_methods: row.payment_methods,
-        works: row.works,
+        works: row.works ?? '',
         see_sku: row.see_sku,
       },
       { emitEvent: false },
@@ -1039,6 +1330,7 @@ export class QuotationsPageComponent implements OnInit {
       });
     } else {
       this.sellerSearchQuery.set('');
+      this.refreshSellerEligibility(row.client);
     }
     this.ensureProductsCatalog();
   }
@@ -1094,11 +1386,16 @@ export class QuotationsPageComponent implements OnInit {
     const sub = this.previewSubtotal();
     const discAmt = this.previewDiscountAmount();
     const finalNet = Math.max(0, sub - discAmt);
+    let clientContactId = v.client_contact ?? null;
+    if (clientContactId == null && v.client > 0 && this.quotationClientContacts().length === 1) {
+      clientContactId = this.quotationClientContacts()[0].id;
+    }
     const body: Record<string, unknown> = {
       quotation_type: v.quotation_type,
       money: v.money,
       status: v.status,
       client: v.client,
+      client_contact: clientContactId,
       user: quotationUserId,
       /** API histórico: importe descontado (compatible con `subtotal − discount`). */
       discount: discAmt.toFixed(2),
@@ -1419,60 +1716,104 @@ export class QuotationsPageComponent implements OnInit {
     const run = () =>
       this.ensureProductsCatalog(() => {
         void (async () => {
+          await this.loadSalesUsersCatalogIfEmpty();
           const qpLines = this.linesForQuotationId(row.id);
           const creatorUser = await this.resolveCreatorUserForPdf(row);
           const companyId = this.resolveQuotationPdfCompanyId(row, creatorUser);
           const companyPdf = await this.loadCompanyPdfAssets(companyId);
           const T = brandingToPdfTheme(companyPdf.branding);
-          const [sellerLabel, productImages, creatorIconPng] = await Promise.all([
-            this.resolveSellerLabelForPdf(row),
+          const [productImages, creatorIconPng] = await Promise.all([
             this.loadProductImageDataUrlsForPdf(qpLines.map((l) => l.product)),
             this.rasterizePdfUserIconSvg(T.primary),
           ]);
+          const rowForPdf = await this.enrichQuotationRowWithClientContactDetail(row);
           this.generateQuotationPdf(
-            row,
+            rowForPdf,
             T,
             companyPdf.logoDataUrl,
-            sellerLabel,
             productImages,
             companyPdf.bankAccounts,
             creatorUser,
             creatorIconPng,
+            companyPdf.companyRazonSocial,
+            companyPdf.companyRuc,
           );
         })();
       });
-    if (this.auth.isAdmin()) {
-      this.ensureSalesUsersLoaded(run);
-    } else {
-      run();
-    }
+    run();
   }
 
-  /** Nombre del vendedor para PDF: catálogo o GET usuario (evita «Usuario #id»). */
-  private async resolveSellerLabelForPdf(row: QuotationRow): Promise<string> {
-    const id = row.user;
-    if (id <= 0) return '—';
-    const cached = this.salesUsersCatalog().find((u) => u.id === id);
-    if (cached) return this.sellerDisplay(cached);
+  /**
+   * Antes de armar el PDF, carga el listado de usuarios si el catálogo está vacío.
+   * Así otro usuario (p. ej. admin) puede ver correo/teléfono del vendedor cuando el GET por id no los trae.
+   */
+  private async loadSalesUsersCatalogIfEmpty(): Promise<void> {
+    if (this.salesUsersCatalog().length > 0) return;
     try {
-      const u = await firstValueFrom(this.adminUsersApi.retrieve(id));
-      return this.sellerDisplay(u);
+      const users = await firstValueFrom(
+        this.adminUsersApi.list().pipe(catchError(() => of([] as AdminUser[]))),
+      );
+      if (users.length > 0) this.mergeSalesUsersIntoCatalog(users);
     } catch {
-      return `Usuario #${id}`;
+      /* sin catálogo: el PDF sigue con retrieve + sesión */
     }
   }
 
-  /** Usuario que creó la cotización (`row.user`) para el bloque centrado al pie del PDF. */
+  /**
+   * Usuario que creó la cotización para el PDF.
+   * Prioridad de contacto: `user_detail` de la cotización (API) → GET usuario → catálogo → `/auth/me/`.
+   */
   private async resolveCreatorUserForPdf(row: QuotationRow): Promise<AdminUser | null> {
     const id = row.user;
     if (id <= 0) return null;
-    const cached = this.salesUsersCatalog().find((u) => u.id === id);
-    if (cached) return cached;
+    const ud = row.user_detail;
+
+    let detail: AdminUser | null = null;
     try {
-      return await firstValueFrom(this.adminUsersApi.retrieve(id));
+      detail = await firstValueFrom(this.adminUsersApi.retrieve(id));
     } catch {
+      detail = null;
+    }
+    const cat = this.salesUsersCatalog().find((u) => u.id === id);
+    const meUser = this.auth.me()?.user;
+    const sameSession = meUser != null && id === meUser.id;
+
+    const email =
+      ud?.email?.trim() ||
+      detail?.email?.trim() ||
+      cat?.email?.trim() ||
+      (sameSession ? meUser?.email?.trim() : undefined) ||
+      '';
+    const cellphone =
+      ud?.cellphone?.trim() ||
+      detail?.cellphone?.trim() ||
+      cat?.cellphone?.trim() ||
+      (sameSession ? meUser?.cellphone?.trim() : undefined) ||
+      undefined;
+
+    if (!detail && !cat) {
+      if (ud) {
+        return {
+          id: ud.id,
+          username: ud.username ?? '',
+          email: email || '',
+          first_name: ud.first_name ?? '',
+          last_name: ud.last_name ?? '',
+          cellphone: cellphone ?? ud.cellphone?.trim(),
+          is_active: true,
+          is_superuser: false,
+          profile: null,
+        };
+      }
       return null;
     }
+
+    const base = detail ?? cat!;
+    return {
+      ...base,
+      email: email || base.email,
+      cellphone: cellphone ?? base.cellphone,
+    };
   }
 
   /**
@@ -1546,24 +1887,62 @@ export class QuotationsPageComponent implements OnInit {
   }
 
   /**
-   * Logo (`logo` API o `public/branding/`), cuentas bancarias y paleta (`branding`) de la empresa emisora.
+   * Logo (`logo` API o `public/branding/`), cuentas bancarias, RUC/nombre empresa y paleta (`branding`).
    */
+  /** Líneas de domicilio / razón social / RUC bajo el bloque logo+nombre (membrete PDF). */
+  private companyPdfDetailLinesFromCompany(co: Company, companyRuc: string): string[] {
+    const lines: string[] = [];
+    if (co.address?.trim()) lines.push(co.address.trim());
+    if (co.district?.trim()) lines.push(co.district.trim());
+    if (co.legal_name?.trim()) lines.push(co.legal_name.trim());
+    if (companyRuc) lines.push(`RUC: ${companyRuc}`);
+    return lines;
+  }
+
   private async loadCompanyPdfAssets(companyId: number | null): Promise<{
     logoDataUrl: string | null;
     bankAccounts: string;
     branding: CompanyBranding;
+    companyRuc: string;
+    companyName: string;
+    /** Razón social para PDF: `legal_name` o `name`. */
+    companyRazonSocial: string;
+    companyTagline: string;
+    companyDetailLines: string[];
   }> {
     let bankAccounts = '';
     let branding: CompanyBranding = { ...DEFAULT_COMPANY_BRANDING };
+    let companyRuc = '';
+    let companyName = '';
+    let companyRazonSocial = '';
+    let companyTagline = '';
+    let companyDetailLines: string[] = [];
     if (companyId != null && companyId > 0) {
       try {
         const co = await firstValueFrom(this.companyApi.retrieve(companyId));
         bankAccounts = co.bank_accounts?.trim() ?? '';
+        companyRuc = co.ruc?.trim() ?? '';
+        companyName = co.name?.trim() ?? '';
+        companyRazonSocial = (co.legal_name?.trim() || co.name?.trim() || '').trim();
+        companyDetailLines = this.companyPdfDetailLinesFromCompany(co, companyRuc);
+        const ext = co.branding?.extensions;
+        if (ext && typeof ext['pdf_tagline'] === 'string' && ext['pdf_tagline'].trim()) {
+          companyTagline = ext['pdf_tagline'].trim();
+        }
         if (co.branding) branding = { ...DEFAULT_COMPANY_BRANDING, ...co.branding };
         if (co.logo?.trim()) {
           const fromUrl = await this.blobUrlToDataUrl(co.logo.trim());
           if (fromUrl) {
-            return { logoDataUrl: fromUrl, bankAccounts, branding };
+            return {
+              logoDataUrl: fromUrl,
+              bankAccounts,
+              branding,
+              companyRuc,
+              companyName,
+              companyRazonSocial,
+              companyTagline,
+              companyDetailLines,
+            };
           }
         }
       } catch {
@@ -1576,12 +1955,30 @@ export class QuotationsPageComponent implements OnInit {
         const blob = await firstValueFrom(this.http.get(p, { responseType: 'blob' }));
         if (blob.size === 0) continue;
         const logoDataUrl = await this.blobToDataUrl(blob);
-        return { logoDataUrl, bankAccounts, branding };
+        return {
+          logoDataUrl,
+          bankAccounts,
+          branding,
+          companyRuc,
+          companyName,
+          companyRazonSocial,
+          companyTagline,
+          companyDetailLines,
+        };
       } catch {
         continue;
       }
     }
-    return { logoDataUrl: null, bankAccounts, branding };
+    return {
+      logoDataUrl: null,
+      bankAccounts,
+      branding,
+      companyRuc,
+      companyName,
+      companyRazonSocial,
+      companyTagline,
+      companyDetailLines,
+    };
   }
 
   private blobToDataUrl(blob: Blob): Promise<string | null> {
@@ -1604,25 +2001,6 @@ export class QuotationsPageComponent implements OnInit {
     } catch {
       return null;
     }
-  }
-
-  /** `topY` un poco más abajo que el borde superior para no pegar el logo al borde / línea. */
-  private addCompanyLogoToPdf(
-    doc: jsPDF,
-    dataUrl: string,
-    pageW: number,
-    margin: number,
-    topY = 0,
-  ): void {
-    const fmt: 'PNG' | 'JPEG' = dataUrl.includes('image/jpeg') ? 'JPEG' : 'PNG';
-    const props = doc.getImageProperties(dataUrl);
-    const maxW = 52;
-    const maxH = 26;
-    const scale = Math.min(maxW / props.width, maxH / props.height);
-    const w = props.width * scale;
-    const h = props.height * scale;
-    const y = topY > 0 ? topY : margin + 7;
-    doc.addImage(dataUrl, fmt, pageW - margin - w, y, w, h);
   }
 
   /** Imagen principal por producto (data URL) para el PDF. */
@@ -1796,7 +2174,7 @@ export class QuotationsPageComponent implements OnInit {
     let y = yStart + 10;
     const pageH = doc.internal.pageSize.getHeight();
     const reserveBottom = 22;
-    const blockMin = 34;
+    const blockMin = 48;
     if (y + blockMin > pageH - reserveBottom) {
       doc.addPage();
       y = margin + 8;
@@ -1820,6 +2198,8 @@ export class QuotationsPageComponent implements OnInit {
       y += 2;
     }
 
+    const tableInnerW = pageW - 2 * margin;
+
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8);
     doc.setTextColor(...T.primary);
@@ -1830,112 +2210,310 @@ export class QuotationsPageComponent implements OnInit {
       creator != null
         ? this.sellerDisplay(creator)
         : row.user > 0
-          ? `Usuario #${row.user}`
+          ? this.asesorDisplayFromRow(row)
           : '—';
-    doc.setFontSize(10);
-    doc.setTextColor(...T.totalBar);
-    doc.text(displayName, cx, y, { align: 'center' });
-    y += 5.5;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.setTextColor(0, 0, 0);
+    for (const line of doc.splitTextToSize(displayName, tableInnerW - 8)) {
+      doc.text(line, cx, y, { align: 'center' });
+      y += 5;
+    }
+    y += 1;
 
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
-    doc.setTextColor(...T.muted);
-    if (creator?.email?.trim()) {
-      doc.text(creator.email.trim(), cx, y, { align: 'center' });
-      y += 4.3;
-    }
-    if (creator?.cellphone?.trim()) {
-      doc.text(`Tel. ${creator.cellphone.trim()}`, cx, y, { align: 'center' });
-      y += 4.3;
-    }
-    if (creator?.username) {
-      doc.text(`Usuario: ${creator.username}`, cx, y, { align: 'center' });
-      y += 4.3;
-    }
+    const emailStr =
+      creator?.email?.trim() || row.user_detail?.email?.trim() || '—';
+    const phoneStr =
+      creator?.cellphone?.trim() || row.user_detail?.cellphone?.trim() || '—';
+
+    const footerDetailMuted = (text: string) => {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(...T.muted);
+      for (const line of doc.splitTextToSize(text, tableInnerW - 8)) {
+        doc.text(line, cx, y, { align: 'center' });
+        y += 4.2;
+      }
+    };
+    footerDetailMuted(emailStr);
+    y += 2;
+    footerDetailMuted(phoneStr);
+    y += 2;
+
     const role = creator?.profile?.role;
     if (role) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(...T.muted);
       doc.text(this.roleLabelPdf(role), cx, y, { align: 'center' });
-      y += 4.3;
+      y += 4.5;
     }
 
     return y;
+  }
+
+  /** Fecha larga alineada al estilo carta comercial (es-PE). */
+  private formatQuotationPdfHeaderDate(iso: string | undefined): string {
+    if (!iso) return 'Lima, —';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return 'Lima, —';
+    return `Lima, ${d.toLocaleDateString('es-PE', { day: 'numeric', month: 'long', year: 'numeric' })}`;
+  }
+
+  /**
+   * Membrete: logo izquierda (más grande); derecha «COTIZACIÓN N°» y fecha.
+   * Razón social y RUC van en «Datos de comercializador» más abajo.
+   */
+  private drawPdfQuotationLetterhead(
+    doc: jsPDF,
+    T: PdfQuotationTheme,
+    margin: number,
+    pageW: number,
+    logoDataUrl: string | null,
+    correlativo: string,
+    creationDateIso: string | undefined,
+  ): number {
+    const yTop = margin + 3;
+    let logoW = 0;
+    let logoH = 0;
+    if (logoDataUrl) {
+      try {
+        const fmt: 'PNG' | 'JPEG' = logoDataUrl.includes('image/jpeg') ? 'JPEG' : 'PNG';
+        const props = doc.getImageProperties(logoDataUrl);
+        const maxW = 70;
+        const maxH = 30;
+        const scale = Math.min(maxW / props.width, maxH / props.height);
+        logoW = props.width * scale;
+        logoH = props.height * scale;
+        doc.addImage(logoDataUrl, fmt, margin, yTop, logoW, logoH);
+      } catch {
+        logoW = 0;
+        logoH = 0;
+      }
+    }
+
+    const rx = pageW - margin;
+    let ry = yTop + 2;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10.5);
+    doc.setTextColor(...T.primary);
+    doc.text(`COTIZACIÓN N° ${correlativo}`, rx, ry, { align: 'right' });
+    ry += 5.5;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(...T.muted);
+    doc.text(this.formatQuotationPdfHeaderDate(creationDateIso), rx, ry, { align: 'right' });
+
+    const yLeft = yTop + logoH;
+    return Math.max(yLeft, ry + 2) + 6;
+  }
+
+  /** Etiqueta en negrita + valor con posible salto de línea; `colInnerW` es el ancho útil de la columna desde `x`. */
+  private pdfPdfBoldLabelParagraphAt(
+    doc: jsPDF,
+    T: PdfQuotationTheme,
+    x: number,
+    colInnerW: number,
+    y: number,
+    label: string,
+    value: string,
+  ): number {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(...T.totalBar);
+    doc.text(label, x, y);
+    const lw = doc.getTextWidth(`${label} `);
+    doc.setFont('helvetica', 'normal');
+    const wrap = Math.max(20, colInnerW - lw);
+    const valueLines = doc.splitTextToSize(value, wrap);
+    if (valueLines.length === 0) return y + 5;
+    doc.text(valueLines[0], x + lw, y);
+    let yy = y;
+    for (let i = 1; i < valueLines.length; i++) {
+      yy += 4.2;
+      doc.text(valueLines[i], x + lw, yy);
+    }
+    return yy + 5;
+  }
+
+  /** Etiqueta en negrita + valor (ancho completo entre márgenes de tabla). */
+  private pdfPdfBoldLabelParagraph(
+    doc: jsPDF,
+    T: PdfQuotationTheme,
+    margin: number,
+    tableInnerW: number,
+    y: number,
+    label: string,
+    value: string,
+  ): number {
+    return this.pdfPdfBoldLabelParagraphAt(doc, T, margin, tableInnerW, y, label, value);
+  }
+
+  /** Dos columnas 50/50: cliente y comercializador (empresa emisora). */
+  private drawPdfQuotationClienteComercializador(
+    doc: jsPDF,
+    T: PdfQuotationTheme,
+    margin: number,
+    tableInnerW: number,
+    y: number,
+    client: ClientRow | undefined,
+    clientContactName: string | null,
+    commercializerName: string,
+    commercializerRuc: string,
+  ): number {
+    const colGap = 4;
+    const colW = (tableInnerW - colGap) / 2;
+    const leftX = margin;
+    const rightX = margin + colW + colGap;
+
+    const titleY = y;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(...T.primary);
+    doc.text('Datos de cliente', leftX, titleY);
+    doc.text('Datos de comercializador', rightX, titleY);
+
+    let leftY = titleY + 6;
+    let rightY = titleY + 6;
+
+    leftY = this.pdfPdfBoldLabelParagraphAt(doc, T, leftX, colW, leftY, 'Señores:', client?.name ?? '—');
+    leftY = this.pdfPdfBoldLabelParagraphAt(
+      doc,
+      T,
+      leftX,
+      colW,
+      leftY,
+      'RUC:',
+      client?.ruc?.trim() ? client.ruc : '—',
+    );
+    leftY = this.pdfPdfBoldLabelParagraphAt(doc, T, leftX, colW, leftY, 'Atención:', clientContactName ?? '—');
+
+    rightY = this.pdfPdfBoldLabelParagraphAt(
+      doc,
+      T,
+      rightX,
+      colW,
+      rightY,
+      'Razón social:',
+      (commercializerName || '—').trim(),
+    );
+    rightY = this.pdfPdfBoldLabelParagraphAt(
+      doc,
+      T,
+      rightX,
+      colW,
+      rightY,
+      'RUC:',
+      commercializerRuc.trim() ? commercializerRuc : '—',
+    );
+
+    return Math.max(leftY, rightY) + 6;
+  }
+
+  /**
+   * Tras la tabla de productos: 50/50 «Condiciones de la operación» (incl. método de pago)
+   * y «Condiciones comerciales» (solo texto libre; cuerpo en negro).
+   */
+  private drawPdfQuotationOperacionYComerciales(
+    doc: jsPDF,
+    T: PdfQuotationTheme,
+    margin: number,
+    tableInnerW: number,
+    y: number,
+    typeLabel: string,
+    moneyLabel: string,
+    deliveryLabel: string,
+    penExchangeLine: string | null,
+    payName: string,
+    conditionsFreeText: string | null,
+  ): number {
+    const colGap = 4;
+    const colW = (tableInnerW - colGap) / 2;
+    const leftX = margin;
+    const rightX = margin + colW + colGap;
+
+    const titleY = y;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(...T.primary);
+    doc.text('Condiciones de la operación', leftX, titleY);
+    doc.text('Condiciones comerciales', rightX, titleY);
+
+    let leftY = titleY + 5.5;
+    let rightY = titleY + 5.5;
+
+    leftY = this.pdfPdfBoldLabelParagraphAt(doc, T, leftX, colW, leftY, 'Tipo:', typeLabel);
+    leftY = this.pdfPdfBoldLabelParagraphAt(doc, T, leftX, colW, leftY, 'Moneda:', moneyLabel);
+    if (penExchangeLine != null) {
+      leftY = this.pdfPdfBoldLabelParagraphAt(
+        doc,
+        T,
+        leftX,
+        colW,
+        leftY,
+        'Tipo de cambio (PEN/USD):',
+        penExchangeLine,
+      );
+    }
+    leftY = this.pdfPdfBoldLabelParagraphAt(doc, T, leftX, colW, leftY, 'Plazo de entrega:', deliveryLabel);
+    leftY = this.pdfPdfBoldLabelParagraphAt(doc, T, leftX, colW, leftY, 'Método de pago:', payName);
+
+    if (conditionsFreeText) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(0, 0, 0);
+      for (const line of doc.splitTextToSize(conditionsFreeText, colW)) {
+        doc.text(line, rightX, rightY);
+        rightY += 4.1;
+      }
+    }
+
+    return Math.max(leftY, rightY) + 6;
   }
 
   private generateQuotationPdf(
     row: QuotationRow,
     T: PdfQuotationTheme,
     logoDataUrl: string | null = null,
-    sellerLabel: string = '—',
     productImages: Map<number, string | null> = new Map(),
     bankAccounts: string = '',
     creatorUser: AdminUser | null = null,
     creatorIconPng: string | null = null,
+    companyRazonSocial: string = '',
+    companyRuc: string = '',
   ): void {
     const doc = new jsPDF();
     const margin = 16;
     const pageW = doc.internal.pageSize.getWidth();
     const tableInnerW = pageW - 2 * margin;
-    let y = 14;
 
-    if (logoDataUrl) {
-      try {
-        this.addCompanyLogoToPdf(doc, logoDataUrl, pageW, margin);
-      } catch {
-        /* logo opcional */
-      }
-    }
+    let y = this.drawPdfQuotationLetterhead(doc, T, margin, pageW, logoDataUrl, row.correlativo, row.creation_date);
 
     const client = this.clients().find((c) => c.id === row.client);
     const pay = this.paymentMethods().find((p) => p.id === row.payment_methods);
     const typeLabel = this.typeOpts.find((o) => o.value === row.quotation_type)?.label ?? row.quotation_type;
-
-    doc.setFontSize(18);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(...T.primary);
-    doc.text('Cotización', margin, y);
-    doc.setTextColor(...T.totalBar);
-    doc.text(`  ${row.correlativo}`, margin + doc.getTextWidth('Cotización'), y);
-    y += 4;
-    doc.setDrawColor(...T.primary);
-    doc.setLineWidth(0.4);
-    doc.line(margin, y, pageW - margin, y);
-    y += 8;
-
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(...T.primary);
-    doc.text('Cliente', margin, y);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(...T.totalBar);
-    y += 4.5;
-    doc.setFont('helvetica', 'bold');
-    doc.text(client?.name ?? `#${row.client}`, margin, y);
-    doc.setFont('helvetica', 'normal');
-    y += 5;
-    doc.setTextColor(...T.muted);
-    doc.text(`RUC ${client?.ruc?.trim() ? client.ruc : '—'}`, margin, y);
-    y += 6;
-
-    const metaLine = (label: string, value: string) => {
-      doc.setTextColor(...T.muted);
-      doc.text(label, margin, y);
-      const lw = doc.getTextWidth(`${label} `);
-      doc.setTextColor(...T.totalBar);
-      doc.text(value, margin + lw, y);
-      y += 5;
-    };
-    metaLine('Tipo', typeLabel);
-    metaLine('Moneda', row.money);
+    let penEx: string | null = null;
     if (row.money === 'PEN') {
       const ex = this.exchangeRateFromRow(row);
-      metaLine('Tipo de cambio (PEN/USD)', ex != null ? String(ex) : '—');
+      penEx = ex != null ? String(ex) : '—';
     }
-    metaLine('Plazo de entrega', this.deliveryTimePdfLabel(row.delivery_time));
-    if (row.creation_date) {
-      metaLine('Emitido el', this.formatQuotationDatePdf(row.creation_date));
-    }
-    metaLine('Vendedor', sellerLabel);
-    y += 4;
+
+    y = this.drawPdfQuotationClienteComercializador(
+      doc,
+      T,
+      margin,
+      tableInnerW,
+      y,
+      client,
+      this.quotationClientContactDisplayName(row),
+      companyRazonSocial,
+      companyRuc,
+    );
+
+    doc.setDrawColor(...T.border);
+    doc.setLineWidth(0.2);
+    doc.line(margin, y, pageW - margin, y);
+    y += 7;
 
     const lines = this.linesForQuotationId(row.id);
     const showSku = row.see_sku;
@@ -2260,38 +2838,26 @@ export class QuotationsPageComponent implements OnInit {
     });
 
     const lastY = (doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY;
-    y = (lastY ?? y + 24) + 12;
+    y = (lastY ?? y + 24) + 10;
 
     doc.setDrawColor(...T.border);
     doc.setLineWidth(0.2);
-    doc.line(margin, y - 4, pageW - margin, y - 4);
-    y += 2;
+    doc.line(margin, y - 3, pageW - margin, y - 3);
+    y += 4;
 
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(...T.primary);
-    doc.text('Condiciones comerciales', margin, y);
-    y += 5;
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(...T.muted);
-    doc.text(`Método de pago: `, margin, y);
-    doc.setTextColor(...T.totalBar);
-    doc.text(pay?.name ?? '—', margin + doc.getTextWidth('Método de pago: '), y);
-    y += 7;
-
-    const cond = row.conditions?.trim();
-    if (cond) {
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(8.5);
-      doc.setTextColor(...T.primary);
-      doc.text('Condiciones', margin, y);
-      doc.setFont('helvetica', 'normal');
-      doc.setTextColor(...T.textBody);
-      y += 4.5;
-      const condBody = doc.splitTextToSize(cond, tableInnerW);
-      doc.text(condBody, margin, y);
-      y += condBody.length * 4.2 + 5;
-    }
+    y = this.drawPdfQuotationOperacionYComerciales(
+      doc,
+      T,
+      margin,
+      tableInnerW,
+      y,
+      typeLabel,
+      row.money,
+      this.deliveryTimePdfLabel(row.delivery_time),
+      penEx,
+      pay?.name ?? '—',
+      row.conditions?.trim() ?? null,
+    );
 
     const works = row.works?.trim();
     if (works) {

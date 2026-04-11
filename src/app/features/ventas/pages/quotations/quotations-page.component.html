@@ -19,6 +19,80 @@
     }
   }
 
+  @if (!loading()) {
+    <div
+      class="flex flex-col gap-3 rounded-lg border border-base-300 bg-base-100 p-4 sm:flex-row sm:flex-wrap sm:items-end"
+    >
+      <label class="form-control min-w-0 flex-1 sm:min-w-[14rem]">
+        <span class="label-text">Buscar</span>
+        <input
+          type="search"
+          class="input input-bordered input-sm w-full"
+          [value]="listSearchQuery()"
+          (input)="onListSearchInput($event)"
+          placeholder="Correlativo, cliente, asesor, estado…"
+          autocomplete="off"
+        />
+      </label>
+      <label class="form-control w-full sm:w-44">
+        <span class="label-text">Asesor</span>
+        <select
+          class="select select-bordered select-sm w-full"
+          [value]="filterSellerUserId() ?? ''"
+          (change)="onFilterSellerChange($event)"
+        >
+          <option value="">Todos</option>
+          @for (opt of quotationSellerFilterOptions(); track opt.id) {
+            <option [value]="opt.id">{{ opt.label }}</option>
+          }
+        </select>
+      </label>
+      <label class="form-control w-full sm:w-40">
+        <span class="label-text">Estado</span>
+        <select
+          class="select select-bordered select-sm w-full"
+          [value]="filterStatus()"
+          (change)="onFilterStatusChange($event)"
+        >
+          <option value="ALL">Todos</option>
+          @for (opt of statusOpts; track opt.value) {
+            <option [value]="opt.value">{{ opt.label }}</option>
+          }
+        </select>
+      </label>
+      <label class="form-control w-full sm:w-40">
+        <span class="label-text">Tipo</span>
+        <select
+          class="select select-bordered select-sm w-full"
+          [value]="filterQuotationType()"
+          (change)="onFilterQuotationTypeChange($event)"
+        >
+          <option value="ALL">Todos</option>
+          @for (opt of typeOpts; track opt.value) {
+            <option [value]="opt.value">{{ opt.label }}</option>
+          }
+        </select>
+      </label>
+      <label class="form-control w-full sm:w-36">
+        <span class="label-text">Moneda</span>
+        <select
+          class="select select-bordered select-sm w-full"
+          [value]="filterMoney()"
+          (change)="onFilterMoneyChange($event)"
+        >
+          <option value="ALL">Todas</option>
+          <option value="USD">USD</option>
+          <option value="PEN">PEN</option>
+        </select>
+      </label>
+      @if (hasActiveListFilters()) {
+        <button type="button" class="btn btn-outline btn-sm w-full sm:w-auto" (click)="clearListFilters()">
+          Limpiar filtros
+        </button>
+      }
+    </div>
+  }
+
   <div class="overflow-hidden rounded-lg border border-base-300 bg-base-100">
     @if (loading()) {
       <div class="flex justify-center p-12">
@@ -31,6 +105,8 @@
             <tr>
               <th>Correlativo</th>
               <th>Cliente</th>
+              <th>Contacto</th>
+              <th>Asesor</th>
               <th>Estado</th>
               <th>Total</th>
               <th>Moneda</th>
@@ -44,11 +120,19 @@
               <tr [class.bg-base-300]="modalOpen() && editingQuotationId() === row.id">
                 <td class="font-mono font-medium">{{ row.correlativo }}</td>
                 <td>{{ clientName(row.client) }}</td>
+                <td class="max-w-[10rem] truncate text-base-content/90" [title]="quotationClientContactDisplayName(row)">
+                  {{ quotationClientContactDisplayName(row) }}
+                </td>
+                <td class="max-w-[12rem] truncate" [title]="asesorDisplayFromRow(row)">
+                  {{ asesorDisplayFromRow(row) }}
+                </td>
                 <td>{{ row.status }}</td>
                 <td class="whitespace-nowrap">{{ formatMoney(netForQuotation(row)) }}</td>
                 <td>{{ row.money }}</td>
                 <td class="whitespace-nowrap tabular-nums">{{ formatExchangeRateDisplay(row) }}</td>
-                <td>{{ formatDate(row.creation_date) }}</td>
+                <td class="whitespace-nowrap tabular-nums text-base-content/90">
+                  {{ row.creation_date | shortDateTime }}
+                </td>
                 <td class="text-right space-x-1">
                   <button type="button" class="btn btn-ghost btn-sm" (click)="openViewQuotation(row)">Ver</button>
                   @if (canEditQuotation(row)) {
@@ -63,7 +147,13 @@
               </tr>
             } @empty {
               <tr>
-                <td colspan="8" class="text-base-content/60 text-center">No hay cotizaciones.</td>
+                <td colspan="10" class="text-base-content/60 text-center">
+                  @if (quotations().length === 0) {
+                    No hay cotizaciones.
+                  } @else {
+                    Ninguna cotización coincide con la búsqueda o los filtros.
+                  }
+                </td>
               </tr>
             }
           </tbody>
@@ -75,6 +165,9 @@
         >
           <p class="text-sm text-base-content/70">
             Mostrando {{ rangeStart() }}–{{ rangeEnd() }} de {{ totalCount() }}
+            @if (hasActiveListFilters() && quotations().length !== totalCount()) {
+              <span class="text-base-content/50">({{ quotations().length }} en total cargadas)</span>
+            }
           </p>
           <div class="flex flex-wrap items-center gap-2">
             <label class="flex items-center gap-2 text-sm text-base-content/70">
@@ -233,6 +326,28 @@
             <span class="label-text-alt text-base-content/50">Cargando clientes…</span>
           }
         </label>
+
+        @if (form.controls.client.value > 0) {
+          <label class="form-control w-full sm:col-span-2">
+            <span class="label-text">Contacto (atención)</span>
+            <select
+              class="select select-bordered w-full"
+              formControlName="client_contact"
+              [disabled]="quotationModalReadonly() || sellerContactsLoading()"
+            >
+              <option [ngValue]="null">— Sin contacto —</option>
+              @for (c of quotationClientContacts(); track c.id) {
+                <option [ngValue]="c.id">{{ contactOptionLabel(c) }}</option>
+              }
+            </select>
+            <span class="label-text-alt text-base-content/60">
+              Opcional. Nombre en listado/PDF según API; correo y teléfono del contacto solo si el servidor lo permite.
+            </span>
+            @if (sellerContactsLoading()) {
+              <span class="label-text-alt text-base-content/50">Cargando contactos…</span>
+            }
+          </label>
+        }
 
         @if (auth.isAdmin()) {
           <label class="form-control w-full sm:col-span-2">
