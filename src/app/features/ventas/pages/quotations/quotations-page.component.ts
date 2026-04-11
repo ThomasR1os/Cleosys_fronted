@@ -899,54 +899,6 @@ export class QuotationsPageComponent implements OnInit {
     return '—';
   }
 
-  /**
-   * Completa nombre de atención para el PDF: detalle del API, contacto por id, o —si hay un único contacto en el cliente— ese.
-   */
-  private async enrichQuotationRowWithClientContactDetail(row: QuotationRow): Promise<QuotationRow> {
-    const detailFromContact = (c: ClientContactRow): QuotationClientContactDetail => ({
-      id: c.id,
-      contact_first_name: c.contact_first_name,
-      contact_last_name: c.contact_last_name,
-      nombre: this.contactOptionLabel(c),
-      email: c.email ?? null,
-      phone: c.phone ?? null,
-    });
-
-    const hasDisplayName = (r: QuotationRow): boolean => {
-      const d = r.client_contact_detail;
-      if (!d) return false;
-      return !!(
-        d.nombre?.trim() ||
-        `${d.contact_first_name ?? ''} ${d.contact_last_name ?? ''}`.trim()
-      );
-    };
-
-    if (hasDisplayName(row)) return row;
-    if (row.client <= 0) return row;
-
-    const contacts = await firstValueFrom(
-      this.clientContactsApi.listForClient(row.client).pipe(catchError(() => of([] as ClientContactRow[]))),
-    );
-
-    const cid = row.client_contact;
-    if (cid != null && cid > 0) {
-      const c = contacts.find((x) => x.id === cid);
-      if (c) return { ...row, client_contact_detail: detailFromContact(c) };
-    }
-
-    /** Cotización sin FK pero el cliente tiene un solo contacto (registrado en Clientes): misma persona atendida. */
-    if (contacts.length === 1) {
-      const c = contacts[0];
-      return {
-        ...row,
-        client_contact: c.id,
-        client_contact_detail: detailFromContact(c),
-      };
-    }
-
-    return row;
-  }
-
   contactOptionLabel(c: ClientContactRow): string {
     const full = `${c.contact_first_name ?? ''} ${c.contact_last_name ?? ''}`.trim();
     return full || `Contacto #${c.id}`;
@@ -1726,9 +1678,8 @@ export class QuotationsPageComponent implements OnInit {
             this.loadProductImageDataUrlsForPdf(qpLines.map((l) => l.product)),
             this.rasterizePdfUserIconSvg(T.primary),
           ]);
-          const rowForPdf = await this.enrichQuotationRowWithClientContactDetail(row);
           this.generateQuotationPdf(
-            rowForPdf,
+            row,
             T,
             companyPdf.logoDataUrl,
             productImages,
@@ -2357,7 +2308,6 @@ export class QuotationsPageComponent implements OnInit {
     tableInnerW: number,
     y: number,
     client: ClientRow | undefined,
-    clientContactName: string | null,
     commercializerName: string,
     commercializerRuc: string,
   ): number {
@@ -2386,7 +2336,6 @@ export class QuotationsPageComponent implements OnInit {
       'RUC:',
       client?.ruc?.trim() ? client.ruc : '—',
     );
-    leftY = this.pdfPdfBoldLabelParagraphAt(doc, T, leftX, colW, leftY, 'Atención:', clientContactName ?? '—');
 
     rightY = this.pdfPdfBoldLabelParagraphAt(
       doc,
@@ -2505,7 +2454,6 @@ export class QuotationsPageComponent implements OnInit {
       tableInnerW,
       y,
       client,
-      this.quotationClientContactDisplayName(row),
       companyRazonSocial,
       companyRuc,
     );
