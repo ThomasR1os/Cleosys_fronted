@@ -327,27 +327,7 @@
           }
         </label>
 
-        @if (form.controls.client.value > 0) {
-          <label class="form-control w-full sm:col-span-2">
-            <span class="label-text">Contacto (atención)</span>
-            <select
-              class="select select-bordered w-full"
-              formControlName="client_contact"
-              [disabled]="quotationModalReadonly() || sellerContactsLoading()"
-            >
-              <option [ngValue]="null">— Sin contacto —</option>
-              @for (c of quotationClientContacts(); track c.id) {
-                <option [ngValue]="c.id">{{ contactOptionLabel(c) }}</option>
-              }
-            </select>
-            <span class="label-text-alt text-base-content/60">
-              Opcional. Nombre en listado/PDF según API; correo y teléfono del contacto solo si el servidor lo permite.
-            </span>
-            @if (sellerContactsLoading()) {
-              <span class="label-text-alt text-base-content/50">Cargando contactos…</span>
-            }
-          </label>
-        }
+        <!-- Campo "Contacto (atención)" removido por requerimiento -->
 
         @if (auth.isAdmin()) {
           <label class="form-control w-full sm:col-span-2">
@@ -535,11 +515,17 @@
                         <li>
                           <button
                             type="button"
-                            class="hover:bg-base-200 flex w-full flex-col items-start px-3 py-2 text-left text-sm"
+                            class="hover:bg-base-200 flex w-full flex-col items-start gap-1 px-3 py-2 text-left text-sm"
                             (mousedown)="$event.preventDefault(); selectProduct(p)"
                           >
                             <span class="font-mono text-xs">{{ p.sku }}</span>
                             <span class="line-clamp-2">{{ p.description }}</span>
+                            @if (isRentalQuotationType()) {
+                              <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-base-content/70">
+                                <span>Alquiler sin operador: <span class="font-medium">{{ rentalPriceLabel(p, 'without') }}</span></span>
+                                <span>Alquiler con operador: <span class="font-medium">{{ rentalPriceLabel(p, 'with') }}</span></span>
+                              </div>
+                            }
                           </button>
                         </li>
                       }
@@ -566,6 +552,20 @@
                     min="0"
                     formControlName="product_price"
                   />
+                  @if (isRentalQuotationType()) {
+                    <div class="mt-2 flex flex-wrap items-center gap-2 text-xs text-base-content/70">
+                      <button type="button" class="btn btn-ghost btn-xs" (click)="setLinePriceFromRental('without')">
+                        Usar alquiler sin operador
+                      </button>
+                      <button type="button" class="btn btn-ghost btn-xs" (click)="setLinePriceFromRental('with')">
+                        Usar alquiler con operador
+                      </button>
+                      <span class="ml-auto">
+                        Sin operador: <span class="font-medium">{{ rentalPriceLabel(selectedLineProduct(), 'without') }}</span>
+                        · Con operador: <span class="font-medium">{{ rentalPriceLabel(selectedLineProduct(), 'with') }}</span>
+                      </span>
+                    </div>
+                  }
                 </label>
               </div>
               <p class="text-base-content/60 text-xs leading-relaxed">

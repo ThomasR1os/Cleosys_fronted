@@ -295,6 +295,13 @@ export class QuotationsPageComponent implements OnInit {
 
   readonly myUserId = computed(() => this.auth.me()?.user?.id ?? null);
 
+  /** Producto actualmente seleccionado en el editor de línea (para mostrar precios de alquiler, etc.). */
+  readonly selectedLineProduct = computed<Product | null>(() => {
+    const pid = this.lineForm.controls.product.value;
+    if (!pid || pid <= 0) return null;
+    return this.productsCatalog().find((p) => p.id === pid) ?? null;
+  });
+
   readonly typeOpts: { value: QuotationType; label: string }[] = [
     { value: 'VENTA', label: 'Venta' },
     { value: 'ALQUILER', label: 'Alquiler' },
@@ -450,6 +457,48 @@ export class QuotationsPageComponent implements OnInit {
 
   private round2(n: number): number {
     return Math.round(n * 100) / 100;
+  }
+
+  isRentalQuotationType(): boolean {
+    return this.form.controls.quotation_type.value === 'ALQUILER';
+  }
+
+  rentalPriceLabel(p: Product | null | undefined, mode: 'without' | 'with'): string {
+    if (!p) return '—';
+    const raw =
+      mode === 'without' ? p.rental_price_without_operator : p.rental_price_with_operator;
+    const n = Number(raw ?? 0);
+    if (!Number.isFinite(n) || n <= 0) return '-';
+    return this.formatMoney(this.unitPriceForCurrentMoney(n));
+  }
+
+  /** Catálogo de productos viene en USD; si la cotización está en PEN, se convierte con el TC del formulario. */
+  private unitPriceForCurrentMoney(catalogUsd: number): number {
+    let unit = Number(catalogUsd ?? 0);
+    if (!Number.isFinite(unit) || unit < 0) unit = 0;
+    if (this.form.controls.money.value !== 'PEN') return unit;
+    const r = Number(this.form.controls.exchangeRate.value);
+    if (Number.isFinite(r) && r > 0) return this.round2(unit * r);
+    return unit;
+  }
+
+  private productBaseUnitPriceUsdForQuotationType(p: Product): number {
+    const qType = this.form.controls.quotation_type.value;
+    if (qType === 'ALQUILER') {
+      return Number(p.rental_price_without_operator ?? 0) || 0;
+    }
+    return Number(p.price ?? 0) || 0;
+  }
+
+  setLinePriceFromRental(mode: 'without' | 'with'): void {
+    if (!this.isRentalQuotationType()) return;
+    const pid = this.lineForm.controls.product.value;
+    const p = this.productsCatalog().find((x) => x.id === pid);
+    if (!p) return;
+    const raw =
+      mode === 'without' ? Number(p.rental_price_without_operator ?? 0) : Number(p.rental_price_with_operator ?? 0);
+    const unit = this.unitPriceForCurrentMoney(raw || 0);
+    this.lineForm.patchValue({ product_price: unit }, { emitEvent: false });
   }
 
   /**
@@ -1039,14 +1088,8 @@ export class QuotationsPageComponent implements OnInit {
   /** Rellena texto de línea desde el producto; si no se cambian, al guardar se envían vacíos (el API copia del catálogo). */
   patchLineFormFromProduct(p: Product): void {
     this.lineForm.enable({ emitEvent: false });
-    const catalogUsd = p.price ?? 0;
-    let unit = catalogUsd;
-    if (this.form.controls.money.value === 'PEN') {
-      const r = Number(this.form.controls.exchangeRate.value);
-      if (Number.isFinite(r) && r > 0) {
-        unit = this.round2(catalogUsd * r);
-      }
-    }
+    const baseUsd = this.productBaseUnitPriceUsdForQuotationType(p);
+    const unit = this.unitPriceForCurrentMoney(baseUsd);
     this.lineForm.patchValue(
       {
         id: null,
@@ -1984,6 +2027,12 @@ export class QuotationsPageComponent implements OnInit {
     return p?.datasheet?.trim() ?? '';
   }
 
+  /** Garantía del producto (catálogo; campo API `warrannty`). */
+  private lineWarrantyForPdf(line: QuotationProductRow): string {
+    const p = this.productsCatalog().find((x) => x.id === line.product);
+    return p?.warrannty?.trim() ?? '';
+  }
+
   /** Tamaño de la foto de producto en PDF (debajo de la ficha); ancho máx. ~ancho de celda. */
   private pdfDescImageDisplayMm(
     doc: jsPDF,
@@ -2013,6 +2062,7 @@ export class QuotationsPageComponent implements OnInit {
     const innerW = Math.max(18, descColWidthMm - 4);
     const main = this.productLineDescription(line);
     const ds = this.lineDatasheetForPdf(line);
+    const gw = this.lineWarrantyForPdf(line);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8.5);
     const mainLines = doc.splitTextToSize(main, innerW).length;
@@ -2024,6 +2074,13 @@ export class QuotationsPageComponent implements OnInit {
       const dsLines = doc.splitTextToSize(ds, innerW).length;
       doc.setFont('helvetica', 'normal');
       h += 1.2 + 4 + dsLines * 3.5;
+    }
+    if (gw) {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
+      const gaLines = doc.splitTextToSize(`GARANTIA: ${gw}`.toUpperCase(), innerW).length;
+      doc.setFont('helvetica', 'normal');
+      h += (ds ? 2 : 1.2) + gaLines * 3.5;
     }
     if (hasImg) {
       const url = productImages.get(line.product);
@@ -2756,6 +2813,21 @@ export class QuotationsPageComponent implements OnInit {
             for (const dl of doc.splitTextToSize(ds, textW)) {
               if (cy > maxY) break;
               doc.text(dl, left, cy);
+              cy += 3.5;
+            }
+          }
+        }
+        const gw = this.lineWarrantyForPdf(qLine);
+        if (gw) {
+          const garantiaText = `GARANTIA: ${gw}`.toUpperCase();
+          cy += ds ? 2 : 1.2;
+          if (cy <= maxY) {
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(7);
+            doc.setTextColor(...T.textLabel);
+            for (const gl of doc.splitTextToSize(garantiaText, textW)) {
+              if (cy > maxY) break;
+              doc.text(gl, left, cy);
               cy += 3.5;
             }
           }
