@@ -2344,6 +2344,62 @@ export class QuotationsPageComponent implements OnInit {
     return yy + 5;
   }
 
+  /** Límite inferior útil (mm) antes del pie fijo del documento. */
+  private quotationPdfMaxContentY(doc: jsPDF, reserveBottomMm: number): number {
+    return doc.internal.pageSize.getHeight() - reserveBottomMm;
+  }
+
+  /** Página activa (1-based), no confundir con `getNumberOfPages()` (total). */
+  private quotationPdfCurrentPageOneBased(doc: jsPDF): number {
+    return doc.getCurrentPageInfo().pageNumber;
+  }
+
+  /**
+   * Como `pdfPdfBoldLabelParagraphAt`, pero evita dibujar fuera de la página:
+   * ante falta de espacio abre página nueva y continúa el valor debajo.
+   */
+  private pdfPdfBoldLabelParagraphAtPageSafe(
+    doc: jsPDF,
+    T: PdfQuotationTheme,
+    margin: number,
+    reserveBottomMm: number,
+    x: number,
+    colInnerW: number,
+    y: number,
+    label: string,
+    value: string,
+  ): number {
+    const maxY = this.quotationPdfMaxContentY(doc, reserveBottomMm);
+    const bumpPage = (yy: number): number => {
+      if (yy <= maxY - 6) return yy;
+      doc.addPage();
+      return margin + 8;
+    };
+
+    let cy = bumpPage(y);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(...T.totalBar);
+    doc.text(label, x, cy);
+    const lw = doc.getTextWidth(`${label} `);
+    doc.setFont('helvetica', 'normal');
+    const wrap = Math.max(20, colInnerW - lw);
+    const valueLines = doc.splitTextToSize(value, wrap);
+    if (valueLines.length === 0) return cy + 5;
+
+    doc.text(valueLines[0], x + lw, cy);
+    let yy = cy;
+    for (let i = 1; i < valueLines.length; i++) {
+      yy += 4.2;
+      yy = bumpPage(yy);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(...T.totalBar);
+      doc.text(valueLines[i], x + lw, yy);
+    }
+    return yy + 5;
+  }
+
   /** Etiqueta en negrita + valor (ancho completo entre márgenes de tabla). */
   private pdfPdfBoldLabelParagraph(
     doc: jsPDF,
@@ -2433,48 +2489,86 @@ export class QuotationsPageComponent implements OnInit {
     payName: string,
     conditionsFreeText: string | null,
   ): number {
+    const reserveBottom = 22;
     const colGap = 4;
     const colW = (tableInnerW - colGap) / 2;
     const leftX = margin;
     const rightX = margin + colW + colGap;
+    const maxY = this.quotationPdfMaxContentY(doc, reserveBottom);
 
-    const titleY = y;
+    const rightLines = conditionsFreeText?.trim()
+      ? doc.splitTextToSize(conditionsFreeText.trim(), colW)
+      : [];
+    const leftRows = 5 + (penExchangeLine != null ? 1 : 0);
+    const estLeftMm = 8 + leftRows * 6;
+    const estRightMm = 8 + rightLines.length * 4.2;
+    const estBlock = 10 + Math.max(estLeftMm, estRightMm);
+
+    let titleY = y;
+    if (titleY + estBlock > maxY) {
+      doc.addPage();
+      titleY = margin + 8;
+    }
+
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(9);
     doc.setTextColor(...T.primary);
     doc.text('Condiciones de la operación', leftX, titleY);
     doc.text('Condiciones comerciales', rightX, titleY);
+    const pageOfTitles = this.quotationPdfCurrentPageOneBased(doc);
 
     let leftY = titleY + 5.5;
-    let rightY = titleY + 5.5;
 
-    leftY = this.pdfPdfBoldLabelParagraphAt(doc, T, leftX, colW, leftY, 'Tipo:', typeLabel);
-    leftY = this.pdfPdfBoldLabelParagraphAt(doc, T, leftX, colW, leftY, 'Moneda:', moneyLabel);
+    const L = (
+      yy: number,
+      label: string,
+      value: string,
+    ): number =>
+      this.pdfPdfBoldLabelParagraphAtPageSafe(doc, T, margin, reserveBottom, leftX, colW, yy, label, value);
+
+    leftY = L(leftY, 'Tipo:', typeLabel);
+    leftY = L(leftY, 'Moneda:', moneyLabel);
     if (penExchangeLine != null) {
-      leftY = this.pdfPdfBoldLabelParagraphAt(
-        doc,
-        T,
-        leftX,
-        colW,
-        leftY,
-        'Tipo de cambio (PEN/USD):',
-        penExchangeLine,
-      );
+      leftY = L(leftY, 'Tipo de cambio (PEN/USD):', penExchangeLine);
     }
-    leftY = this.pdfPdfBoldLabelParagraphAt(doc, T, leftX, colW, leftY, 'Plazo de entrega:', deliveryLabel);
-    leftY = this.pdfPdfBoldLabelParagraphAt(doc, T, leftX, colW, leftY, 'Método de pago:', payName);
+    leftY = L(leftY, 'Plazo de entrega:', deliveryLabel);
+    leftY = L(leftY, 'Método de pago:', payName);
 
-    if (conditionsFreeText) {
+    const postLeftPage = this.quotationPdfCurrentPageOneBased(doc);
+    const postLeftY = leftY;
+
+    let rightY = titleY + 5.5;
+    if (rightLines.length > 0) {
+      doc.setPage(pageOfTitles);
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(8);
       doc.setTextColor(0, 0, 0);
-      for (const line of doc.splitTextToSize(conditionsFreeText, colW)) {
+      for (const line of rightLines) {
+        if (rightY + 4.1 > maxY) {
+          doc.addPage();
+          rightY = margin + 8;
+        }
         doc.text(line, rightX, rightY);
         rightY += 4.1;
       }
     }
 
-    return Math.max(leftY, rightY) + 6;
+    const postRightPage = this.quotationPdfCurrentPageOneBased(doc);
+    const postRightY = rightY;
+    let endY: number;
+    let endPage: number;
+    if (postRightPage > postLeftPage) {
+      endPage = postRightPage;
+      endY = postRightY;
+    } else if (postLeftPage > postRightPage) {
+      endPage = postLeftPage;
+      endY = postLeftY;
+    } else {
+      endPage = postLeftPage;
+      endY = Math.max(postLeftY, postRightY);
+    }
+    doc.setPage(endPage);
+    return endY + 6;
   }
 
   private generateQuotationPdf(
@@ -2860,8 +2954,10 @@ export class QuotationsPageComponent implements OnInit {
     const lastY = (doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY;
     y = (lastY ?? y + 24) + 10;
 
-    doc.setDrawColor(...T.border);
+    /** autotable puede dejar grosor/color de trazo o relleno que arruinan líneas/texto siguientes. */
     doc.setLineWidth(0.2);
+    doc.setDrawColor(...T.border);
+    doc.setFillColor(255, 255, 255);
     doc.line(margin, y - 3, pageW - margin, y - 3);
     y += 4;
 
@@ -2881,16 +2977,28 @@ export class QuotationsPageComponent implements OnInit {
 
     const works = row.works?.trim();
     if (works) {
+      const worksReserve = 22;
+      const worksMaxY = this.quotationPdfMaxContentY(doc, worksReserve);
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(8.5);
       doc.setTextColor(...T.primary);
+      if (y + 12 > worksMaxY) {
+        doc.addPage();
+        y = margin + 8;
+      }
       doc.text('Trabajos / alcance', margin, y);
       doc.setFont('helvetica', 'normal');
       doc.setTextColor(...T.textBody);
       y += 4.5;
-      const worksBody = doc.splitTextToSize(works, tableInnerW);
-      doc.text(worksBody, margin, y);
-      y += worksBody.length * 4.2 + 5;
+      for (const line of doc.splitTextToSize(works, tableInnerW)) {
+        if (y + 4.2 > worksMaxY) {
+          doc.addPage();
+          y = margin + 8;
+        }
+        doc.text(line, margin, y);
+        y += 4.2;
+      }
+      y += 5;
     }
 
     y = this.drawPdfBankAccountsSection(doc, pageW, margin, tableInnerW, y, bankAccounts, T);
