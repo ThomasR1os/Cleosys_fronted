@@ -90,11 +90,11 @@ export const CATALOG_REGISTRY: Record<CatalogRegistryKey, CatalogDefinition> = {
     listColumns: [
       { key: 'id', label: 'ID' },
       { key: 'name', label: 'Nombre' },
-      { key: 'abreviation', label: 'Abrev.' },
+      { key: 'abbreviation', label: 'Abrev.' },
     ],
     formFields: [
       { key: 'name', label: 'Nombre', type: 'text', required: true },
-      { key: 'abreviation', label: 'Abreviatura', type: 'text', required: true },
+      { key: 'abbreviation', label: 'Abreviatura', type: 'text', required: true },
     ],
   },
   'payment-methods': {

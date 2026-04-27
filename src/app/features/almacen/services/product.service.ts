@@ -1,6 +1,6 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
-import { Observable, map } from 'rxjs';
+import { Observable, catchError, map, throwError } from 'rxjs';
 import { environment } from '../../../../environments/environment';
 import type { Product } from '../models/almacen.models';
 
@@ -53,11 +53,34 @@ function normalizeProduct(row: Record<string, unknown>): Product {
     price: optDecimal(row['price']),
     rental_price_without_operator: optDecimal(row['rental_price_without_operator']),
     rental_price_with_operator: optDecimal(row['rental_price_with_operator']),
-    warrannty: optStr(warrantyRaw),
+    warranty: optStr(warrantyRaw),
+    /** Compat: solo si la API lo envía con el typo. */
+    warrannty: optStr(row['warrannty']),
     status: optStr(row['status']) ?? 'ACTIVE',
     dimensions: optStr(row['dimensions']),
     gross_weight: optStr(row['gross_weight']),
   };
+}
+
+type WarrantyFieldVariant = 'warranty' | 'warrannty';
+
+function toApiPayload(body: Partial<Product>, variant: WarrantyFieldVariant): Record<string, unknown> {
+  const b = body as Record<string, unknown>;
+  const payload: Record<string, unknown> = { ...b };
+
+  const w = (b['warranty'] ?? b['warrannty']) as unknown;
+  delete payload['warranty'];
+  delete payload['warrannty'];
+  payload[variant] = w;
+
+  return payload;
+}
+
+function isWarrantyFieldError(err: unknown): boolean {
+  const e = err as { status?: unknown; error?: unknown; message?: unknown };
+  if (e?.status !== 400) return false;
+  const blob = String(e?.message ?? '') + ' ' + String(e?.error ?? '');
+  return blob.toLowerCase().includes('warran');
 }
 
 @Injectable({ providedIn: 'root' })
@@ -78,15 +101,31 @@ export class ProductService {
   }
 
   create(body: Partial<Product>): Observable<Product> {
-    return this.http.post<Record<string, unknown>>(`${this.base}/`, body).pipe(
-      map((r) => normalizeProduct(r)),
-    );
+    const preferred: WarrantyFieldVariant = 'warranty';
+    const fallback: WarrantyFieldVariant = 'warrannty';
+    return this.http
+      .post<Record<string, unknown>>(`${this.base}/`, toApiPayload(body, preferred))
+      .pipe(
+        catchError((err) => {
+          if (!isWarrantyFieldError(err)) return throwError(() => err);
+          return this.http.post<Record<string, unknown>>(`${this.base}/`, toApiPayload(body, fallback));
+        }),
+        map((r) => normalizeProduct(r)),
+      );
   }
 
   update(id: number, body: Partial<Product>): Observable<Product> {
-    return this.http.patch<Record<string, unknown>>(`${this.base}/${id}/`, body).pipe(
-      map((r) => normalizeProduct(r)),
-    );
+    const preferred: WarrantyFieldVariant = 'warranty';
+    const fallback: WarrantyFieldVariant = 'warrannty';
+    return this.http
+      .patch<Record<string, unknown>>(`${this.base}/${id}/`, toApiPayload(body, preferred))
+      .pipe(
+        catchError((err) => {
+          if (!isWarrantyFieldError(err)) return throwError(() => err);
+          return this.http.patch<Record<string, unknown>>(`${this.base}/${id}/`, toApiPayload(body, fallback));
+        }),
+        map((r) => normalizeProduct(r)),
+      );
   }
 
   delete(id: number): Observable<void> {

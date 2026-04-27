@@ -2027,10 +2027,10 @@ export class QuotationsPageComponent implements OnInit {
     return p?.datasheet?.trim() ?? '';
   }
 
-  /** Garantía del producto (catálogo; campo API `warrannty`). */
+  /** Garantía del producto (catálogo; campo API `warranty`; compat: `warrannty`). */
   private lineWarrantyForPdf(line: QuotationProductRow): string {
     const p = this.productsCatalog().find((x) => x.id === line.product);
-    return p?.warrannty?.trim() ?? '';
+    return (p?.warranty ?? p?.warrannty)?.trim() ?? '';
   }
 
   /** Tamaño de la foto de producto en PDF (debajo de la ficha); ancho máx. ~ancho de celda. */
@@ -2039,8 +2039,8 @@ export class QuotationsPageComponent implements OnInit {
     dataUrl: string,
     cellInnerW: number,
   ): { w: number; h: number } {
-    const maxW = Math.min(44, Math.max(24, cellInnerW));
-    const maxH = 30;
+    const maxW = Math.min(54, Math.max(28, cellInnerW));
+    const maxH = 38;
     try {
       const p = doc.getImageProperties(dataUrl);
       const s = Math.min(maxW / p.width, maxH / p.height);
@@ -2086,8 +2086,9 @@ export class QuotationsPageComponent implements OnInit {
       const url = productImages.get(line.product);
       const { h: imgH } = url
         ? this.pdfDescImageDisplayMm(doc, url, innerW)
-        : { h: 28 };
-      h += 3 + imgH + 2;
+        : { h: 34 };
+      /** Espacio imagen + leyenda *Imagen referencial*. */
+      h += 3 + imgH + 1.8 + 3.6;
     }
     /** Margen extra para redondeos de línea y que AutoTable no subestime la altura. */
     return Math.max(h, 16) + T.pdfDescExtraPadding + 2;
@@ -2897,12 +2898,12 @@ export class QuotationsPageComponent implements OnInit {
           cy += 1.2;
           if (cy <= maxY) {
             doc.setFont('times', 'bold');
-            doc.setFontSize(7.5);
+            doc.setFontSize(8.5);
             doc.setTextColor(...T.textLabel);
             doc.text('Ficha técnica', left, cy);
             cy += 4;
             doc.setFont('times', 'italic');
-            doc.setFontSize(7);
+            doc.setFontSize(8);
             doc.setTextColor(...T.textCaption);
             for (const dl of doc.splitTextToSize(ds, textW)) {
               if (cy > maxY) break;
@@ -2933,16 +2934,33 @@ export class QuotationsPageComponent implements OnInit {
             cy += 3;
             const fmt: 'PNG' | 'JPEG' = imgData.includes('image/jpeg') ? 'JPEG' : 'PNG';
             let { w: dw, h: dh } = this.pdfDescImageDisplayMm(doc, imgData, textW);
+            const captionReserve = 5.2;
             const room = maxY - cy;
-            if (room < 4) {
-              /* sin espacio para imagen */
-            } else if (dh > room) {
-              const scale = room / dh;
-              dw *= scale;
-              dh = room;
-              doc.addImage(imgData, fmt, left, cy, dw, dh);
+            if (room < 4 + captionReserve) {
+              /* sin espacio para imagen + leyenda */
             } else {
+              const maxImgH = room - captionReserve;
+              if (dh > maxImgH) {
+                const scale = maxImgH / dh;
+                dw *= scale;
+                dh = maxImgH;
+              }
               doc.addImage(imgData, fmt, left, cy, dw, dh);
+              cy += dh + 1.8;
+              if (cy <= maxY) {
+                doc.setFont('helvetica', 'italic');
+                doc.setFontSize(6.5);
+                doc.setTextColor(...T.textCaption);
+                const cap = '*Imagen referencial*';
+                const cx = left + dw / 2;
+                for (const cl of doc.splitTextToSize(cap, Math.max(16, dw))) {
+                  if (cy > maxY) break;
+                  doc.text(cl, cx, cy, { align: 'center' });
+                  cy += 3.2;
+                }
+              }
+              doc.setFont('helvetica', 'normal');
+              doc.setTextColor(...T.totalBar);
             }
           } catch {
             /* imagen opcional */

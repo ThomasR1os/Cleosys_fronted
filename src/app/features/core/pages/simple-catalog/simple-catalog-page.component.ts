@@ -102,7 +102,7 @@ export class SimpleCatalogPageComponent implements OnInit {
     this.errorMessage.set(null);
     this.http.get<Row[]>(`${environment.apiUrl}/${d.apiPath}/`).subscribe({
       next: (rows) => {
-        this.items.set(rows);
+        this.items.set(this.normalizeRows(rows));
         this.loading.set(false);
       },
       error: (err) => {
@@ -192,6 +192,30 @@ export class SimpleCatalogPageComponent implements OnInit {
       } else {
         out[f.key] = v ?? '';
       }
+    }
+    return this.normalizePayload(out);
+  }
+
+  /**
+   * Compatibilidad temporal: algunos catálogos tuvieron typos en claves.
+   * Solo aplicamos alias en claves conocidas para no tocar otros recursos.
+   */
+  private normalizeRows(rows: Row[]): Row[] {
+    if (this.def.apiPath !== 'units') return rows;
+    return rows.map((r) => {
+      const out: Row = { ...r };
+      if (out['abbreviation'] == null && out['abreviation'] != null) {
+        out['abbreviation'] = out['abreviation'];
+      }
+      return out;
+    });
+  }
+
+  private normalizePayload(payload: Row): Row {
+    if (this.def.apiPath !== 'units') return payload;
+    const out: Row = { ...payload };
+    if ('abbreviation' in out) {
+      out['abreviation'] = out['abbreviation'];
     }
     return out;
   }

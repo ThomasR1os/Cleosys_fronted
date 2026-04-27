@@ -29,7 +29,7 @@ function normalizeSupplier(row: Record<string, unknown>): Supplier {
     type: normalizeSupplierType(row['type']),
     ruc: String(row['ruc'] ?? ''),
     name: String(row['name'] ?? ''),
-    adress: String(addr ?? ''),
+    address: String(addr ?? ''),
     contact: String(row['contact'] ?? ''),
     email: String(row['email'] ?? ''),
     phone: String(row['phone'] ?? ''),
@@ -40,10 +40,7 @@ function normalizeSupplier(row: Record<string, unknown>): Supplier {
 /** Envía ambas claves de dirección por si el modelo usa `address` o `adress`. */
 function toApiPayload(body: Partial<Supplier>): Record<string, unknown> {
   const out: Record<string, unknown> = { ...body };
-  if ('adress' in out) {
-    const a = out['adress'];
-    out['address'] = a;
-  }
+  if ('address' in out) out['adress'] = out['address'];
   return out;
 }
 

@@ -5,7 +5,7 @@ export interface Supplier {
   type: SupplierType;
   ruc: string;
   name: string;
-  adress: string;
+  address: string;
   contact: string;
   email: string;
   phone: string;

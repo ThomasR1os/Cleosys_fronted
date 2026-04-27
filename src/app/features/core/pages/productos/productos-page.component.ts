@@ -54,6 +54,7 @@ export class ProductosPageComponent implements OnInit {
         p.status ?? '',
         p.price ?? '',
         p.datasheet ?? '',
+        p.warranty ?? '',
       ].join(' ');
       return textMatchesLooseQuery(blob, q);
     });
@@ -116,7 +117,7 @@ export class ProductosPageComponent implements OnInit {
     price: this.fb.control<number | null>(null),
     rental_price_without_operator: this.fb.control<number | null>(null),
     rental_price_with_operator: this.fb.control<number | null>(null),
-    warrannty: [''],
+    warranty: [''],
     status: this.fb.nonNullable.control<string>('ACTIVE'),
     dimensions: [''],
     gross_weight: [''],
@@ -288,7 +289,7 @@ export class ProductosPageComponent implements OnInit {
       price: null,
       rental_price_without_operator: null,
       rental_price_with_operator: null,
-      warrannty: '',
+      warranty: '',
       status: 'ACTIVE',
       dimensions: '',
       gross_weight: '',
@@ -312,7 +313,8 @@ export class ProductosPageComponent implements OnInit {
       price: row.price ?? null,
       rental_price_without_operator: row.rental_price_without_operator ?? null,
       rental_price_with_operator: row.rental_price_with_operator ?? null,
-      warrannty: row.warrannty ?? '',
+      /** `ProductService` ya normaliza `warranty` incluso si el backend devolvió `warrannty`. */
+      warranty: row.warranty ?? '',
       status: row.status || 'ACTIVE',
       dimensions: row.dimensions ?? '',
       gross_weight: row.gross_weight ?? '',
@@ -394,7 +396,7 @@ export class ProductosPageComponent implements OnInit {
       price: this.nullIfDecimal(v.price),
       rental_price_without_operator: this.nullIfDecimal(v.rental_price_without_operator),
       rental_price_with_operator: this.nullIfDecimal(v.rental_price_with_operator),
-      warrannty: this.nullIfBlank(v.warrannty),
+      warranty: this.nullIfBlank(v.warranty),
       status: v.status?.trim() || 'ACTIVE',
       dimensions: this.nullIfBlank(v.dimensions),
       gross_weight: this.nullIfBlank(v.gross_weight),

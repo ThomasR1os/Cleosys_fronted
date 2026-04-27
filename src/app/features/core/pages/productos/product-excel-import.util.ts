@@ -15,7 +15,7 @@ export type ProductExcelRow = {
   price: number | null;
   rental_price_without_operator: number | null;
   rental_price_with_operator: number | null;
-  warrannty: string | null;
+  warranty: string | null;
   status: string | null;
   dimensions: string | null;
   gross_weight: string | null;
@@ -67,9 +67,9 @@ const SLUG_TO_FIELD: Record<string, keyof ProductExcelRow> = {
   precio_alquiler_sin_operador: 'rental_price_without_operator',
   rental_price_with_operator: 'rental_price_with_operator',
   precio_alquiler_con_operador: 'rental_price_with_operator',
-  warrannty: 'warrannty',
-  warranty: 'warrannty',
-  garantia: 'warrannty',
+  warrannty: 'warranty',
+  warranty: 'warranty',
+  garantia: 'warranty',
   status: 'status',
   estado: 'status',
   dimensions: 'dimensions',
@@ -176,7 +176,7 @@ export function excelRowToProductPayload(
       price: partial.price ?? null,
       rental_price_without_operator: partial.rental_price_without_operator ?? null,
       rental_price_with_operator: partial.rental_price_with_operator ?? null,
-      warrannty: strOrNull(partial.warrannty),
+      warranty: strOrNull(partial.warranty),
       status: strOrNull(partial.status) ?? 'ACTIVE',
       dimensions: strOrNull(partial.dimensions),
       gross_weight: strOrNull(partial.gross_weight),
@@ -204,8 +204,8 @@ export function excelRowToProductPayload(
       partial.rental_price_with_operator !== undefined
         ? partial.rental_price_with_operator
         : existing.rental_price_with_operator,
-    warrannty:
-      partial.warrannty !== undefined ? strOrNull(partial.warrannty) : existing.warrannty,
+    warranty:
+      partial.warranty !== undefined ? strOrNull(partial.warranty) : existing.warranty,
     status: partial.status !== undefined ? strOrNull(partial.status) ?? 'ACTIVE' : existing.status,
     dimensions:
       partial.dimensions !== undefined ? strOrNull(partial.dimensions) : existing.dimensions,
@@ -228,7 +228,7 @@ export function downloadProductExcelTemplate(): void {
     'price',
     'rental_price_without_operator',
     'rental_price_with_operator',
-    'warrannty',
+    'warranty',
     'status',
     'dimensions',
     'gross_weight',

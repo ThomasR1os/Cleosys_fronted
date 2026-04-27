@@ -20,8 +20,13 @@ export interface Product {
   price: number | null;
   rental_price_without_operator: number | null;
   rental_price_with_operator: number | null;
-  /** Nombre de campo tal cual en el backend. */
-  warrannty: string | null;
+  /** Garantía del producto. */
+  warranty: string | null;
+  /**
+   * Compatibilidad con respuestas antiguas / Excel.
+   * (En algunos entornos el backend expone el typo `warrannty`.)
+   */
+  warrannty?: string | null;
   status: string;
   dimensions: string | null;
   gross_weight: string | null;
@@ -41,7 +46,8 @@ export interface WarehouseProduct {
   warehouse: number;
   product: number;
   stock: number;
-  ubication: string;
+  /** Ubicación dentro del almacén. */
+  location: string;
   creation_date?: string;
 }
 

@@ -128,12 +128,12 @@
           <span class="label-text">Dirección</span>
           <input
             class="input input-bordered"
-            [class.input-error]="isFieldInvalid('adress')"
-            formControlName="adress"
-            [attr.aria-invalid]="isFieldInvalid('adress')"
+            [class.input-error]="isFieldInvalid('address')"
+            formControlName="address"
+            [attr.aria-invalid]="isFieldInvalid('address')"
             autocomplete="street-address"
           />
-          @if (fieldError('adress'); as msg) {
+          @if (fieldError('address'); as msg) {
             <span class="label-text-alt text-error">{{ msg }}</span>
           }
         </label>
