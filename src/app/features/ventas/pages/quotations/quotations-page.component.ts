@@ -56,6 +56,13 @@ import { QuotationService } from '../../services/quotation.service';
 /** Máximo de filas en desplegables buscables (rendimiento con catálogos grandes). */
 const PICKER_PAGE = 100;
 
+const DEFAULT_QUOTATION_CONDITIONS = `• La instalación es por cuenta del cliente.
+• La descarga del equipo corre por cuenta del cliente.
+• Incluye arranque inicial en nuestros talleres de Lima.
+• Atención Post venta, para manttos., reparación y suministro de repuestos.
+• Le brindamos asistencia técnica en nuestros talleres con personal calificado.
+• Incluye el traslado del equipo hasta sus instalaciones dentro de Lima Metropolitana`;
+
 /** Línea pendiente antes de existir la cotización (POST cotización → POST líneas). */
 interface DraftQuotationLine {
   tempId: string;
@@ -1213,7 +1220,7 @@ export class QuotationsPageComponent implements OnInit {
         client_contact: null,
         discountPercent: 0,
         delivery_time: 0,
-        conditions: '',
+        conditions: DEFAULT_QUOTATION_CONDITIONS,
         payment_methods: pm,
         works: '',
         see_sku: false,
@@ -1314,7 +1321,6 @@ export class QuotationsPageComponent implements OnInit {
     this.prevMoneyForLines = row.money;
     this.linePricesCurrency = row.money;
     this.syncExchangeRateValidators(row.money);
-    this.lineForm.disable({ emitEvent: false });
     this.modalOpen.set(true);
     this.clientPickerOpen.set(false);
     this.sellerPickerOpen.set(false);
@@ -1327,6 +1333,7 @@ export class QuotationsPageComponent implements OnInit {
       this.sellerSearchQuery.set('');
       this.refreshSellerEligibility(row.client);
     }
+    this.applyQuotationModalReadonlyToForm();
     this.ensureProductsCatalog();
   }
 
@@ -1721,17 +1728,35 @@ export class QuotationsPageComponent implements OnInit {
             this.loadProductImageDataUrlsForPdf(qpLines.map((l) => l.product)),
             this.rasterizePdfUserIconSvg(T.primary),
           ]);
-          this.generateQuotationPdf(
-            row,
-            T,
-            companyPdf.logoDataUrl,
-            productImages,
-            companyPdf.bankAccounts,
-            creatorUser,
-            creatorIconPng,
-            companyPdf.companyRazonSocial,
-            companyPdf.companyRuc,
-          );
+          if (companyId === 1) {
+            const heroLine = qpLines.find((l) => !!productImages.get(l.product)) ?? qpLines[0];
+            const rawHero = heroLine ? productImages.get(heroLine.product) ?? null : null;
+            const heroCropped = rawHero ? await this.cropImageDataUrlToSquare(rawHero) : null;
+            this.generateQuotationPdfCompresores(
+              row,
+              T,
+              companyPdf.logoDataUrl,
+              productImages,
+              heroCropped,
+              companyPdf.bankAccounts,
+              creatorUser,
+              creatorIconPng,
+              companyPdf.companyRazonSocial,
+              companyPdf.companyRuc,
+            );
+          } else {
+            this.generateQuotationPdf(
+              row,
+              T,
+              companyPdf.logoDataUrl,
+              productImages,
+              companyPdf.bankAccounts,
+              creatorUser,
+              creatorIconPng,
+              companyPdf.companyRazonSocial,
+              companyPdf.companyRuc,
+            );
+          }
         })();
       });
     run();
@@ -2317,6 +2342,157 @@ export class QuotationsPageComponent implements OnInit {
     return Math.max(yLeft, ry + 2) + 6;
   }
 
+  /**
+   * Altura (Y) desde la cual puede empezar el contenido bajo el membrete,
+   * sin dibujar nada todavía. Se usa para layouts donde el membrete se dibuja
+   * al final en todas las páginas (evita duplicación y permite repetir header).
+   */
+  private estimatePdfQuotationLetterheadBottomY(
+    doc: jsPDF,
+    margin: number,
+    pageW: number,
+    logoDataUrl: string | null,
+  ): number {
+    const yTop = margin + 3;
+    let logoH = 0;
+    if (logoDataUrl) {
+      try {
+        const props = doc.getImageProperties(logoDataUrl);
+        const maxW = 70;
+        const maxH = 30;
+        const scale = Math.min(maxW / props.width, maxH / props.height);
+        logoH = props.height * scale;
+      } catch {
+        logoH = 0;
+      }
+    }
+    const rightBlockBottomY = yTop + 2 + 5.5 + 2;
+    const yLeft = yTop + logoH;
+    return Math.max(yLeft, rightBlockBottomY) + 6;
+  }
+
+  private pdfHeroImageDisplayMm(
+    doc: jsPDF,
+    dataUrl: string,
+    maxW: number,
+    maxH: number,
+  ): { w: number; h: number } {
+    try {
+      const real = this.imageSizeFromDataUrl(dataUrl);
+      const p = real ?? doc.getImageProperties(dataUrl);
+      /**
+       * `getImageProperties()` retorna dimensiones en px.
+       * Para respetar el “tamaño original” (sin sensación de estirado),
+       * convertimos px → mm asumiendo 96 DPI (web estándar): 1px ≈ 0.264583 mm.
+       * Luego escalamos SOLO si excede el espacio disponible (sin upscaling).
+       */
+      const pxToMm = 0.264583;
+      const w0 = p.width * pxToMm;
+      const h0 = p.height * pxToMm;
+      const s = Math.min(1, maxW / w0, maxH / h0);
+      return { w: w0 * s, h: h0 * s };
+    } catch {
+      // Fallback conservador (sin forzar ancho completo).
+      const w = Math.min(maxW, 120);
+      const h = Math.min(maxH, 60);
+      return { w, h };
+    }
+  }
+
+  private pdfImageDisplayMmFromDataUrl(
+    doc: jsPDF,
+    dataUrl: string,
+    maxW: number,
+    maxH: number,
+  ): { w: number; h: number } {
+    try {
+      const real = this.imageSizeFromDataUrl(dataUrl);
+      const p = real ?? doc.getImageProperties(dataUrl);
+      const pxToMm = 0.264583; // 96 DPI
+      const w0 = p.width * pxToMm;
+      const h0 = p.height * pxToMm;
+      const s = Math.min(1, maxW / w0, maxH / h0);
+      return { w: w0 * s, h: h0 * s };
+    } catch {
+      return { w: Math.min(maxW, 80), h: Math.min(maxH, 40) };
+    }
+  }
+
+  private imageSizeFromDataUrl(dataUrl: string): { width: number; height: number } | null {
+    try {
+      const m = /^data:image\/(png|jpeg|jpg);base64,(.+)$/i.exec(dataUrl.trim());
+      if (!m) return null;
+      const kind = m[1].toLowerCase();
+      const b64 = m[2];
+      const bin = atob(b64);
+      const u8 = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i) & 0xff;
+
+      const be32 = (o: number) =>
+        (u8[o] << 24) | (u8[o + 1] << 16) | (u8[o + 2] << 8) | u8[o + 3];
+      const be16 = (o: number) => (u8[o] << 8) | u8[o + 1];
+
+      if (kind === 'png') {
+        if (u8.length < 24) return null;
+        // PNG signature 89 50 4E 47 0D 0A 1A 0A
+        if (
+          u8[0] !== 0x89 ||
+          u8[1] !== 0x50 ||
+          u8[2] !== 0x4e ||
+          u8[3] !== 0x47 ||
+          u8[4] !== 0x0d ||
+          u8[5] !== 0x0a ||
+          u8[6] !== 0x1a ||
+          u8[7] !== 0x0a
+        ) {
+          return null;
+        }
+        const width = be32(16);
+        const height = be32(20);
+        if (width > 0 && height > 0) return { width, height };
+        return null;
+      }
+
+      // JPEG: scan SOF marker for dimensions
+      if (kind === 'jpeg' || kind === 'jpg') {
+        if (u8.length < 4 || u8[0] !== 0xff || u8[1] !== 0xd8) return null;
+        let o = 2;
+        while (o + 9 < u8.length) {
+          if (u8[o] !== 0xff) {
+            o++;
+            continue;
+          }
+          const marker = u8[o + 1];
+          // standalone markers
+          if (marker === 0xd8 || marker === 0xd9) {
+            o += 2;
+            continue;
+          }
+          const len = be16(o + 2);
+          if (len < 2) return null;
+          // SOF0..SOF3, SOF5..SOF7, SOF9..SOF11, SOF13..SOF15
+          const isSof =
+            (marker >= 0xc0 && marker <= 0xc3) ||
+            (marker >= 0xc5 && marker <= 0xc7) ||
+            (marker >= 0xc9 && marker <= 0xcb) ||
+            (marker >= 0xcd && marker <= 0xcf);
+          if (isSof) {
+            const height = be16(o + 5);
+            const width = be16(o + 7);
+            if (width > 0 && height > 0) return { width, height };
+            return null;
+          }
+          o += 2 + len;
+        }
+        return null;
+      }
+
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
   /** Etiqueta en negrita + valor con posible salto de línea; `colInnerW` es el ancho útil de la columna desde `x`. */
   private pdfPdfBoldLabelParagraphAt(
     doc: jsPDF,
@@ -2570,6 +2746,540 @@ export class QuotationsPageComponent implements OnInit {
     }
     doc.setPage(endPage);
     return endY + 6;
+  }
+
+  private cropImageDataUrlToSquare(dataUrl: string): Promise<string | null> {
+    return new Promise((resolve) => {
+      if (typeof document === 'undefined') {
+        resolve(null);
+        return;
+      }
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        const w = img.naturalWidth || img.width;
+        const h = img.naturalHeight || img.height;
+        if (!w || !h) {
+          resolve(null);
+          return;
+        }
+        const side = Math.min(w, h);
+        const sx = Math.floor((w - side) / 2);
+        const sy = Math.floor((h - side) / 2);
+        const canvas = document.createElement('canvas');
+        canvas.width = side;
+        canvas.height = side;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(null);
+          return;
+        }
+        ctx.drawImage(img, sx, sy, side, side, 0, 0, side, side);
+        try {
+          const mime = dataUrl.includes('image/jpeg') ? 'image/jpeg' : 'image/png';
+          resolve(canvas.toDataURL(mime, 0.92));
+        } catch {
+          resolve(canvas.toDataURL('image/png'));
+        }
+      };
+      img.onerror = () => resolve(null);
+      img.src = dataUrl;
+    });
+  }
+
+  private generateQuotationPdfCompresores(
+    row: QuotationRow,
+    T: PdfQuotationTheme,
+    logoDataUrl: string | null = null,
+    productImages: Map<number, string | null> = new Map(),
+    heroImageDataUrl: string | null = null,
+    bankAccounts: string = '',
+    creatorUser: AdminUser | null = null,
+    creatorIconPng: string | null = null,
+    companyRazonSocial: string = '',
+    companyRuc: string = '',
+  ): void {
+    const doc = new jsPDF();
+    const margin = 16;
+    const pageW = doc.internal.pageSize.getWidth();
+    const pageH = doc.internal.pageSize.getHeight();
+    const tableInnerW = pageW - 2 * margin;
+    const headerBottomY = this.estimatePdfQuotationLetterheadBottomY(doc, margin, pageW, logoDataUrl);
+
+    const reserveBottom = 18;
+    const ensureSpace = (needMm: number, y: number): number => {
+      if (y + needMm <= pageH - reserveBottom) return y;
+      doc.addPage();
+      return headerBottomY;
+    };
+
+    const lines = this.linesForQuotationId(row.id);
+    const client = this.clients().find((c) => c.id === row.client);
+    const pay = this.paymentMethods().find((p) => p.id === row.payment_methods);
+    const typeLabel = this.typeOpts.find((o) => o.value === row.quotation_type)?.label ?? row.quotation_type;
+    let penEx: string | null = null;
+    if (row.money === 'PEN') {
+      const ex = this.exchangeRateFromRow(row);
+      penEx = ex != null ? String(ex) : '—';
+    }
+
+    const drawCompresoresSeparators = (yy: number): number => {
+      const x1 = margin;
+      const x2 = pageW - margin;
+
+      // Línea sutil de ancho completo
+      doc.setDrawColor(...T.border);
+      doc.setLineWidth(0.25);
+      doc.line(x1, yy + 1.2, x2, yy + 1.2);
+
+      // Acento minimalista centrado (barra corta, color principal)
+      const cx = (x1 + x2) / 2;
+      const accentW = Math.min(44, x2 - x1 - 20);
+      doc.setDrawColor(...T.primary);
+      doc.setLineWidth(0.9);
+      doc.line(cx - accentW / 2, yy + 1.2, cx + accentW / 2, yy + 1.2);
+
+      return yy + 10;
+    };
+
+    const drawCompresoresSectionTitle = (title: string, yy: number): number => {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.setTextColor(...T.primary);
+      doc.text(title, margin, yy);
+      return yy + 10;
+    };
+
+    const drawCompresoresPageHeaderContent = (title: string, yyStart: number): number => {
+      let yy = yyStart;
+      yy = this.drawPdfQuotationClienteComercializador(doc, T, margin, tableInnerW, yy, client, companyRazonSocial, companyRuc);
+      yy = drawCompresoresSeparators(yy - 2);
+      yy = drawCompresoresSectionTitle(title, yy);
+      return yy;
+    };
+
+    // ===== Página 1: Precios =====
+    let y = headerBottomY;
+
+    // Datos de cliente/comercializador justo debajo del header
+    y = this.drawPdfQuotationClienteComercializador(
+      doc,
+      T,
+      margin,
+      tableInnerW,
+      y,
+      client,
+      companyRazonSocial,
+      companyRuc,
+    );
+    y = drawCompresoresSeparators(y - 2);
+
+    // Imagen grande (primer producto) antes del cuadro de precios
+    const firstLineWithImg = lines.find((l) => !!productImages.get(l.product));
+    const heroLine = firstLineWithImg ?? lines[0];
+    const heroImg = heroImageDataUrl ?? (heroLine ? productImages.get(heroLine.product) ?? null : null);
+    if (heroImg) {
+      try {
+        const fmt: 'PNG' | 'JPEG' = heroImg.includes('image/jpeg') ? 'JPEG' : 'PNG';
+        // Evita que imágenes panorámicas "dominen" el ancho y parezcan estiradas:
+        // se limita el ancho máximo del bloque hero.image.png
+        const heroMaxW = Math.min(tableInnerW, 120);
+        const { w, h } = this.pdfHeroImageDisplayMm(doc, heroImg, heroMaxW, 78);
+        y = ensureSpace(h + 10, y);
+        const cx = margin + (tableInnerW - w) / 2;
+        doc.addImage(heroImg, fmt, cx, y, w, h);
+        y += h + 8;
+      } catch {
+        /* imagen opcional */
+      }
+    }
+
+    const showSku = row.see_sku;
+    const money = row.money;
+    const col = showSku
+      ? { num: 9, sku: 26, desc: 72, cant: 12, pUnit: 30, pTot: 33 }
+      : { num: 9, desc: 98, cant: 12, pUnit: 31, pTot: 32 };
+    const head = showSku
+      ? [['#', 'Nro. Parte', 'Descripción', 'Cant.', 'Valor Unit.', 'Valor Total']]
+      : [['#', 'Descripción', 'Cant.', 'Valor Unit.', 'Valor Total']];
+
+    const lineBody: RowInput[] = lines.map((line, idx) => {
+      const pu = Number(line.product_price);
+      const subt = line.cant * pu;
+      const item = String(idx + 1);
+      const puStr = this.formatMoneyPdfPlain(pu);
+      const subStr = this.formatMoneyPdfPlain(subt);
+      const desc = this.productLineDescription(line);
+      const sym = money === 'PEN' ? 'S/' : '$';
+      if (showSku) {
+        return [item, this.productLineLabel(line), desc, String(line.cant), `${sym} ${puStr}`, `${sym} ${subStr}`];
+      }
+      return [item, desc, String(line.cant), `${sym} ${puStr}`, `${sym} ${subStr}`];
+    });
+
+    const subtotal = this.subtotalForQuotationId(row.id);
+    const disc = Number(row.discount);
+    const baseImponible = Math.max(0, subtotal - disc);
+    const igv = baseImponible * 0.18;
+    const totalConIgv = baseImponible + igv;
+
+    const labelSpan = showSku ? 5 : 4;
+    const summaryRows: RowInput[] = [];
+    if (disc > 0) {
+      summaryRows.push(
+        [
+          { content: 'Valor subTotal', colSpan: labelSpan, styles: { halign: 'right', fontStyle: 'bold' } },
+          { content: this.formatMoneyPdf(money, subtotal), styles: { halign: 'right', fontStyle: 'bold' } },
+        ],
+        [
+          { content: 'Descuento', colSpan: labelSpan, styles: { halign: 'right', fontStyle: 'bold' } },
+          { content: `- ${this.formatMoneyPdf(money, disc)}`, styles: { halign: 'right', fontStyle: 'bold' } },
+        ],
+      );
+    }
+    summaryRows.push(
+      [
+        {
+          content: disc > 0 ? 'Valor subTotal (con descuento)' : 'Valor subTotal',
+          colSpan: labelSpan,
+          styles: { halign: 'right', fontStyle: 'bold' },
+        },
+        { content: this.formatMoneyPdf(money, baseImponible), styles: { halign: 'right', fontStyle: 'bold' } },
+      ],
+      [
+        { content: 'IGV 18%', colSpan: labelSpan, styles: { halign: 'right', fontStyle: 'bold' } },
+        { content: this.formatMoneyPdf(money, igv), styles: { halign: 'right', fontStyle: 'bold' } },
+      ],
+      [
+        {
+          content: 'Precio total',
+          colSpan: labelSpan,
+          styles: { halign: 'right', fontStyle: 'bold', fillColor: T.totalBar, textColor: T.white },
+        },
+        {
+          content: this.formatMoneyPdf(money, totalConIgv),
+          styles: { halign: 'right', fontStyle: 'bold', fillColor: T.totalBar, textColor: T.white },
+        },
+      ],
+    );
+
+    autoTable(doc, {
+      startY: y,
+      head,
+      body: [...lineBody, ...summaryRows],
+      theme: 'plain',
+      styles: {
+        fontSize: 8.5,
+        cellPadding: { top: 3.5, bottom: 3.5, left: 2, right: 2 },
+        valign: 'middle',
+        lineColor: T.border,
+        lineWidth: 0.15,
+        textColor: [...T.totalBar],
+      },
+      headStyles: {
+        fillColor: T.primary,
+        textColor: T.white,
+        fontStyle: 'bold',
+        fontSize: 8.5,
+        halign: 'center',
+        valign: 'middle',
+        lineWidth: 0,
+        cellPadding: { top: 4, bottom: 4, left: 2, right: 2 },
+      },
+      columnStyles: showSku
+        ? {
+            0: { cellWidth: col.num, halign: 'center' },
+            1: { cellWidth: col.sku, halign: 'left' },
+            2: { cellWidth: col.desc, halign: 'left' },
+            3: { cellWidth: col.cant, halign: 'center' },
+            4: { cellWidth: col.pUnit, halign: 'right' },
+            5: { cellWidth: col.pTot, halign: 'right' },
+          }
+        : {
+            0: { cellWidth: col.num, halign: 'center' },
+            1: { cellWidth: col.desc, halign: 'left' },
+            2: { cellWidth: col.cant, halign: 'center' },
+            3: { cellWidth: col.pUnit, halign: 'right' },
+            4: { cellWidth: col.pTot, halign: 'right' },
+          },
+      margin: { left: margin, right: margin, top: headerBottomY },
+      tableWidth: tableInnerW,
+    });
+
+    const lastY = (doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY;
+    y = (lastY ?? y + 24) + 10;
+
+    // ===== Página 2+: Datos técnicos (imagen 50% | ficha técnica 50%) =====
+    doc.addPage();
+    y = drawCompresoresPageHeaderContent('DATOS TÉCNICOS', headerBottomY);
+
+    const colGap = 6;
+    const colW = (tableInnerW - colGap) / 2;
+    const leftX = margin;
+    const rightX = margin + colW + colGap;
+
+    const drawTechRow = (line: QuotationProductRow) => {
+      const title = this.productLineDescription(line);
+      const ds = this.lineDatasheetForPdf(line);
+      const gw = this.lineWarrantyForPdf(line);
+      const img = productImages.get(line.product);
+
+      const rightText: string[] = [];
+      rightText.push(title);
+      if (ds?.trim()) rightText.push(ds.trim());
+      if (gw?.trim()) rightText.push(`GARANTÍA: ${gw.trim()}`);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      const rightLines = rightText.flatMap((t, idx) => {
+        const wrap = doc.splitTextToSize(t, colW);
+        if (idx === 0) return wrap;
+        return [''].concat(wrap);
+      });
+      const estRightH = Math.max(1, rightLines.length) * 4.2 + 6;
+
+      let imgH = 34;
+      let imgW = colW;
+      if (img) {
+        try {
+          const maxW = colW;
+          const maxH = 56;
+          const size = this.pdfImageDisplayMmFromDataUrl(doc, img, maxW, maxH);
+          imgW = size.w;
+          imgH = size.h;
+        } catch {
+          imgW = colW;
+          imgH = 34;
+        }
+      }
+
+      const rowH = Math.max(estRightH, imgH + 8) + 8;
+      if (y + rowH > pageH - reserveBottom) {
+        doc.addPage();
+        y = drawCompresoresPageHeaderContent('DATOS TÉCNICOS', headerBottomY);
+      }
+
+      // Imagen izquierda
+      if (img) {
+        try {
+          const fmt: 'PNG' | 'JPEG' = img.includes('image/jpeg') ? 'JPEG' : 'PNG';
+          const ix = leftX + (colW - imgW) / 2;
+          doc.addImage(img, fmt, ix, y, imgW, imgH);
+        } catch {
+          /* imagen opcional */
+        }
+      }
+
+      // Texto derecha (ficha)
+      let ty = y;
+      doc.setTextColor(0, 0, 0);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9.5);
+      const titleLines = doc.splitTextToSize(title, colW);
+      for (const tl of titleLines) {
+        doc.text(tl, rightX, ty);
+        ty += 4.6;
+      }
+      ty += 1.5;
+
+      if (ds?.trim()) {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8.5);
+        doc.setTextColor(...T.textBody);
+        for (const dl of doc.splitTextToSize(ds.trim(), colW)) {
+          doc.text(dl, rightX, ty);
+          ty += 4.1;
+        }
+        ty += 2;
+      }
+
+      if (gw?.trim()) {
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8.5);
+        doc.setTextColor(...T.textBody);
+        doc.text(`GARANTÍA: ${gw.trim()}`.toUpperCase(), rightX, ty);
+        ty += 5;
+      }
+
+      y += rowH;
+    };
+
+    for (const line of lines) drawTechRow(line);
+
+    const ensureCondicionesY = (needMm: number, yy: number): number => {
+      if (yy + needMm <= pageH - reserveBottom) return yy;
+      doc.addPage();
+      return drawCompresoresPageHeaderContent('CONDICIONES COMERCIALES', headerBottomY);
+    };
+
+    // ===== Condiciones comerciales (misma cabecera que datos técnicos: cliente + línea sutil + título) =====
+    doc.addPage();
+    y = drawCompresoresPageHeaderContent('CONDICIONES COMERCIALES', headerBottomY);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(...T.textBody);
+
+    const baseLines: string[] = [];
+    baseLines.push(`Tipo: ${typeLabel}`);
+    baseLines.push(`Moneda: ${row.money}`);
+    if (penEx != null) baseLines.push(`Tipo de cambio (PEN/USD): ${penEx}`);
+    baseLines.push(`Plazo de entrega: ${this.deliveryTimePdfLabel(row.delivery_time)}`);
+    baseLines.push(`Forma de pago: ${(pay?.name ?? '—').trim()}`);
+
+    for (const bl of baseLines) {
+      y = ensureCondicionesY(5, y);
+      doc.text(bl, margin, y);
+      y += 4.6;
+    }
+    y += 6;
+
+    const conditionsText = row.conditions?.trim();
+    if (conditionsText) {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.setTextColor(...T.primary);
+      y = ensureCondicionesY(8, y);
+      doc.text('CONSIDERACIONES COMERCIALES', margin, y);
+      y += 6;
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(...T.textBody);
+      for (const para of conditionsText.split(/\r?\n/)) {
+        const trimmed = para.trim();
+        if (!trimmed) {
+          y += 2;
+          continue;
+        }
+        for (const line of doc.splitTextToSize(trimmed, tableInnerW)) {
+          y = ensureCondicionesY(5, y);
+          doc.text(line, margin, y);
+          y += 4.2;
+        }
+        y += 1;
+      }
+      y += 4;
+    }
+
+    const bankText = bankAccounts?.trim();
+    if (bankText) {
+      y = ensureCondicionesY(12, y);
+      doc.setDrawColor(...T.border);
+      doc.setLineWidth(0.2);
+      doc.line(margin, y, pageW - margin, y);
+      y += 6;
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9.5);
+      doc.setTextColor(...T.primary);
+      doc.text('CUENTAS BANCARIAS', margin, y);
+      y += 5.5;
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(...T.textBody);
+      for (const para of bankText.split(/\r?\n/)) {
+        const trimmed = para.trim();
+        if (!trimmed) {
+          y += 2;
+          continue;
+        }
+        for (const line of doc.splitTextToSize(trimmed, tableInnerW)) {
+          y = ensureCondicionesY(5, y);
+          doc.text(line, margin, y);
+          y += 4.1;
+        }
+        y += 1;
+      }
+      y += 4;
+    }
+
+    // Elaborado por (mismo contenido, pero controlando salto de página con header)
+    {
+      const minBlock = 52;
+      y = ensureCondicionesY(minBlock, y);
+      const cx = pageW / 2;
+      doc.setDrawColor(...T.border);
+      doc.setLineWidth(0.2);
+      doc.line(margin + 28, y, pageW - margin - 28, y);
+      y += 9;
+
+      const iconMm = 11;
+      if (creatorIconPng) {
+        try {
+          doc.addImage(creatorIconPng, 'PNG', cx - iconMm / 2, y, iconMm, iconMm);
+          y += iconMm + 5;
+        } catch {
+          y += 2;
+        }
+      } else {
+        y += 2;
+      }
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(...T.primary);
+      doc.text('Elaborado por', cx, y, { align: 'center' });
+      y += 5;
+
+      const displayName =
+        creatorUser != null
+          ? this.sellerDisplay(creatorUser)
+          : row.user > 0
+            ? this.asesorDisplayFromRow(row)
+            : '—';
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.setTextColor(0, 0, 0);
+      for (const line of doc.splitTextToSize(displayName, tableInnerW - 8)) {
+        y = ensureCondicionesY(6, y);
+        doc.text(line, cx, y, { align: 'center' });
+        y += 5;
+      }
+      y += 1;
+
+      const emailStr = creatorUser?.email?.trim() || row.user_detail?.email?.trim() || '—';
+      const phoneStr = creatorUser?.cellphone?.trim() || row.user_detail?.cellphone?.trim() || '—';
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(...T.muted);
+      for (const line of doc.splitTextToSize(emailStr, tableInnerW - 8)) {
+        y = ensureCondicionesY(5, y);
+        doc.text(line, cx, y, { align: 'center' });
+        y += 4.2;
+      }
+      y += 2;
+      for (const line of doc.splitTextToSize(phoneStr, tableInnerW - 8)) {
+        y = ensureCondicionesY(5, y);
+        doc.text(line, cx, y, { align: 'center' });
+        y += 4.2;
+      }
+      y += 2;
+
+      const role = creatorUser?.profile?.role;
+      if (role) {
+        y = ensureCondicionesY(5, y);
+        doc.text(this.roleLabelPdf(role), cx, y, { align: 'center' });
+        y += 4.5;
+      }
+    }
+
+    // Header repetible en todas las páginas (sin duplicarlo dentro del flujo de contenido)
+    for (let p = 1; p <= doc.getNumberOfPages(); p++) {
+      doc.setPage(p);
+      this.drawPdfQuotationLetterhead(doc, T, margin, pageW, logoDataUrl, row.correlativo, row.creation_date);
+    }
+
+    doc.setPage(doc.getNumberOfPages());
+    doc.setFontSize(7);
+    doc.setTextColor(...T.muted);
+    doc.text('Documento generado por CleoSystem', margin, pageH - 10, { maxWidth: tableInnerW });
+
+    const safeName = row.correlativo.replace(/[^\w.-]+/g, '_');
+    doc.save(`cotizacion-${safeName}.pdf`);
   }
 
   private generateQuotationPdf(
