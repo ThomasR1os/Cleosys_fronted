@@ -2,12 +2,17 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { environment } from '../../../../environments/environment';
-import type { ClientCreatePayload, ClientRow } from '../models/ventas.models';
+import type {
+  ClientCreatePayload,
+  ClientRow,
+  SunatRucIdentificacion,
+} from '../models/ventas.models';
 
 @Injectable({ providedIn: 'root' })
 export class ClientService {
   private readonly http = inject(HttpClient);
   private readonly base = `${environment.apiUrl}/clients`;
+  private readonly sunatRucIdentificacion = `${environment.apiUrl}/sunat/ruc/identificacion`;
 
   list(): Observable<ClientRow[]> {
     return this.http.get<ClientRow[]>(`${this.base}/`);
@@ -27,5 +32,13 @@ export class ClientService {
 
   delete(id: number): Observable<void> {
     return this.http.delete<void>(`${this.base}/${id}/`);
+  }
+
+  /** GET ?ruc= — respuesta con RUC y razón social desde SUNAT. */
+  consultRucIdentificacion(ruc: string): Observable<SunatRucIdentificacion> {
+    const trimmed = ruc.trim();
+    return this.http.get<SunatRucIdentificacion>(`${this.sunatRucIdentificacion}/`, {
+      params: { ruc: trimmed },
+    });
   }
 }

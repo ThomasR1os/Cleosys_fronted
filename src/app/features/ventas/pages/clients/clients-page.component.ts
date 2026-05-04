@@ -53,6 +53,7 @@ export class ClientsPageComponent implements OnInit {
 
   readonly loading = signal(false);
   readonly saving = signal(false);
+  readonly consultingRuc = signal(false);
   readonly errorMessage = signal<string | null>(null);
   readonly modalOpen = signal(false);
   readonly editingId = signal<number | null>(null);
@@ -153,6 +154,29 @@ export class ClientsPageComponent implements OnInit {
 
   closeModal(): void {
     this.modalOpen.set(false);
+  }
+
+  consultarRucSunat(): void {
+    const ruc = this.form.controls.ruc.value.trim();
+    if (!ruc) {
+      this.form.controls.ruc.markAsTouched();
+      return;
+    }
+    this.consultingRuc.set(true);
+    this.errorMessage.set(null);
+    this.api.consultRucIdentificacion(ruc).subscribe({
+      next: (data) => {
+        this.consultingRuc.set(false);
+        this.form.patchValue({
+          ruc: data.ruc,
+          name: data.razon_social,
+        });
+      },
+      error: (err) => {
+        this.consultingRuc.set(false);
+        this.errorMessage.set(this.fmt(err));
+      },
+    });
   }
 
   save(): void {

@@ -30,6 +30,12 @@ export interface ClientCreatePayload {
   contact: ClientContactPayload;
 }
 
+/** GET/POST /api/sunat/ruc/identificacion/ */
+export interface SunatRucIdentificacion {
+  ruc: string;
+  razon_social: string;
+}
+
 /** Objeto `encargado` en GET /ventas/client-contacts/ (nombre preformateado en el backend). */
 export interface ClientContactEncargado {
   id: number;

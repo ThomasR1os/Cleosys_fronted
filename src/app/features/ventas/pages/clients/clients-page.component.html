@@ -131,10 +131,23 @@
           </p>
         }
 
-        <label class="flex w-full min-w-0 flex-col gap-1.5">
+        <div class="flex w-full min-w-0 flex-col gap-1.5">
           <span class="text-sm font-medium text-base-content">RUC</span>
-          <input class="input input-bordered w-full" formControlName="ruc" />
-        </label>
+          <div class="flex flex-wrap items-stretch gap-2 sm:items-end">
+            <input class="input input-bordered w-full min-w-0 flex-1 min-h-10" formControlName="ruc" />
+            <button
+              type="button"
+              class="btn btn-outline shrink-0"
+              (click)="consultarRucSunat()"
+              [disabled]="consultingRuc() || saving()"
+            >
+              @if (consultingRuc()) {
+                <span class="loading loading-spinner loading-sm"></span>
+              }
+              Consultar
+            </button>
+          </div>
+        </div>
         <label class="flex w-full min-w-0 flex-col gap-1.5">
           <span class="text-sm font-medium text-base-content">Nombre (razón social)</span>
           <input class="input input-bordered w-full" formControlName="name" />
