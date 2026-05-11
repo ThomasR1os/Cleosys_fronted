@@ -58,7 +58,11 @@ export class ClientsPageComponent implements OnInit {
   readonly modalOpen = signal(false);
   readonly editingId = signal<number | null>(null);
 
-  /** Edición de ficha de cliente: admin o rol ventas (el servidor puede restringir el listado). */
+  /**
+   * Rol con potestad de editar fichas (admin o ventas). El listado puede incluir clientes
+   * ajenos al vendedor (scope=company); la decisión final por fila la toma `canEdit(row)`
+   * con `row.is_mine`. El backend siempre re-valida en `PATCH`/`DELETE`.
+   */
   readonly canEditClients = computed(() => {
     if (this.auth.isAdmin()) return true;
     return this.auth.me()?.profile?.role === 'VENTAS';
@@ -78,8 +82,10 @@ export class ClientsPageComponent implements OnInit {
     this.reload();
   }
 
-  canEdit(_client: ClientRow): boolean {
-    return this.canEditClients();
+  canEdit(client: ClientRow): boolean {
+    if (this.auth.isAdmin()) return true;
+    if (!this.canEditClients()) return false;
+    return client.is_mine === true;
   }
 
   setPageSize(size: number): void {
@@ -110,7 +116,7 @@ export class ClientsPageComponent implements OnInit {
   reload(): void {
     this.loading.set(true);
     this.errorMessage.set(null);
-    this.api.list().subscribe({
+    this.api.listForCompany().subscribe({
       next: (rows) => {
         this.items.set([...rows].sort((a, b) => b.id - a.id));
         this.clampPageIndex();

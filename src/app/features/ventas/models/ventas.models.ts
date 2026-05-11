@@ -14,6 +14,12 @@ export interface ClientRow {
   name: string;
   /** Si la API lo devuelve (dirección fiscal o de entrega). */
   address?: string;
+  /**
+   * Indica si el cliente pertenece al conjunto "míos" del usuario autenticado (lo trae el backend).
+   * Solo se evalúa para decidir UI (Editar/Eliminar); los permisos reales los aplica el servidor.
+   * Siempre `true` en `GET /clients/` por defecto; en `GET /clients/?scope=company` puede ser `false`.
+   */
+  is_mine?: boolean;
 }
 
 /** POST /clients/: cuerpo `contact` obligatorio. */
@@ -74,6 +80,8 @@ export interface ClientContactRow {
 export type QuotationType = 'VENTA' | 'ALQUILER' | 'SERVICIO';
 export type QuotationMoney = 'USD' | 'PEN';
 export type QuotationStatus = 'APROBADA' | 'PENDIENTE' | 'RECHAZADA';
+/** Modalidad de alquiler: días o mes. Solo aplica cuando quotation_type === 'ALQUILER'. */
+export type RentalUnit = 'DIAS' | 'MES';
 
 /**
  * Asesor anidado en cotizaciones (`user_detail`).
@@ -104,6 +112,17 @@ export interface QuotationClientContactDetail {
 }
 
 /**
+ * Cliente anidado en cotización (`client_detail`, solo lectura).
+ * Permite mostrar el nombre del cliente en tabla / vista aun cuando el listado
+ * `GET /clients/` esté acotado al vendedor (no incluye clientes ajenos).
+ */
+export interface QuotationClientDetail {
+  id: number;
+  name: string;
+  ruc?: string;
+}
+
+/**
  * Recurso cotización: `GET|POST /api/ventas/quotations/`, `GET|PATCH|PUT|DELETE /api/ventas/quotations/{id}/`.
  * JSON producido por `QuotationSerializer` (ventas/serializers.py).
  */
@@ -113,9 +132,15 @@ export interface QuotationRow {
   money: QuotationMoney;
   /** PEN por 1 USD o null si no aplica. */
   exchange_rate?: string | number | null;
+  /** Solo aplica cuando quotation_type === 'ALQUILER'; null en VENTA/SERVICIO. */
+  rental_unit?: RentalUnit | null;
+  /** Cantidad de días o meses; obligatorio (>=1) cuando quotation_type === 'ALQUILER'. */
+  rental_quantity?: number | null;
   status: QuotationStatus;
   /** FK a `core.Client`. */
   client: number;
+  /** Solo lectura: cliente anidado desde serializer (para mostrar nombre/RUC en listado). */
+  client_detail?: QuotationClientDetail | null;
   /** FK opcional a contacto del cliente; escritura en POST/PATCH. */
   client_contact?: number | null;
   /** Solo lectura: anidado desde serializer; null si no hay contacto. */

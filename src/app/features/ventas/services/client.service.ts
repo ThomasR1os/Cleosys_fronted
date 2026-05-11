@@ -1,4 +1,4 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { environment } from '../../../../environments/environment';
@@ -14,8 +14,19 @@ export class ClientService {
   private readonly base = `${environment.apiUrl}/clients`;
   private readonly sunatRucIdentificacion = `${environment.apiUrl}/sunat/ruc/identificacion`;
 
+  /** Listado por defecto: "míos" (acotado por vendedor en el backend). */
   list(): Observable<ClientRow[]> {
     return this.http.get<ClientRow[]>(`${this.base}/`);
+  }
+
+  /**
+   * Listado ampliado: todos los clientes de la empresa del usuario.
+   * Solo lo usa la página `/ventas/clientes`; el backend igual valida pertenencia por empresa
+   * y los permisos de edición/borrado se mantienen ("solo míos" o admin).
+   */
+  listForCompany(): Observable<ClientRow[]> {
+    const params = new HttpParams().set('scope', 'company');
+    return this.http.get<ClientRow[]>(`${this.base}/`, { params });
   }
 
   retrieve(id: number): Observable<ClientRow> {

@@ -46,6 +46,7 @@ import type {
   QuotationRow,
   QuotationStatus,
   QuotationType,
+  RentalUnit,
 } from '../../models/ventas.models';
 import { ClientContactService } from '../../services/client-contact.service';
 import { ClientService } from '../../services/client.service';
@@ -323,6 +324,10 @@ export class QuotationsPageComponent implements OnInit {
     { value: 'APROBADA', label: 'Aprobada' },
     { value: 'RECHAZADA', label: 'Rechazada' },
   ];
+  readonly rentalUnitOpts: { value: RentalUnit; label: string }[] = [
+    { value: 'DIAS', label: 'Días' },
+    { value: 'MES', label: 'Mes' },
+  ];
 
   readonly lineForm = this.fb.nonNullable.group({
     id: this.fb.control<number | null>(null),
@@ -348,6 +353,10 @@ export class QuotationsPageComponent implements OnInit {
     money: this.fb.nonNullable.control<'PEN' | 'USD'>('USD', Validators.required),
     /** Obligatorio si moneda = PEN (precios de catálogo en USD). */
     exchangeRate: this.fb.control<number | null>(null),
+    /** Obligatorio si quotation_type = ALQUILER. */
+    rental_unit: this.fb.control<RentalUnit | null>(null),
+    /** Obligatorio (>=1) si quotation_type = ALQUILER. */
+    rental_quantity: this.fb.control<number | null>(null),
     status: this.fb.nonNullable.control<QuotationStatus>('PENDIENTE', Validators.required),
     client: this.fb.nonNullable.control<number>(0, Validators.required),
     /** Contacto del cliente (opcional); validación en API. */
@@ -370,6 +379,7 @@ export class QuotationsPageComponent implements OnInit {
   ngOnInit(): void {
     this.lineForm.disable({ emitEvent: false });
     this.syncExchangeRateValidators(this.form.controls.money.value);
+    this.syncRentalValidators(this.form.controls.quotation_type.value);
     this.prevMoneyForLines = this.form.controls.money.value;
     this.linePricesCurrency = this.form.controls.money.value;
 
@@ -392,6 +402,26 @@ export class QuotationsPageComponent implements OnInit {
     this.form.controls.exchangeRate.valueChanges
       .pipe(debounceTime(350), distinctUntilChanged(), takeUntilDestroyed(this.destroyRef))
       .subscribe(() => this.tryApplyUsdToPenWhenRateFilled());
+
+    this.form.controls.quotation_type.valueChanges
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((qt) => {
+        this.syncRentalValidators(qt);
+        if (qt === 'ALQUILER') {
+          // Al cambiar a ALQUILER (acción manual del usuario), sembrar la condición por defecto
+          // de "no incluye operador". Si después pulsa "Usar alquiler con operador", se reemplaza.
+          this.syncRentalOperatorCondition('without');
+        } else {
+          this.clearRentalOperatorConditions();
+        }
+      });
+
+    this.form.controls.rental_unit.valueChanges
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((unit) => {
+        if (this.form.controls.quotation_type.value !== 'ALQUILER') return;
+        this.applyRentalQuantityForUnit(unit);
+      });
 
     this.reload();
     this.adminUsersApi.list().subscribe({
@@ -462,6 +492,47 @@ export class QuotationsPageComponent implements OnInit {
     ex.updateValueAndValidity({ emitEvent: false });
   }
 
+  /**
+   * ALQUILER: modalidad (`rental_unit`) y cantidad (`rental_quantity`) obligatorias.
+   * Por defecto se entra en `MES` con cantidad = 1 (alquiler mensual); si se cambia a `DIAS`,
+   * la cantidad sigue siendo obligatoria y editable.
+   * VENTA/SERVICIO: se limpian (el backend también nulifica, pero lo reflejamos en UI).
+   */
+  private syncRentalValidators(qType: QuotationType | null | undefined): void {
+    const u = this.form.controls.rental_unit;
+    const q = this.form.controls.rental_quantity;
+    if (qType === 'ALQUILER') {
+      u.setValidators([Validators.required]);
+      q.setValidators([Validators.required, Validators.min(1)]);
+      if (u.value == null) u.setValue('MES', { emitEvent: false });
+      this.applyRentalQuantityForUnit(u.value, { emitEvent: false });
+    } else {
+      u.clearValidators();
+      q.clearValidators();
+      u.setValue(null, { emitEvent: false });
+      q.setValue(null, { emitEvent: false });
+    }
+    u.updateValueAndValidity({ emitEvent: false });
+    q.updateValueAndValidity({ emitEvent: false });
+  }
+
+  /**
+   * Mensual: cantidad siempre 1 (campo oculto). Días: si no hay cantidad válida, se siembra en 1
+   * para que el formulario quede válido al cambiar la modalidad.
+   */
+  private applyRentalQuantityForUnit(
+    unit: RentalUnit | null | undefined,
+    opts: { emitEvent: boolean } = { emitEvent: false },
+  ): void {
+    const q = this.form.controls.rental_quantity;
+    if (unit === 'MES') {
+      q.setValue(1, opts);
+    } else if (unit === 'DIAS') {
+      const cur = Number(q.value ?? 0);
+      if (!Number.isFinite(cur) || cur < 1) q.setValue(1, opts);
+    }
+  }
+
   private round2(n: number): number {
     return Math.round(n * 100) / 100;
   }
@@ -497,6 +568,11 @@ export class QuotationsPageComponent implements OnInit {
     return Number(p.price ?? 0) || 0;
   }
 
+  /** Frase canónica de "incluye operador" para condiciones (alquiler con operador). */
+  private static readonly RENTAL_OPERATOR_WITH_LINE = '• Incluye operador.';
+  /** Frase canónica de "no incluye operador" para condiciones (alquiler sin operador). */
+  private static readonly RENTAL_OPERATOR_WITHOUT_LINE = '• Alquiler no incluye operador.';
+
   setLinePriceFromRental(mode: 'without' | 'with'): void {
     if (!this.isRentalQuotationType()) return;
     const pid = this.lineForm.controls.product.value;
@@ -506,6 +582,48 @@ export class QuotationsPageComponent implements OnInit {
       mode === 'without' ? Number(p.rental_price_without_operator ?? 0) : Number(p.rental_price_with_operator ?? 0);
     const unit = this.unitPriceForCurrentMoney(raw || 0);
     this.lineForm.patchValue({ product_price: unit }, { emitEvent: false });
+    this.syncRentalOperatorCondition(mode);
+  }
+
+  /**
+   * Inserta (o reemplaza) en `conditions` la línea de operador correspondiente al modo elegido,
+   * removiendo la variante opuesta para que nunca aparezcan ambas a la vez.
+   * No toca el resto del texto introducido por el usuario.
+   */
+  private syncRentalOperatorCondition(mode: 'with' | 'without'): void {
+    if (this.quotationModalReadonly()) return;
+    const target =
+      mode === 'with'
+        ? QuotationsPageComponent.RENTAL_OPERATOR_WITH_LINE
+        : QuotationsPageComponent.RENTAL_OPERATOR_WITHOUT_LINE;
+    const other =
+      mode === 'with'
+        ? QuotationsPageComponent.RENTAL_OPERATOR_WITHOUT_LINE
+        : QuotationsPageComponent.RENTAL_OPERATOR_WITH_LINE;
+
+    const current = (this.form.controls.conditions.value ?? '').toString();
+    const lines = current.split(/\r?\n/);
+    const filtered = lines.filter((l) => l.trim() !== other && l.trim() !== target);
+    const trimmedTail = filtered.join('\n').replace(/\s+$/, '');
+    const next = trimmedTail ? `${trimmedTail}\n${target}` : target;
+    this.form.controls.conditions.setValue(next, { emitEvent: false });
+    this.form.controls.conditions.markAsDirty();
+  }
+
+  /** Quita ambas variantes de la línea de operador de `conditions` (al salir de ALQUILER). */
+  private clearRentalOperatorConditions(): void {
+    if (this.quotationModalReadonly()) return;
+    const current = (this.form.controls.conditions.value ?? '').toString();
+    const lines = current.split(/\r?\n/);
+    const filtered = lines.filter(
+      (l) =>
+        l.trim() !== QuotationsPageComponent.RENTAL_OPERATOR_WITH_LINE &&
+        l.trim() !== QuotationsPageComponent.RENTAL_OPERATOR_WITHOUT_LINE,
+    );
+    if (filtered.length === lines.length) return;
+    const next = filtered.join('\n').replace(/\s+$/, '');
+    this.form.controls.conditions.setValue(next, { emitEvent: false });
+    this.form.controls.conditions.markAsDirty();
   }
 
   /**
@@ -1045,9 +1163,48 @@ export class QuotationsPageComponent implements OnInit {
     });
   }
 
+  /**
+   * Nombre del cliente para mostrar en tabla / vista.
+   *
+   * `GET /clients/` está acotado al vendedor (solo "míos"), pero el listado de cotizaciones
+   * puede incluir clientes ajenos. Por eso, si no está en el catálogo local, se cae a
+   * `client_detail` que viaja anidado en la cotización (read-only desde el serializer).
+   */
   clientName(id: number): string {
     const c = this.clients().find((x) => x.id === id);
-    return c ? c.name : `#${id}`;
+    if (c) return c.name;
+    const fromQuotation = this.quotations().find((q) => q.client === id && q.client_detail?.name);
+    const detailName = fromQuotation?.client_detail?.name;
+    return detailName ? detailName : `#${id}`;
+  }
+
+  /**
+   * Etiqueta "Nombre · RUC" del cliente de una cotización para el input del modal.
+   * Prefiere `client_detail` (viene anidado siempre), luego el catálogo local; si no hay nada
+   * cae al formato `#id`.
+   */
+  private clientDisplayForRow(row: QuotationRow): string {
+    if (!row.client) return '';
+    const detail = row.client_detail;
+    if (detail?.name) {
+      return detail.ruc ? `${detail.name} · ${detail.ruc}` : detail.name;
+    }
+    const local = this.clients().find((x) => x.id === row.client);
+    if (local) return local.ruc ? `${local.name} · ${local.ruc}` : local.name;
+    return `#${row.client}`;
+  }
+
+  /**
+   * Cliente para el PDF: prefiere el catálogo local (cuando es propio, trae `address` y más),
+   * y como respaldo arma un `ClientRow` mínimo a partir de `client_detail` (cotizaciones ajenas
+   * donde `GET /clients/` no incluye al cliente porque está acotado al vendedor).
+   */
+  private clientForPdf(row: QuotationRow): ClientRow | undefined {
+    const local = this.clients().find((c) => c.id === row.client);
+    if (local) return local;
+    const detail = row.client_detail;
+    if (!detail) return undefined;
+    return { id: detail.id, name: detail.name, ruc: detail.ruc ?? '' };
   }
 
   productOptionLabel(p: Product | null): string {
@@ -1065,6 +1222,58 @@ export class QuotationsPageComponent implements OnInit {
     if (line.line_description) return line.line_description;
     const p = this.productsCatalog().find((x) => x.id === line.product);
     return p ? p.description : '—';
+  }
+
+  /**
+   * Construye el prefijo de descripción que precede a cada línea cuando la cotización es de alquiler.
+   * Singular/plural en días; "Alquiler mensual" para 1 mes, "Alquiler mensual (N meses)" para N>1.
+   * Vacío si no es alquiler o si faltan datos válidos.
+   */
+  private buildRentalPrefix(
+    qType: QuotationType | null | undefined,
+    unit: RentalUnit | null | undefined,
+    qty: number | null | undefined,
+  ): string {
+    if (qType !== 'ALQUILER' || !unit) return '';
+    const n = Number(qty ?? 0);
+    if (!Number.isFinite(n) || n < 1) return '';
+    if (unit === 'DIAS') return `ALQUILER POR ${n} DÍA${n === 1 ? '' : 'S'}`;
+    return n > 1 ? `Alquiler mensual (${n} meses)` : 'Alquiler mensual';
+  }
+
+  /** Prefijo a partir de la cotización guardada (PDF, vista en modo edición/lectura). */
+  rentalPrefixForRow(row: QuotationRow): string {
+    return this.buildRentalPrefix(row.quotation_type, row.rental_unit, row.rental_quantity);
+  }
+
+  /** Prefijo a partir del estado actual del formulario (modal en creación/edición). */
+  rentalPrefixForForm(): string {
+    const v = this.form.getRawValue();
+    return this.buildRentalPrefix(v.quotation_type, v.rental_unit, v.rental_quantity);
+  }
+
+  /**
+   * Descripción visible de una línea con prefijo de alquiler anteponiéndose.
+   * Si se pasa `row`, lee los campos de alquiler de la cotización guardada; si no, del formulario.
+   */
+  displayLineDescription(line: QuotationProductRow, row?: QuotationRow | null): string {
+    const base = this.productLineDescription(line);
+    const prefix = row ? this.rentalPrefixForRow(row) : this.rentalPrefixForForm();
+    return prefix ? `${prefix} - ${base}` : base;
+  }
+
+  /** Descripción visible de un draft (cotización aún no guardada): siempre usa el formulario. */
+  displayDraftDescription(d: DraftQuotationLine): string {
+    const base = this.draftLineDescription(d);
+    const prefix = this.rentalPrefixForForm();
+    return prefix ? `${prefix} - ${base}` : base;
+  }
+
+  /** Cotización en edición/lectura actual (o null si es creación nueva). */
+  editingQuotationRow(): QuotationRow | null {
+    const id = this.editingQuotationId();
+    if (id == null) return null;
+    return this.quotations().find((x) => x.id === id) ?? null;
   }
 
   onClientSearchInput(ev: Event): void {
@@ -1213,6 +1422,8 @@ export class QuotationsPageComponent implements OnInit {
         quotation_type: 'VENTA',
         money: 'USD',
         exchangeRate: null,
+        rental_unit: null,
+        rental_quantity: null,
         status: 'PENDIENTE',
         client: cl,
         /** Admin elige vendedor; ventas envía siempre su propio usuario al guardar. */
@@ -1230,6 +1441,7 @@ export class QuotationsPageComponent implements OnInit {
     this.prevMoneyForLines = 'USD';
     this.linePricesCurrency = 'USD';
     this.syncExchangeRateValidators('USD');
+    this.syncRentalValidators('VENTA');
     this.modalOpen.set(true);
     this.clientPickerOpen.set(false);
     this.sellerPickerOpen.set(false);
@@ -1253,7 +1465,7 @@ export class QuotationsPageComponent implements OnInit {
     this.editingQuotationId.set(row.id);
     this.draftLines.set([]);
     this.resetLineEditor();
-    this.clientSearchQuery.set(row.client ? this.clientName(row.client) : '');
+    this.clientSearchQuery.set(this.clientDisplayForRow(row));
     const sub = this.subtotalForQuotationId(row.id);
     this.form.patchValue(
       {
@@ -1261,6 +1473,8 @@ export class QuotationsPageComponent implements OnInit {
         quotation_type: row.quotation_type,
         money: row.money,
         exchangeRate: this.exchangeRateFromRow(row),
+        rental_unit: row.rental_unit ?? null,
+        rental_quantity: row.rental_quantity ?? null,
         status: row.status,
         client: row.client,
         client_contact: row.client_contact ?? null,
@@ -1277,6 +1491,7 @@ export class QuotationsPageComponent implements OnInit {
     this.prevMoneyForLines = row.money;
     this.linePricesCurrency = row.money;
     this.syncExchangeRateValidators(row.money);
+    this.syncRentalValidators(row.quotation_type);
     this.modalOpen.set(true);
     this.clientPickerOpen.set(false);
     this.sellerPickerOpen.set(false);
@@ -1297,7 +1512,7 @@ export class QuotationsPageComponent implements OnInit {
     this.editingQuotationId.set(row.id);
     this.draftLines.set([]);
     this.resetLineEditor();
-    this.clientSearchQuery.set(`${row.client ? this.clientName(row.client) : ''}`);
+    this.clientSearchQuery.set(this.clientDisplayForRow(row));
     const sub = this.subtotalForQuotationId(row.id);
     this.form.patchValue(
       {
@@ -1305,6 +1520,8 @@ export class QuotationsPageComponent implements OnInit {
         quotation_type: row.quotation_type,
         money: row.money,
         exchangeRate: this.exchangeRateFromRow(row),
+        rental_unit: row.rental_unit ?? null,
+        rental_quantity: row.rental_quantity ?? null,
         status: row.status,
         client: row.client,
         client_contact: row.client_contact ?? null,
@@ -1321,6 +1538,7 @@ export class QuotationsPageComponent implements OnInit {
     this.prevMoneyForLines = row.money;
     this.linePricesCurrency = row.money;
     this.syncExchangeRateValidators(row.money);
+    this.syncRentalValidators(row.quotation_type);
     this.modalOpen.set(true);
     this.clientPickerOpen.set(false);
     this.sellerPickerOpen.set(false);
@@ -1412,6 +1630,13 @@ export class QuotationsPageComponent implements OnInit {
       body['exchange_rate'] = Number(v.exchangeRate).toFixed(4);
     } else {
       body['exchange_rate'] = null;
+    }
+    if (v.quotation_type === 'ALQUILER') {
+      body['rental_unit'] = v.rental_unit;
+      body['rental_quantity'] = v.rental_quantity;
+    } else {
+      body['rental_unit'] = null;
+      body['rental_quantity'] = null;
     }
     if (id == null && v.id != null) {
       body['id'] = v.id;
@@ -2081,11 +2306,12 @@ export class QuotationsPageComponent implements OnInit {
     descColWidthMm: number,
     productImages: Map<number, string | null>,
     T: PdfQuotationTheme,
+    row: QuotationRow,
   ): number {
     const padV = 3.5;
     const hasImg = !!productImages.get(line.product);
     const innerW = Math.max(18, descColWidthMm - 4);
-    const main = this.productLineDescription(line);
+    const main = this.displayLineDescription(line, row);
     const ds = this.lineDatasheetForPdf(line);
     const gw = this.lineWarrantyForPdf(line);
     doc.setFont('helvetica', 'normal');
@@ -2814,7 +3040,7 @@ export class QuotationsPageComponent implements OnInit {
     };
 
     const lines = this.linesForQuotationId(row.id);
-    const client = this.clients().find((c) => c.id === row.client);
+    const client = this.clientForPdf(row);
     const pay = this.paymentMethods().find((p) => p.id === row.payment_methods);
     const typeLabel = this.typeOpts.find((o) => o.value === row.quotation_type)?.label ?? row.quotation_type;
     let penEx: string | null = null;
@@ -2909,7 +3135,7 @@ export class QuotationsPageComponent implements OnInit {
       const item = String(idx + 1);
       const puStr = this.formatMoneyPdfPlain(pu);
       const subStr = this.formatMoneyPdfPlain(subt);
-      const desc = this.productLineDescription(line);
+      const desc = this.displayLineDescription(line, row);
       const sym = money === 'PEN' ? 'S/' : '$';
       if (showSku) {
         return [item, this.productLineLabel(line), desc, String(line.cant), `${sym} ${puStr}`, `${sym} ${subStr}`];
@@ -3019,6 +3245,7 @@ export class QuotationsPageComponent implements OnInit {
     const rightX = margin + colW + colGap;
 
     const drawTechRow = (line: QuotationProductRow) => {
+      // Página "Datos técnicos": solo la descripción del producto, sin prefijo de alquiler.
       const title = this.productLineDescription(line);
       const ds = this.lineDatasheetForPdf(line);
       const gw = this.lineWarrantyForPdf(line);
@@ -3300,7 +3527,7 @@ export class QuotationsPageComponent implements OnInit {
 
     let y = this.drawPdfQuotationLetterhead(doc, T, margin, pageW, logoDataUrl, row.correlativo, row.creation_date);
 
-    const client = this.clients().find((c) => c.id === row.client);
+    const client = this.clientForPdf(row);
     const pay = this.paymentMethods().find((p) => p.id === row.payment_methods);
     const typeLabel = this.typeOpts.find((o) => o.value === row.quotation_type)?.label ?? row.quotation_type;
     let penEx: string | null = null;
@@ -3550,6 +3777,7 @@ export class QuotationsPageComponent implements OnInit {
                 descColWidthMm,
                 productImages,
                 T,
+                row,
               );
               data.cell.styles.valign = 'top';
             }
@@ -3593,7 +3821,7 @@ export class QuotationsPageComponent implements OnInit {
         /** No dibujar más allá del borde inferior de la celda (respaldo si la tabla partiera una fila). */
         const maxY = cell.y + cell.height - cell.padding('bottom');
         let cy = cell.y + padT + 3.3;
-        const main = this.productLineDescription(qLine);
+        const main = this.displayLineDescription(qLine, row);
         doc.setFont('helvetica', 'normal');
         doc.setTextColor(...T.totalBar);
         doc.setFontSize(8.5);
@@ -3831,6 +4059,8 @@ export class QuotationsPageComponent implements OnInit {
           works: 'Trabajos / alcance',
           payment_methods: 'Método de pago',
           quotation_type: 'Tipo de cotización',
+          rental_unit: 'Modalidad de alquiler',
+          rental_quantity: 'Cantidad de alquiler',
           discount: 'Descuento',
           final_price: 'Total',
         };

@@ -250,6 +250,35 @@
             }
           </select>
         </label>
+        @if (isRentalQuotationType()) {
+          <label class="form-control w-full">
+            <span class="label-text">
+              Modalidad de alquiler
+              <span class="text-error">*</span>
+            </span>
+            <select class="select select-bordered w-full" formControlName="rental_unit">
+              @for (opt of rentalUnitOpts; track opt.value) {
+                <option [ngValue]="opt.value">{{ opt.label }}</option>
+              }
+            </select>
+          </label>
+          @if (form.controls.rental_unit.value === 'DIAS') {
+            <label class="form-control w-full">
+              <span class="label-text">
+                Cantidad de días
+                <span class="text-error">*</span>
+              </span>
+              <input
+                class="input input-bordered w-full"
+                type="number"
+                min="1"
+                step="1"
+                formControlName="rental_quantity"
+                [readonly]="quotationModalReadonly()"
+              />
+            </label>
+          }
+        }
         <label class="form-control w-full">
           <span class="label-text">Moneda</span>
           <select class="select select-bordered w-full" formControlName="money">
@@ -407,7 +436,7 @@
                   @for (d of draftLines(); track d.tempId) {
                     <tr>
                       <td class="font-mono text-xs">{{ draftLineSku(d) }}</td>
-                      <td class="max-w-xs truncate">{{ draftLineDescription(d) }}</td>
+                      <td class="max-w-xs truncate" [title]="displayDraftDescription(d)">{{ displayDraftDescription(d) }}</td>
                       <td>{{ d.cant }}</td>
                       <td>{{ formatMoney(d.product_price) }}</td>
                       <td>{{ formatMoney(d.cant * d.product_price) }}</td>
@@ -451,8 +480,8 @@
                   @for (line of linesForQuotationId(editingQuotationId()!); track line.id) {
                     <tr>
                       <td class="font-mono text-xs">{{ productLineLabel(line) }}</td>
-                      <td class="max-w-xs truncate" [title]="productLineDescription(line)">
-                        {{ productLineDescription(line) }}
+                      <td class="max-w-xs truncate" [title]="displayLineDescription(line)">
+                        {{ displayLineDescription(line) }}
                       </td>
                       <td>{{ line.cant }}</td>
                       <td>{{ formatMoney(+line.product_price) }}</td>
