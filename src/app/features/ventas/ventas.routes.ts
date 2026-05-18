@@ -25,4 +25,11 @@ export const VENTAS_ROUTES: Routes = [
     loadComponent: () =>
       import('./pages/quotations/quotations-page.component').then((m) => m.QuotationsPageComponent),
   },
+  {
+    path: 'solicitudes-proforma',
+    loadComponent: () =>
+      import('./pages/proforma-requests/proforma-requests-page.component').then(
+        (m) => m.ProformaRequestsPageComponent,
+      ),
+  },
 ];

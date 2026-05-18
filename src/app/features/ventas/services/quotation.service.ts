@@ -14,6 +14,10 @@ export class QuotationService {
     return this.http.get<QuotationRow[]>(`${this.base}/`);
   }
 
+  retrieve(id: number): Observable<QuotationRow> {
+    return this.http.get<QuotationRow>(`${this.base}/${id}/`);
+  }
+
   create(body: Partial<QuotationRow> & Record<string, unknown>): Observable<QuotationRow> {
     return this.http.post<QuotationRow>(`${this.base}/`, body);
   }

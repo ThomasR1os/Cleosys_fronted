@@ -10,7 +10,7 @@ import {
   ReactiveFormsModule,
   Validators,
 } from '@angular/forms';
-import { RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { textMatchesLooseQuery } from '../../../../core/utils/text-search.utils';
 import {
   catchError,
@@ -52,6 +52,7 @@ import { ClientContactService } from '../../services/client-contact.service';
 import { ClientService } from '../../services/client.service';
 import { PaymentMethodService } from '../../services/payment-method.service';
 import { QuotationProductService } from '../../services/quotation-product.service';
+import { ProformaRequestService } from '../../services/proforma-request.service';
 import { QuotationService } from '../../services/quotation.service';
 
 /** Máximo de filas en desplegables buscables (rendimiento con catálogos grandes). */
@@ -93,6 +94,9 @@ export class QuotationsPageComponent implements OnInit {
   private readonly productService = inject(ProductService);
   private readonly productImageApi = inject(ProductImageService);
   private readonly fb = inject(FormBuilder);
+  private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
+  private readonly proformaRequestsApi = inject(ProformaRequestService);
   readonly auth = inject(AuthService);
 
   readonly quotations = signal<QuotationRow[]>([]);
@@ -219,6 +223,8 @@ export class QuotationsPageComponent implements OnInit {
   readonly draftLines = signal<DraftQuotationLine[]>([]);
   readonly lineEditorMode = signal<'idle' | 'new' | 'edit'>('idle');
   readonly editingDraftTempId = signal<string | null>(null);
+  /** Si se creó cotización desde flujo «Generar cotización» en solicitud de proforma. */
+  readonly pendingProformaRequestId = signal<number | null>(null);
 
   readonly clientPickerOpen = signal(false);
   readonly productPickerOpen = signal(false);
@@ -926,6 +932,7 @@ export class QuotationsPageComponent implements OnInit {
         if (pm.length && this.form.controls.payment_methods.value === 0) {
           this.form.patchValue({ payment_methods: pm[0].id });
         }
+        this.tryConsumeRouterQueryParams();
       },
       error: (err) => {
         this.loading.set(false);
@@ -933,6 +940,131 @@ export class QuotationsPageComponent implements OnInit {
         this.errorMessage.set(this.fmt(err));
       },
     });
+  }
+
+  /**
+   * Lee query params (`cotizacion`, `proformaRequest` + `client`) tras cargar datos.
+   * Limpia la URL para no re-disparar al hacer reload.
+   */
+  private tryConsumeRouterQueryParams(): void {
+    const qpm = this.route.snapshot.queryParamMap;
+    const cotRaw = qpm.get('cotizacion');
+    if (cotRaw) {
+      const qid = Number(cotRaw);
+      if (Number.isFinite(qid) && qid > 0) {
+        void this.router.navigate([], {
+          relativeTo: this.route,
+          queryParams: { cotizacion: null },
+          queryParamsHandling: 'merge',
+          replaceUrl: true,
+        });
+        this.openQuotationFromDeepLink(qid);
+        return;
+      }
+    }
+
+    const prRaw = qpm.get('proformaRequest');
+    const cliRaw = qpm.get('client');
+    if (prRaw != null && cliRaw != null) {
+      const pid = Number(prRaw);
+      const cid = Number(cliRaw);
+      if (Number.isFinite(pid) && Number.isFinite(cid) && pid > 0 && cid > 0) {
+        const asgRaw = qpm.get('assignedUser');
+        const aid = asgRaw != null ? Number(asgRaw) : NaN;
+        const assignedUserId = Number.isFinite(aid) && aid > 0 ? aid : null;
+        void this.router.navigate([], {
+          relativeTo: this.route,
+          queryParams: {
+            proformaRequest: null,
+            client: null,
+            assignedUser: null,
+          },
+          queryParamsHandling: 'merge',
+          replaceUrl: true,
+        });
+        this.pendingProformaRequestId.set(pid);
+        queueMicrotask(() => this.openNewQuotationFromProforma(cid, assignedUserId));
+      }
+    }
+  }
+
+  /** Abre cotización por id (desde solicitud de proforma u otra entrada profunda). */
+  private openQuotationFromDeepLink(quotationId: number): void {
+    const existing = this.quotations().find((x) => x.id === quotationId);
+    const open = (row: QuotationRow): void => {
+      if (this.canEditQuotation(row)) this.openEditQuotation(row);
+      else this.openViewQuotation(row);
+    };
+    if (existing) {
+      open(existing);
+      return;
+    }
+    this.quotationsApi.retrieve(quotationId).subscribe({
+      next: (row) => {
+        this.quotations.update((qs) => {
+          if (qs.some((x) => x.id === row.id)) return qs;
+          return [...qs, row].sort((a, b) => b.id - a.id);
+        });
+        this.mergeUserDetailsFromQuotations([row]);
+        open(row);
+      },
+      error: (err) => this.errorMessage.set(this.fmt(err)),
+    });
+  }
+
+  /**
+   * Nueva cotización pre-rellenada desde `/ventas/cotizaciones?proformaRequest=&client=` (y opcional `assignedUser`).
+   */
+  openNewQuotationFromProforma(clientId: number, assignedUserId: number | null): void {
+    this.editingQuotationId.set(null);
+    this.quotationModalReadonly.set(false);
+    this.draftLines.set([]);
+    this.resetLineEditor();
+    const pm = this.paymentMethods()[0]?.id ?? 0;
+    this.clientSearchQuery.set(this.clientName(clientId));
+    const sellerId = this.myUserId();
+    const adminPicksSeller =
+      this.auth.isAdmin() && assignedUserId != null && assignedUserId > 0 ? assignedUserId : null;
+    this.form.reset(
+      {
+        id: null,
+        quotation_type: 'VENTA',
+        money: 'USD',
+        exchangeRate: null,
+        rental_unit: null,
+        rental_quantity: null,
+        status: 'PENDIENTE',
+        client: clientId,
+        user: this.auth.isAdmin() ? adminPicksSeller : (sellerId ?? null),
+        client_contact: null,
+        discountPercent: 0,
+        delivery_time: 0,
+        conditions: DEFAULT_QUOTATION_CONDITIONS,
+        payment_methods: pm,
+        works: '',
+        see_sku: false,
+      },
+      { emitEvent: false },
+    );
+    this.prevMoneyForLines = 'USD';
+    this.linePricesCurrency = 'USD';
+    this.syncExchangeRateValidators('USD');
+    this.syncRentalValidators('VENTA');
+    this.modalOpen.set(true);
+    this.clientPickerOpen.set(false);
+    this.sellerPickerOpen.set(false);
+    this.sellerSearchQuery.set('');
+    this.applyQuotationModalReadonlyToForm();
+    if (clientId > 0) {
+      if (this.auth.isAdmin()) {
+        this.sellerContactsLoading.set(true);
+        this.ensureSalesUsersLoaded(() => {
+          this.refreshSellerEligibility(this.form.controls.client.value);
+        });
+      } else {
+        this.refreshSellerEligibility(clientId);
+      }
+    }
   }
 
   /** Incorpora `user_detail` del API al catálogo para pickers y etiquetas sin GET extra. */
@@ -1408,6 +1540,7 @@ export class QuotationsPageComponent implements OnInit {
   }
 
   openNewQuotation(): void {
+    this.pendingProformaRequestId.set(null);
     this.editingQuotationId.set(null);
     this.quotationModalReadonly.set(false);
     this.draftLines.set([]);
@@ -1672,11 +1805,28 @@ export class QuotationsPageComponent implements OnInit {
         )
         .subscribe({
           next: (qRow) => {
-            this.saving.set(false);
-            this.modalOpen.set(false);
-            this.draftLines.set([]);
-            this.resetLineEditor();
-            this.syncQuotationFinalPriceAfterLinesChange(qRow.id);
+            const pending = this.pendingProformaRequestId();
+            const finalizeCreate = (): void => {
+              this.saving.set(false);
+              this.modalOpen.set(false);
+              this.draftLines.set([]);
+              this.resetLineEditor();
+              this.syncQuotationFinalPriceAfterLinesChange(qRow.id);
+            };
+            if (pending == null) {
+              finalizeCreate();
+              return;
+            }
+            this.proformaRequestsApi.patch(pending, { quotation: qRow.id }).subscribe({
+              next: () => {
+                this.pendingProformaRequestId.set(null);
+                finalizeCreate();
+              },
+              error: (err) => {
+                this.saving.set(false);
+                this.errorMessage.set(this.fmt(err));
+              },
+            });
           },
           error: (err) => {
             this.saving.set(false);

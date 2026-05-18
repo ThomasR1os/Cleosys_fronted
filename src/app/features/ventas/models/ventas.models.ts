@@ -22,12 +22,13 @@ export interface ClientRow {
   is_mine?: boolean;
 }
 
-/** POST /clients/: cuerpo `contact` obligatorio. */
+/** POST /clients/: cuerpo `contact` obligatorio; `user` opcional si el serializer lo acepta (encargado del contacto). */
 export interface ClientContactPayload {
   contact_first_name: string;
   contact_last_name: string;
   email?: string;
   phone?: string;
+  user?: number;
 }
 
 export interface ClientCreatePayload {
@@ -40,6 +41,50 @@ export interface ClientCreatePayload {
 export interface SunatRucIdentificacion {
   ruc: string;
   razon_social: string;
+}
+
+/** Usuario asignado en ítem de GET /clients/lookup-by-ruc/ (contactos). */
+export interface ClientLookupAssignedUserDetail {
+  id: number;
+  username: string;
+  first_name: string;
+  last_name: string;
+  nombre: string;
+}
+
+/** Contacto en respuesta de lookup-by-ruc (empresa). */
+export interface ClientLookupContactItem {
+  id: number;
+  contact_first_name: string;
+  contact_last_name: string;
+  nombre: string;
+  email?: string | null;
+  phone?: string | null;
+  assigned_user: ClientLookupAssignedUserDetail | null;
+}
+
+/** Asesor en resumen comercial del lookup-by-ruc. */
+export interface ClientLookupSalesUser {
+  id: number;
+  username: string;
+  first_name: string;
+  last_name: string;
+  nombre: string;
+}
+
+export interface ClientLookupSalesSummary {
+  message_for_ui: string;
+  primary_sales_user: ClientLookupSalesUser | null;
+  other_sales_users: ClientLookupSalesUser[];
+  contacts_count: number;
+}
+
+/** GET /api/clients/lookup-by-ruc/ */
+export interface ClientLookupByRucResponse {
+  exists: boolean;
+  client: ClientRow | null;
+  sales_summary: ClientLookupSalesSummary | null;
+  contacts: ClientLookupContactItem[];
 }
 
 /** Objeto `encargado` en GET /ventas/client-contacts/ (nombre preformateado en el backend). */
@@ -75,6 +120,83 @@ export interface ClientContactRow {
   owner?: number | null;
   /** Opcional: ids adicionales con permiso de ver datos sensibles (si el backend lo expone). */
   users_with_access?: number[];
+}
+
+/** POST /api/ventas/client-contacts/ (campos típicos del serializer). */
+export interface ClientContactCreatePayload {
+  client: number;
+  contact_first_name: string;
+  contact_last_name: string;
+  email?: string | null;
+  phone?: string | null;
+  /** Vendedor asignado al contacto (opcional según backend). */
+  user?: number | null;
+  owner?: number | null;
+}
+
+export type ProformaEntryChannel = 'META' | 'GOOGLE_ADS' | 'WHATSAPP' | 'EMAIL';
+export type ProformaRequestType = 'MAQUINARIA' | 'REPUESTOS' | 'SERVICIOS' | 'ALQUILERES';
+
+/** Cliente anidado en solicitud de proforma (solo lectura). */
+export interface ProformaClientDetail {
+  id: number;
+  ruc: string;
+  name: string;
+}
+
+/** Usuario asignado en solicitud de proforma (`assigned_user_detail`). */
+export interface ProformaAssignedUserDetail {
+  id: number;
+  username: string;
+  first_name: string;
+  last_name: string;
+  nombre: string;
+}
+
+/** GET|POST|PATCH /api/ventas/proforma-requests/ */
+export interface ProformaRequestRow {
+  id: number;
+  company: number;
+  client: number;
+  client_detail?: ProformaClientDetail | null;
+  assigned_user: number;
+  assigned_user_detail?: ProformaAssignedUserDetail | null;
+  entry_channel: ProformaEntryChannel;
+  proforma_type: ProformaRequestType;
+  description: string;
+  quotation: number | null;
+  quotation_correlativo?: string | null;
+  /** Solo lectura: momento de ingreso del requerimiento (ISO 8601). */
+  entered_at?: string | null;
+  /** Solo lectura: momento en que se vinculó cotización; null si no hay. */
+  quoted_at?: string | null;
+}
+
+export interface ProformaRequestCreatePayload {
+  client: number;
+  assigned_user: number;
+  entry_channel: ProformaEntryChannel;
+  proforma_type: ProformaRequestType;
+  description: string;
+  quotation?: number | null;
+}
+
+export interface ProformaRequestPatchPayload {
+  client?: number;
+  assigned_user?: number;
+  entry_channel?: ProformaEntryChannel;
+  proforma_type?: ProformaRequestType;
+  description?: string;
+  quotation?: number | null;
+}
+
+/** GET /api/ventas/proforma-requests/assignable-users/ */
+export interface AssignableUser {
+  id: number;
+  username: string;
+  first_name: string;
+  last_name: string;
+  nombre: string;
 }
 
 export type QuotationType = 'VENTA' | 'ALQUILER' | 'SERVICIO';

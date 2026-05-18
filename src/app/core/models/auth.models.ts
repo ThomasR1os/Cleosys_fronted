@@ -6,6 +6,8 @@ export interface MeUser {
   last_name?: string;
   email?: string;
   cellphone?: string;
+  /** Si el backend lo expone en `/auth/me/` (superusuario Django). */
+  is_superuser?: boolean;
 }
 
 export interface MeCompany {

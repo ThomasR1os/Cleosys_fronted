@@ -2,7 +2,7 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable, map } from 'rxjs';
 import { environment } from '../../../../environments/environment';
-import type { ClientContactRow } from '../models/ventas.models';
+import type { ClientContactCreatePayload, ClientContactRow } from '../models/ventas.models';
 
 @Injectable({ providedIn: 'root' })
 export class ClientContactService {
@@ -18,5 +18,9 @@ export class ClientContactService {
     return this.http
       .get<ClientContactRow[] | { results: ClientContactRow[] }>(`${this.base}/`, { params })
       .pipe(map((res) => (Array.isArray(res) ? res : res.results)));
+  }
+
+  create(body: ClientContactCreatePayload): Observable<ClientContactRow> {
+    return this.http.post<ClientContactRow>(`${this.base}/`, body);
   }
 }

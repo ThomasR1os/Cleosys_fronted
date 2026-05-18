@@ -1,0 +1,466 @@
+<div class="space-y-4">
+  <a routerLink="/ventas" class="link link-hover text-sm">← Volver a Ventas</a>
+
+  <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div>
+      <h1 class="text-3xl font-bold">Solicitudes de proforma</h1>
+      <p class="text-base-content/70 mt-1 text-sm">
+        Derivar requerimientos a asesores y vincular cotizaciones cuando correspondan.
+      </p>
+    </div>
+    <button
+      type="button"
+      class="btn btn-primary btn-lg"
+      [disabled]="!hasCompanyProfile()"
+      (click)="openNew()"
+    >
+      Nueva solicitud
+    </button>
+  </div>
+
+  @if (!hasCompanyProfile()) {
+    <div role="alert" class="alert alert-warning text-sm">
+      Su usuario no tiene perfil de empresa asociado. Las solicitudes no estarán disponibles hasta que un administrador
+      configure su cuenta.
+    </div>
+  }
+
+  @if (errorMessage(); as err) {
+    <div role="alert" class="alert alert-error text-sm">{{ err }}</div>
+  }
+
+  <div class="overflow-hidden rounded-lg border border-base-300 bg-base-100">
+    @if (loading()) {
+      <div class="flex justify-center p-12">
+        <span class="loading loading-spinner loading-lg text-primary"></span>
+      </div>
+    } @else {
+      <div class="overflow-x-auto">
+        <table class="table table-zebra text-sm">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Cliente</th>
+              <th>Asignado</th>
+              <th>Ingreso</th>
+              <th>Cotizado</th>
+              <th>Canal</th>
+              <th>Tipo</th>
+              <th>Descripción</th>
+              <th>Cotización</th>
+              <th class="text-right">Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (row of items(); track row.id) {
+              <tr>
+                <td>{{ row.id }}</td>
+                <td class="max-w-[14rem]">
+                  <div class="font-medium leading-snug">{{ clientDisplayName(row) }}</div>
+                  @if (row.client_detail?.ruc; as ruc) {
+                    <div class="text-xs text-base-content/60">RUC {{ ruc }}</div>
+                  }
+                </td>
+                <td class="max-w-[12rem]">{{ assignedDisplayName(row) }}</td>
+                <td class="whitespace-nowrap text-xs text-base-content/90">{{ formatStamp(row.entered_at) }}</td>
+                <td class="whitespace-nowrap text-xs text-base-content/90">{{ formatStamp(row.quoted_at) }}</td>
+                <td>{{ channelLabel(row.entry_channel) }}</td>
+                <td>{{ typeLabel(row.proforma_type) }}</td>
+                <td class="max-w-[14rem]">{{ truncate(row.description) }}</td>
+                <td>
+                  @if (row.quotation_correlativo) {
+                    <span class="font-mono text-xs">{{ row.quotation_correlativo }}</span>
+                  } @else {
+                    <span class="text-base-content/50">—</span>
+                  }
+                </td>
+                <td class="text-right">
+                  <div class="flex flex-wrap gap-1 justify-end">
+                    @if (row.quotation == null) {
+                      <button type="button" class="btn btn-primary btn-sm" (click)="goGenerateQuotation(row)">
+                        Generar cotización
+                      </button>
+                    } @else {
+                      <button type="button" class="btn btn-outline btn-sm" (click)="goToQuotation(row)">
+                        Ir a cotización
+                      </button>
+                      @if (canEdit(row)) {
+                        <button type="button" class="btn btn-ghost btn-sm" (click)="unlinkQuotation(row)">
+                          Desvincular
+                        </button>
+                      }
+                    }
+                    @if (canEdit(row)) {
+                      <button type="button" class="btn btn-ghost btn-sm" (click)="openEdit(row)">Editar</button>
+                      <button type="button" class="btn btn-outline btn-error btn-sm" (click)="remove(row)">
+                        Eliminar
+                      </button>
+                    }
+                  </div>
+                </td>
+              </tr>
+            } @empty {
+              <tr>
+                <td colspan="10" class="text-base-content/60 text-center py-8">
+                  No hay solicitudes de proforma.
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    }
+  </div>
+</div>
+
+@if (modalOpen()) {
+  <div class="modal modal-open">
+    <div class="modal-box max-w-lg max-h-[90vh] overflow-y-auto">
+      @if (modalView() === 'newClient') {
+        <div class="mb-4">
+          <h2 class="text-xl font-bold">Nuevo cliente</h2>
+          <p class="text-base-content/70 text-sm mt-1">
+            Se creará el cliente con un contacto inicial (requerido por el sistema).
+            @if (form.controls.assigned_user.value > 0) {
+              <span>Ese contacto quedará asignado al usuario elegido en «Derivar a».</span>
+            } @else {
+              <span class="text-warning">
+                Elija primero «Derivar a» si quiere que el contacto inicial quede asignado a ese asesor.
+              </span>
+            }
+          </p>
+        </div>
+        <form class="space-y-3" [formGroup]="newClientForm" (ngSubmit)="saveNewClient()">
+          <label class="form-control w-full">
+            <span class="label-text">RUC</span>
+            <div class="flex flex-wrap items-end gap-2">
+              <input class="input input-bordered min-h-10 min-w-[12rem] flex-1" formControlName="ruc" />
+              <button
+                type="button"
+                class="btn btn-outline shrink-0"
+                (click)="consultarRucNewClient()"
+                [disabled]="consultingRucNewClient() || saving() || contactSaving()"
+              >
+                @if (consultingRucNewClient()) {
+                  <span class="loading loading-spinner loading-sm"></span>
+                }
+                Consultar
+              </button>
+            </div>
+            @if (newClientForm.controls.ruc.touched && newClientForm.controls.ruc.errors?.['required']) {
+              <span class="label-text-alt text-error">Obligatorio</span>
+            }
+          </label>
+          @if (rucAdvisorHint(); as hint) {
+            <p class="text-sm text-info -mt-1">{{ hint }}</p>
+          }
+          @if (existingClientFromDb(); as ex) {
+            <div class="rounded-lg border border-base-300 bg-base-200/40 p-3 space-y-2">
+              <p class="text-sm font-medium">Cliente ya existe (#{{ ex.id }} · {{ ex.name }})</p>
+              <div class="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  (click)="useExistingClientFromLookup()"
+                  [disabled]="contactSaving()"
+                >
+                  Usar cliente existente
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-primary btn-sm"
+                  (click)="registerContactForExistingLookupClient()"
+                  [disabled]="contactSaving() || newClientForm.controls.contact_first_name.invalid || newClientForm.controls.contact_last_name.invalid"
+                >
+                  @if (contactSaving()) {
+                    <span class="loading loading-spinner loading-sm"></span>
+                  }
+                  Registrar contacto y volver
+                </button>
+              </div>
+              <p class="text-xs text-base-content/70">
+                Muchos clientes tienen un solo asesor en la empresa; otros tienen varios contactos con distintos
+                encargados.
+                Use «Usar cliente existente» para cotizar con ese mismo cliente; si debe dar de alta un contacto nuevo
+                (p. ej. otro asesor), complete nombre y apellido y «Registrar contacto y volver». «Derivar a»
+                define el encargado del contacto nuevo.
+              </p>
+            </div>
+          }
+          <label class="form-control w-full">
+            <span class="label-text">Razón social</span>
+            <input class="input input-bordered w-full" formControlName="name" />
+            @if (newClientForm.controls.name.touched && newClientForm.controls.name.errors?.['required']) {
+              <span class="label-text-alt text-error">Obligatorio</span>
+            }
+          </label>
+          <div class="grid gap-3 sm:grid-cols-2">
+            <label class="form-control w-full">
+              <span class="label-text">Nombre contacto</span>
+              <input class="input input-bordered w-full" formControlName="contact_first_name" />
+            </label>
+            <label class="form-control w-full">
+              <span class="label-text">Apellido contacto</span>
+              <input class="input input-bordered w-full" formControlName="contact_last_name" />
+            </label>
+          </div>
+          <label class="form-control w-full">
+            <span class="label-text">Email (opcional)</span>
+            <input class="input input-bordered w-full" type="email" formControlName="email" />
+          </label>
+          <label class="form-control w-full">
+            <span class="label-text">Teléfono (opcional)</span>
+            <input class="input input-bordered w-full" formControlName="phone" />
+          </label>
+          <div class="modal-action flex-wrap gap-2">
+            <button type="button" class="btn btn-ghost" (click)="backToProformaForm()">Volver</button>
+            <button
+              type="submit"
+              class="btn btn-primary"
+              [disabled]="saving() || existingClientFromDb() !== null"
+            >
+              @if (saving()) {
+                <span class="loading loading-spinner loading-sm"></span>
+              }
+              Guardar cliente
+            </button>
+          </div>
+        </form>
+      } @else {
+        <div class="mb-4">
+          <h2 class="text-xl font-bold">{{ editingId() == null ? 'Nueva solicitud' : 'Editar solicitud #' + editingId() }}</h2>
+          @if (editingRow(); as erow) {
+            <dl class="mt-3 grid gap-1 text-xs text-base-content/70 sm:grid-cols-2">
+              <div>
+                <dt class="font-medium text-base-content/80">Ingreso</dt>
+                <dd>{{ formatStamp(erow.entered_at) }}</dd>
+              </div>
+              <div>
+                <dt class="font-medium text-base-content/80">Cotizado el</dt>
+                <dd>{{ formatStamp(erow.quoted_at) }}</dd>
+              </div>
+            </dl>
+          }
+        </div>
+
+        @if (assignableLoading()) {
+          <p class="text-sm text-base-content/70 mb-2">Cargando usuarios asignables…</p>
+        } @else if (assignableUsers().length === 0 && hasCompanyProfile()) {
+          <div role="alert" class="alert alert-warning text-sm mb-3">
+            No hay usuarios asignables en su empresa. Revise perfiles de usuario en administración.
+          </div>
+        }
+
+        <form class="space-y-4" [formGroup]="form" (ngSubmit)="saveProforma()">
+          <div class="relative">
+            <span class="label-text font-medium">Cliente</span>
+            <div class="flex gap-2 mt-1">
+              <div class="relative flex-1">
+                <input
+                  class="input input-bordered w-full"
+                  [value]="clientSearchQuery()"
+                  (input)="onClientSearchInput($event)"
+                  (focus)="clientPickerOpen.set(true)"
+                  (blur)="closeClientPickerSoon()"
+                  placeholder="Buscar por nombre o RUC…"
+                  autocomplete="off"
+                />
+                @if (clientPickerOpen()) {
+                  <ul
+                    class="absolute z-20 mt-1 max-h-52 w-full overflow-auto rounded-lg border border-base-300 bg-base-100 shadow-lg"
+                  >
+                    @if (clientsLoading()) {
+                      <li class="px-3 py-2 text-sm text-base-content/70">Cargando…</li>
+                    } @else {
+                      @for (c of filteredClients(); track c.id) {
+                        <li>
+                          <button
+                            type="button"
+                            class="flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left text-sm hover:bg-base-200"
+                            (mousedown)="$event.preventDefault()"
+                            (click)="selectClient(c)"
+                          >
+                            <span class="font-medium">{{ c.name }}</span>
+                            <span class="text-xs text-base-content/60">RUC {{ c.ruc }} · #{{ c.id }}</span>
+                          </button>
+                        </li>
+                      } @empty {
+                        <li class="px-3 py-2 text-sm text-base-content/60">Sin coincidencias</li>
+                      }
+                    }
+                  </ul>
+                }
+              </div>
+              @if (form.controls.client.value > 0) {
+                <button type="button" class="btn btn-ghost btn-sm shrink-0" (click)="clearClientSelection()">
+                  Quitar
+                </button>
+              }
+            </div>
+            <button type="button" class="btn btn-link btn-sm px-0 mt-1" (click)="switchToNewClient()">
+              Registrar nuevo cliente
+            </button>
+          </div>
+
+          @if (form.controls.client.value > 0) {
+            @if (clientSalesSummaryLoading()) {
+              <p class="text-xs text-base-content/70 flex items-center gap-2">
+                <span class="loading loading-spinner loading-xs"></span>
+                Cargando cartera comercial del cliente…
+              </p>
+            } @else if (clientSalesSummary(); as summary) {
+              <div class="rounded-lg border border-info/30 bg-info/5 p-3 space-y-2">
+                <p class="text-sm font-medium text-base-content">Cartera comercial</p>
+                <p class="text-sm text-base-content/80">{{ summary.message_for_ui }}</p>
+                @if (summary.primary_sales_user || summary.other_sales_users.length > 0) {
+                  <div class="flex flex-wrap gap-1 mt-2">
+                    @if (summary.primary_sales_user; as primary) {
+                      <span class="badge badge-primary badge-sm">{{ primary.nombre }}</span>
+                    }
+                    @for (u of summary.other_sales_users; track u.id) {
+                      <span class="badge badge-outline badge-sm">{{ u.nombre }}</span>
+                    }
+                  </div>
+                }
+                @if (summary.contacts_count > 0) {
+                  <p class="text-xs text-base-content/60">{{ summary.contacts_count }} contacto(s) en la empresa</p>
+                }
+              </div>
+            }
+
+            <div class="rounded-lg border border-base-300 bg-base-200/30 p-3 space-y-2">
+              <div class="flex items-center justify-between gap-2">
+                <span class="font-medium text-sm">Contactos del cliente</span>
+                @if (contactsLoading()) {
+                  <span class="loading loading-spinner loading-sm"></span>
+                }
+              </div>
+              @if (!contactsLoading() && contactsForClient().length === 0) {
+                <p class="text-sm text-warning">
+                  Debe registrar al menos un contacto antes de crear la solicitud (validación del servidor).
+                </p>
+                <div class="space-y-2 border-t border-base-300 pt-3 mt-2">
+                  <p class="text-xs font-medium text-base-content/70">Alta de contacto</p>
+                  <p class="text-xs text-base-content/60">
+                    Si el nombre y apellido coinciden con un contacto ya cargado (sin importar mayúsculas), se pedirá
+                    confirmación antes de crear otro registro.
+                  </p>
+                  <div class="grid gap-2 sm:grid-cols-2">
+                    <input
+                      class="input input-bordered input-sm"
+                      placeholder="Nombre"
+                      [formControl]="newContactForm.controls.contact_first_name"
+                    />
+                    <input
+                      class="input input-bordered input-sm"
+                      placeholder="Apellido"
+                      [formControl]="newContactForm.controls.contact_last_name"
+                    />
+                  </div>
+                  <div class="grid gap-2 sm:grid-cols-2">
+                    <input
+                      class="input input-bordered input-sm"
+                      placeholder="Email"
+                      [formControl]="newContactForm.controls.email"
+                    />
+                    <input
+                      class="input input-bordered input-sm"
+                      placeholder="Teléfono"
+                      [formControl]="newContactForm.controls.phone"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    class="btn btn-sm btn-secondary w-full sm:w-auto"
+                    [disabled]="contactSaving()"
+                    (click)="saveNewContact()"
+                  >
+                    @if (contactSaving()) {
+                      <span class="loading loading-spinner loading-sm"></span>
+                    }
+                    Guardar contacto
+                  </button>
+                </div>
+              } @else if (!contactsLoading()) {
+                <ul class="text-sm space-y-1 max-h-28 overflow-y-auto">
+                  @for (ct of contactsForClient(); track ct.id) {
+                    <li class="text-base-content/80 leading-snug">
+                      <span>{{ ct.contact_first_name }} {{ ct.contact_last_name }}</span>
+                      <span class="text-xs text-base-content/50"> #{{ ct.id }}</span>
+                      @if (contactEncargadoLabel(ct); as enc) {
+                        <span class="block text-xs text-base-content/60 mt-0.5">Encargado: {{ enc }}</span>
+                      }
+                    </li>
+                  }
+                </ul>
+              }
+            </div>
+          }
+
+          <label class="form-control w-full">
+            <span class="label-text">Derivar a</span>
+            <select class="select select-bordered w-full" formControlName="assigned_user">
+              <option [ngValue]="0" disabled>Elegir usuario…</option>
+              @for (u of assignableUsers(); track u.id) {
+                <option [ngValue]="u.id">{{ u.nombre }}</option>
+              }
+            </select>
+          </label>
+
+          <label class="form-control w-full">
+            <span class="label-text">Medio de entrada</span>
+            <select class="select select-bordered w-full" formControlName="entry_channel">
+              @for (ch of ENTRY_CHANNELS; track ch) {
+                <option [ngValue]="ch">{{ channelLabel(ch) }}</option>
+              }
+            </select>
+          </label>
+
+          <label class="form-control w-full">
+            <span class="label-text">Tipo de proforma</span>
+            <select class="select select-bordered w-full" formControlName="proforma_type">
+              @for (tp of PROFORMA_TYPES_LIST; track tp) {
+                <option [ngValue]="tp">{{ typeLabel(tp) }}</option>
+              }
+            </select>
+          </label>
+
+          <label class="form-control w-full">
+            <span class="label-text">Descripción del requerimiento</span>
+            <textarea class="textarea textarea-bordered min-h-[6rem] w-full" formControlName="description"></textarea>
+            @if (form.controls.description.touched && form.controls.description.errors?.['required']) {
+              <span class="label-text-alt text-error">Obligatorio</span>
+            }
+          </label>
+
+          @if (editingId() != null) {
+            <label class="label cursor-pointer justify-start gap-3">
+              <input type="checkbox" class="checkbox checkbox-sm" formControlName="unlink_quotation" />
+              <span class="label-text">Desvincular cotización al guardar</span>
+            </label>
+          }
+
+          <div class="modal-action flex-wrap gap-2">
+            <button type="button" class="btn btn-ghost" (click)="closeModal()">Cancelar</button>
+            <button
+              type="submit"
+              class="btn btn-primary"
+              [disabled]="
+                saving() ||
+                (editingId() == null && !canSubmitProforma()) ||
+                assignableUsers().length === 0 ||
+                form.controls.assigned_user.value <= 0
+              "
+            >
+              @if (saving()) {
+                <span class="loading loading-spinner loading-sm"></span>
+              }
+              Guardar
+            </button>
+          </div>
+        </form>
+      }
+    </div>
+    <button type="button" class="modal-backdrop cursor-default bg-black/50" aria-label="Cerrar" (click)="closeModal()"></button>
+  </div>
+}

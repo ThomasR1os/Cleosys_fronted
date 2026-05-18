@@ -4,6 +4,7 @@ import { Observable } from 'rxjs';
 import { environment } from '../../../../environments/environment';
 import type {
   ClientCreatePayload,
+  ClientLookupByRucResponse,
   ClientRow,
   SunatRucIdentificacion,
 } from '../models/ventas.models';
@@ -27,6 +28,20 @@ export class ClientService {
   listForCompany(): Observable<ClientRow[]> {
     const params = new HttpParams().set('scope', 'company');
     return this.http.get<ClientRow[]>(`${this.base}/`, { params });
+  }
+
+  /**
+   * Cliente por RUC dentro de la empresa + resumen comercial y contactos (core).
+   * `scope`: `company` (default) o `mine` según reglas del backend.
+   */
+  lookupByRuc(
+    ruc: string,
+    scope: 'company' | 'mine' = 'company',
+  ): Observable<ClientLookupByRucResponse> {
+    const params = new HttpParams().set('ruc', ruc.trim()).set('scope', scope);
+    return this.http.get<ClientLookupByRucResponse>(`${this.base}/lookup-by-ruc/`, {
+      params,
+    });
   }
 
   retrieve(id: number): Observable<ClientRow> {
