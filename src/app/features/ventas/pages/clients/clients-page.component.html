@@ -16,6 +16,27 @@
     <div role="alert" class="alert alert-error text-sm">{{ err }}</div>
   }
 
+  @if (!loading()) {
+    <div
+      class="flex flex-col gap-3 rounded-lg border border-base-300 bg-base-100 p-4 sm:flex-row sm:flex-wrap sm:items-end"
+    >
+      <label class="form-control min-w-0 flex-1 sm:min-w-[14rem]">
+        <span class="label-text">Buscar</span>
+        <input
+          type="search"
+          class="input input-bordered input-sm w-full"
+          placeholder="Nombre, RUC o ID…"
+          autocomplete="off"
+          [value]="searchQuery()"
+          (input)="setSearchQuery($any($event.target).value)"
+        />
+      </label>
+      @if (hasActiveSearch()) {
+        <button type="button" class="btn btn-ghost btn-sm" (click)="clearSearch()">Limpiar búsqueda</button>
+      }
+    </div>
+  }
+
   <div class="overflow-hidden rounded-lg border border-base-300 bg-base-100">
     @if (loading()) {
       <div class="flex justify-center p-12">
@@ -58,7 +79,16 @@
               </tr>
             } @empty {
               <tr>
-                <td colspan="4" class="text-base-content/60 text-center">No hay clientes visibles para su usuario.</td>
+                <td colspan="4" class="text-base-content/60 text-center py-8">
+                  @if (hasActiveSearch()) {
+                    No hay clientes que coincidan con la búsqueda.
+                    @if (totalLoaded() > 0) {
+                      <span class="block text-xs mt-1">({{ totalLoaded() }} en total)</span>
+                    }
+                  } @else {
+                    No hay clientes visibles para su usuario.
+                  }
+                </td>
               </tr>
             }
           </tbody>
@@ -70,6 +100,9 @@
         >
           <p class="text-sm text-base-content/70">
             Mostrando {{ rangeStart() }}–{{ rangeEnd() }} de {{ totalCount() }}
+            @if (hasActiveSearch() && totalLoaded() !== totalCount()) {
+              <span class="text-base-content/50"> ({{ totalLoaded() }} en total)</span>
+            }
           </p>
           <div class="flex flex-wrap items-center gap-2">
             <label class="flex items-center gap-2 text-sm text-base-content/70">

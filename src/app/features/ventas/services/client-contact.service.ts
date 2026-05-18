@@ -2,7 +2,11 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable, map } from 'rxjs';
 import { environment } from '../../../../environments/environment';
-import type { ClientContactCreatePayload, ClientContactRow } from '../models/ventas.models';
+import type {
+  ClientContactCreatePayload,
+  ClientContactPatchPayload,
+  ClientContactRow,
+} from '../models/ventas.models';
 
 @Injectable({ providedIn: 'root' })
 export class ClientContactService {
@@ -22,5 +26,9 @@ export class ClientContactService {
 
   create(body: ClientContactCreatePayload): Observable<ClientContactRow> {
     return this.http.post<ClientContactRow>(`${this.base}/`, body);
+  }
+
+  patch(id: number, body: ClientContactPatchPayload): Observable<ClientContactRow> {
+    return this.http.patch<ClientContactRow>(`${this.base}/${id}/`, body);
   }
 }

@@ -7,6 +7,7 @@ import {
 } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { AuthService } from '../../../../core/services/auth.service';
+import { textMatchesLooseQuery } from '../../../../core/utils/text-search.utils';
 import type { ClientRow } from '../../models/ventas.models';
 import { ClientService } from '../../services/client.service';
 
@@ -21,13 +22,26 @@ export class ClientsPageComponent implements OnInit {
   readonly auth = inject(AuthService);
 
   readonly items = signal<ClientRow[]>([]);
+  readonly searchQuery = signal('');
+
+  readonly filteredItems = computed(() => {
+    const raw = this.searchQuery().trim();
+    const rows = this.items();
+    if (!raw) return rows;
+    return rows.filter((r) => {
+      const haystack = [String(r.id), r.name, r.ruc, r.address ?? ''].join(' ');
+      return textMatchesLooseQuery(haystack, raw);
+    });
+  });
+
   /** Página actual (0-based). */
   readonly pageIndex = signal(0);
   /** Filas por página. */
   readonly pageSize = signal(10);
   readonly pageSizeOptions = [10, 25, 50] as const;
 
-  readonly totalCount = computed(() => this.items().length);
+  readonly totalCount = computed(() => this.filteredItems().length);
+  readonly totalLoaded = computed(() => this.items().length);
   readonly totalPages = computed(() => {
     const n = this.totalCount();
     const ps = this.pageSize();
@@ -35,11 +49,13 @@ export class ClientsPageComponent implements OnInit {
     return Math.ceil(n / ps);
   });
   readonly pagedItems = computed(() => {
-    const all = this.items();
+    const all = this.filteredItems();
     const ps = this.pageSize();
     const start = this.pageIndex() * ps;
     return all.slice(start, start + ps);
   });
+
+  readonly hasActiveSearch = computed(() => this.searchQuery().trim() !== '');
   readonly rangeStart = computed(() => {
     const n = this.totalCount();
     if (n === 0) return 0;
@@ -86,6 +102,16 @@ export class ClientsPageComponent implements OnInit {
     if (this.auth.isAdmin()) return true;
     if (!this.canEditClients()) return false;
     return client.is_mine === true;
+  }
+
+  setSearchQuery(value: string): void {
+    this.searchQuery.set(value);
+    this.pageIndex.set(0);
+  }
+
+  clearSearch(): void {
+    this.searchQuery.set('');
+    this.pageIndex.set(0);
   }
 
   setPageSize(size: number): void {

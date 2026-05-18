@@ -545,6 +545,23 @@ export class ProformaRequestsPageComponent implements OnInit {
       phone: '',
     });
     this.modalView.set('newClient');
+    this.loadAssignableUsers(() => this.prefillAssignedUserIfEmpty());
+  }
+
+  /** Si aún no hay asesor elegido, preselecciona al usuario actual (puede cambiarlo). */
+  private prefillAssignedUserIfEmpty(): void {
+    if (this.form.controls.assigned_user.value > 0) return;
+    const me = this.myUserId();
+    if (me == null) return;
+    if (this.assignableUsers().some((u) => u.id === me)) {
+      this.form.patchValue({ assigned_user: me });
+    }
+  }
+
+  assignedAdvisorNombre(): string | null {
+    const id = this.form.controls.assigned_user.value;
+    if (id <= 0) return null;
+    return this.assignableUsers().find((u) => u.id === id)?.nombre ?? null;
   }
 
   backToProformaForm(): void {
@@ -709,6 +726,11 @@ export class ProformaRequestsPageComponent implements OnInit {
   registerContactForExistingLookupClient(): void {
     const hit = this.existingClientFromDb();
     if (!hit) return;
+    if (this.form.controls.assigned_user.value <= 0) {
+      this.form.controls.assigned_user.markAsTouched();
+      this.errorMessage.set('Seleccione el asesor en «Derivar a».');
+      return;
+    }
     const cf = this.newClientForm.controls;
     if (cf.contact_first_name.invalid || cf.contact_last_name.invalid) {
       this.newClientForm.markAllAsTouched();
@@ -797,6 +819,11 @@ export class ProformaRequestsPageComponent implements OnInit {
   }
 
   saveNewClient(): void {
+    if (this.form.controls.assigned_user.value <= 0) {
+      this.form.controls.assigned_user.markAsTouched();
+      this.errorMessage.set('Seleccione el asesor en «Derivar a».');
+      return;
+    }
     if (this.newClientForm.invalid) {
       this.newClientForm.markAllAsTouched();
       return;

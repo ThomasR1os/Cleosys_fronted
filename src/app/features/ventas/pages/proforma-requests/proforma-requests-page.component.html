@@ -275,16 +275,40 @@
         <div class="mb-4">
           <h2 class="text-xl font-bold">Nuevo cliente</h2>
           <p class="text-base-content/70 text-sm mt-1">
-            Se creará el cliente con un contacto inicial (requerido por el sistema).
-            @if (form.controls.assigned_user.value > 0) {
-              <span>Ese contacto quedará asignado al usuario elegido en «Derivar a».</span>
-            } @else {
-              <span class="text-warning">
-                Elija primero «Derivar a» si quiere que el contacto inicial quede asignado a ese asesor.
-              </span>
-            }
+            Se creará el cliente con un contacto inicial (requerido por el sistema). Puede registrar el cliente para
+            usted u otro asesor: el contacto y la solicitud de proforma quedarán derivados a quien elija en
+            «Derivar a».
           </p>
         </div>
+
+        @if (assignableLoading()) {
+          <p class="text-sm text-base-content/70 mb-3">Cargando asesores asignables…</p>
+        } @else if (assignableUsers().length === 0 && hasCompanyProfile()) {
+          <div role="alert" class="alert alert-warning text-sm mb-3">
+            No hay usuarios asignables en su empresa. Revise perfiles de usuario en administración.
+          </div>
+        }
+
+        <div class="mb-4 space-y-2 rounded-lg border border-primary/25 bg-primary/5 p-3" [formGroup]="form">
+          <label class="form-control w-full">
+            <span class="label-text font-medium">Derivar a (asesor encargado)</span>
+            <select class="select select-bordered w-full" formControlName="assigned_user">
+              <option [ngValue]="0" disabled>Seleccione asesor…</option>
+              @for (u of assignableUsers(); track u.id) {
+                <option [ngValue]="u.id">{{ u.nombre }}</option>
+              }
+            </select>
+            @if (form.controls.assigned_user.touched && form.controls.assigned_user.value <= 0) {
+              <span class="label-text-alt text-error">Obligatorio: indique quién atenderá al cliente</span>
+            }
+            @if (assignedAdvisorNombre(); as nombre) {
+              <span class="label-text-alt text-base-content/70">
+                El contacto inicial y la solicitud se asignarán a {{ nombre }}.
+              </span>
+            }
+          </label>
+        </div>
+
         <form class="space-y-3" [formGroup]="newClientForm" (ngSubmit)="saveNewClient()">
           <label class="form-control w-full">
             <span class="label-text">RUC</span>
@@ -325,7 +349,12 @@
                   type="button"
                   class="btn btn-primary btn-sm"
                   (click)="registerContactForExistingLookupClient()"
-                  [disabled]="contactSaving() || newClientForm.controls.contact_first_name.invalid || newClientForm.controls.contact_last_name.invalid"
+                  [disabled]="
+                    contactSaving() ||
+                    form.controls.assigned_user.value <= 0 ||
+                    newClientForm.controls.contact_first_name.invalid ||
+                    newClientForm.controls.contact_last_name.invalid
+                  "
                 >
                   @if (contactSaving()) {
                     <span class="loading loading-spinner loading-sm"></span>
@@ -372,7 +401,12 @@
             <button
               type="submit"
               class="btn btn-primary"
-              [disabled]="saving() || existingClientFromDb() !== null"
+              [disabled]="
+                saving() ||
+                existingClientFromDb() !== null ||
+                assignableUsers().length === 0 ||
+                form.controls.assigned_user.value <= 0
+              "
             >
               @if (saving()) {
                 <span class="loading loading-spinner loading-sm"></span>
@@ -588,7 +622,6 @@
               }
             </select>
             @if (editingId() == null) {
-              <span class="label-text-alt text-base-content/60">Por defecto: Pendiente</span>
             }
           </label>
 

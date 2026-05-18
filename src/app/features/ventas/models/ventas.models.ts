@@ -134,6 +134,16 @@ export interface ClientContactCreatePayload {
   owner?: number | null;
 }
 
+/** PATCH /api/ventas/client-contacts/{id}/ */
+export interface ClientContactPatchPayload {
+  contact_first_name?: string;
+  contact_last_name?: string;
+  email?: string | null;
+  phone?: string | null;
+  user?: number | null;
+  owner?: number | null;
+}
+
 export type ProformaEntryChannel = 'META' | 'GOOGLE_ADS' | 'WHATSAPP' | 'EMAIL';
 export type ProformaRequestType = 'MAQUINARIA' | 'REPUESTOS' | 'SERVICIOS' | 'ALQUILERES';
 export type ProformaRequestStatus = 'PENDIENTE' | 'APROBADA' | 'RECHAZADA' | 'SIN_RESPUESTA';

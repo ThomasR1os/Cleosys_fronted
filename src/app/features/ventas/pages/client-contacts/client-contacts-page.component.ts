@@ -1,27 +1,35 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
+import {
+  FormBuilder,
+  ReactiveFormsModule,
+  Validators,
+} from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { catchError, forkJoin, map, of } from 'rxjs';
 import { AuthService } from '../../../../core/services/auth.service';
 import type { AdminUser } from '../../../admin/models/admin-users.models';
 import { AdminUserService } from '../../../admin/services/admin-user.service';
-import type { ClientContactRow, ClientRow } from '../../models/ventas.models';
+import type { AssignableUser, ClientContactRow, ClientRow } from '../../models/ventas.models';
 import { ClientContactService } from '../../services/client-contact.service';
 import { ClientService } from '../../services/client.service';
+import { ProformaRequestService } from '../../services/proforma-request.service';
 
 const MASK = '****';
 
 @Component({
   selector: 'app-client-contacts-page',
-  imports: [RouterLink],
+  imports: [ReactiveFormsModule, RouterLink],
   templateUrl: './client-contacts-page.component.html',
 })
 export class ClientContactsPageComponent implements OnInit {
   private readonly api = inject(ClientContactService);
   private readonly clientsApi = inject(ClientService);
   private readonly adminUsers = inject(AdminUserService);
+  private readonly proformaApi = inject(ProformaRequestService);
   private readonly route = inject(ActivatedRoute);
+  private readonly fb = inject(FormBuilder);
   readonly auth = inject(AuthService);
 
   readonly items = signal<ClientContactRow[]>([]);
@@ -29,10 +37,39 @@ export class ClientContactsPageComponent implements OnInit {
   readonly userLabelById = signal<ReadonlyMap<number, string>>(new Map());
   readonly clientRow = signal<ClientRow | null>(null);
   readonly loading = signal(false);
+  readonly saving = signal(false);
   readonly errorMessage = signal<string | null>(null);
+  readonly modalOpen = signal(false);
+  readonly editingRow = signal<ClientContactRow | null>(null);
+  readonly staffOptions = signal<AdminUser[]>([]);
+  readonly assignableUsers = signal<AssignableUser[]>([]);
+
+  /** Opciones del selector de encargado (admin: usuarios; ventas: asignables). */
+  readonly encargadoSelectOptions = computed(() => {
+    const opts: { id: number; label: string }[] = this.auth.isAdmin()
+      ? this.staffOptions().map((u) => ({ id: u.id, label: this.formatStaffName(u) }))
+      : this.assignableUsers().map((u) => ({ id: u.id, label: u.nombre }));
+    const row = this.editingRow();
+    const currentId = row?.user ?? row?.owner ?? null;
+    if (currentId != null && !opts.some((o) => o.id === currentId)) {
+      opts.push({
+        id: currentId,
+        label: this.userLabelById().get(currentId) ?? `Usuario #${currentId}`,
+      });
+    }
+    return opts.sort((a, b) => a.label.localeCompare(b.label, 'es', { sensitivity: 'base' }));
+  });
 
   /** IDs de filas con email/teléfono visibles (solo si `canRevealContact`). */
   readonly revealedIds = signal<ReadonlySet<number>>(new Set<number>());
+
+  readonly form = this.fb.nonNullable.group({
+    contact_first_name: ['', Validators.required],
+    contact_last_name: ['', Validators.required],
+    email: [''],
+    phone: [''],
+    user: this.fb.control<number | null>(null),
+  });
 
   readonly myUserId = computed(() => this.auth.me()?.user?.id ?? null);
 
@@ -51,13 +88,24 @@ export class ClientContactsPageComponent implements OnInit {
   ngOnInit(): void {
     this.adminUsers.list().subscribe({
       next: (users) => {
+        this.staffOptions.set(users);
         const m = new Map<number, string>();
         for (const u of users) {
           m.set(u.id, this.formatStaffName(u));
         }
         this.userLabelById.set(m);
       },
-      error: () => this.userLabelById.set(new Map()),
+      error: () => {
+        this.staffOptions.set([]);
+        this.userLabelById.set(new Map());
+      },
+    });
+    this.proformaApi.assignableUsers().subscribe({
+      next: (users) =>
+        this.assignableUsers.set(
+          [...users].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' })),
+        ),
+      error: () => this.assignableUsers.set([]),
     });
     this.reload();
   }
@@ -123,6 +171,67 @@ export class ClientContactsPageComponent implements OnInit {
       },
       error: (err) => {
         this.loading.set(false);
+        this.errorMessage.set(this.fmt(err));
+      },
+    });
+  }
+
+  /** Misma regla que ver datos sensibles: admin o vendedor asignado al contacto. */
+  canEditContact(row: ClientContactRow): boolean {
+    return this.canRevealContact(row);
+  }
+
+  openEdit(row: ClientContactRow): void {
+    if (!this.canEditContact(row)) return;
+    this.editingRow.set(row);
+    this.errorMessage.set(null);
+    this.form.patchValue({
+      contact_first_name: row.contact_first_name ?? '',
+      contact_last_name: row.contact_last_name ?? '',
+      email: row.email?.trim() ?? '',
+      phone: row.phone?.trim() ?? '',
+      user: row.user ?? row.owner ?? null,
+    });
+    this.revealedIds.update((prev) => {
+      const next = new Set(prev);
+      next.add(row.id);
+      return next;
+    });
+    this.modalOpen.set(true);
+  }
+
+  closeModal(): void {
+    this.modalOpen.set(false);
+    this.editingRow.set(null);
+  }
+
+  save(): void {
+    const row = this.editingRow();
+    if (!row || !this.canEditContact(row)) return;
+    if (this.form.invalid) {
+      this.form.markAllAsTouched();
+      return;
+    }
+
+    const v = this.form.getRawValue();
+    const body: Parameters<ClientContactService['patch']>[1] = {
+      contact_first_name: v.contact_first_name.trim(),
+      contact_last_name: v.contact_last_name.trim(),
+      email: v.email.trim() || null,
+      phone: v.phone.trim() || null,
+    };
+    body.user = v.user != null && v.user > 0 ? v.user : null;
+
+    this.saving.set(true);
+    this.errorMessage.set(null);
+    this.api.patch(row.id, body).subscribe({
+      next: () => {
+        this.saving.set(false);
+        this.closeModal();
+        this.reload();
+      },
+      error: (err) => {
+        this.saving.set(false);
         this.errorMessage.set(this.fmt(err));
       },
     });
@@ -212,8 +321,18 @@ export class ClientContactsPageComponent implements OnInit {
     if (err instanceof HttpErrorResponse) {
       const d = err.error;
       if (typeof d === 'string') return d;
-      if (d && typeof d === 'object' && 'detail' in d && typeof d.detail === 'string') {
-        return d.detail;
+      if (d && typeof d === 'object') {
+        if ('detail' in d && typeof d.detail === 'string') return d.detail;
+        const parts: string[] = [];
+        for (const [k, v] of Object.entries(d)) {
+          if (k === 'detail') continue;
+          if (typeof v === 'string') parts.push(`${k}: ${v}`);
+          else if (Array.isArray(v) && typeof v[0] === 'string') parts.push(`${k}: ${v[0]}`);
+        }
+        if (parts.length) return parts.join(' · ');
+        const first = Object.values(d)[0];
+        if (Array.isArray(first) && typeof first[0] === 'string') return first[0];
+        if (typeof first === 'string') return first;
       }
       return err.message || 'Error';
     }
