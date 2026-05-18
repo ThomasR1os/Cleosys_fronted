@@ -3,6 +3,7 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { environment } from '../../../../environments/environment';
 import type {
+  ClientContactPayload,
   ClientCreatePayload,
   ClientLookupByRucResponse,
   ClientRow,
@@ -48,8 +49,28 @@ export class ClientService {
     return this.http.get<ClientRow>(`${this.base}/${id}/`);
   }
 
+  /**
+   * Alta de cliente + contacto inicial.
+   * No enviar `user`/`owner` en `contact`: el serializer anidado de POST /clients/ no lo acepta
+   * (400 «Expected pk value, received User»). El encargado se asigna con PATCH en client-contacts.
+   */
   create(body: ClientCreatePayload & { id?: number }): Observable<ClientRow> {
-    return this.http.post<ClientRow>(`${this.base}/`, body);
+    const contact: ClientContactPayload = {
+      contact_first_name: body.contact.contact_first_name.trim(),
+      contact_last_name: body.contact.contact_last_name.trim(),
+    };
+    const email = body.contact.email?.trim();
+    const phone = body.contact.phone?.trim();
+    if (email) contact.email = email;
+    if (phone) contact.phone = phone;
+
+    const payload: ClientCreatePayload & { id?: number } = {
+      ruc: body.ruc.trim(),
+      name: body.name.trim(),
+      contact,
+    };
+    if (body.id != null) payload.id = body.id;
+    return this.http.post<ClientRow>(`${this.base}/`, payload);
   }
 
   update(id: number, body: Partial<Pick<ClientRow, 'ruc' | 'name'>>): Observable<ClientRow> {

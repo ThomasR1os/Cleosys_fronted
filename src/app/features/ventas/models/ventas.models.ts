@@ -22,13 +22,15 @@ export interface ClientRow {
   is_mine?: boolean;
 }
 
-/** POST /clients/: cuerpo `contact` obligatorio; `user` opcional si el serializer lo acepta (encargado del contacto). */
+/**
+ * POST /clients/: contacto inicial obligatorio.
+ * No incluir `user`/`owner` aquí: asignar encargado vía PATCH /ventas/client-contacts/.
+ */
 export interface ClientContactPayload {
   contact_first_name: string;
   contact_last_name: string;
   email?: string;
   phone?: string;
-  user?: number;
 }
 
 export interface ClientCreatePayload {
@@ -208,7 +210,10 @@ export interface ProformaRequestPatchPayload {
 
 /** GET /api/ventas/proforma-requests/assignable-users/ */
 export interface AssignableUser {
+  /** Django User pk (`contact.user`, proforma `assigned_user`). */
   id: number;
+  /** UserProfile pk si el listado trae `id` de perfil y `user` numérico u objeto. */
+  profileId?: number;
   username: string;
   first_name: string;
   last_name: string;

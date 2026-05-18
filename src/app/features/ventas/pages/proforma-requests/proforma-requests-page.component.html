@@ -293,12 +293,12 @@
           <label class="form-control w-full">
             <span class="label-text font-medium">Derivar a (asesor encargado)</span>
             <select class="select select-bordered w-full" formControlName="assigned_user">
-              <option [ngValue]="0" disabled>Seleccione asesor…</option>
+              <option [ngValue]="0" disabled hidden>Seleccione asesor…</option>
               @for (u of assignableUsers(); track u.id) {
                 <option [ngValue]="u.id">{{ u.nombre }}</option>
               }
             </select>
-            @if (form.controls.assigned_user.touched && form.controls.assigned_user.value <= 0) {
+            @if (form.controls.assigned_user.touched && !hasSelectedAssignedUser()) {
               <span class="label-text-alt text-error">Obligatorio: indique quién atenderá al cliente</span>
             }
             @if (assignedAdvisorNombre(); as nombre) {
@@ -351,7 +351,7 @@
                   (click)="registerContactForExistingLookupClient()"
                   [disabled]="
                     contactSaving() ||
-                    form.controls.assigned_user.value <= 0 ||
+                    !hasSelectedAssignedUser() ||
                     newClientForm.controls.contact_first_name.invalid ||
                     newClientForm.controls.contact_last_name.invalid
                   "
@@ -405,7 +405,7 @@
                 saving() ||
                 existingClientFromDb() !== null ||
                 assignableUsers().length === 0 ||
-                form.controls.assigned_user.value <= 0
+                !hasSelectedAssignedUser()
               "
             >
               @if (saving()) {
@@ -589,7 +589,7 @@
           <label class="form-control w-full">
             <span class="label-text">Derivar a</span>
             <select class="select select-bordered w-full" formControlName="assigned_user">
-              <option [ngValue]="0" disabled>Elegir usuario…</option>
+              <option [ngValue]="0" disabled hidden>Elegir usuario…</option>
               @for (u of assignableUsers(); track u.id) {
                 <option [ngValue]="u.id">{{ u.nombre }}</option>
               }
@@ -649,7 +649,7 @@
                 saving() ||
                 (editingId() == null && !canSubmitProforma()) ||
                 assignableUsers().length === 0 ||
-                form.controls.assigned_user.value <= 0
+                !hasSelectedAssignedUser()
               "
             >
               @if (saving()) {

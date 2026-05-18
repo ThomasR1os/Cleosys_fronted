@@ -12,6 +12,7 @@ import { AuthService } from '../../../../core/services/auth.service';
 import type {
   AssignableUser,
   ClientCreatePayload,
+  ClientContactPatchPayload,
   ClientContactRow,
   ClientLookupSalesSummary,
   ClientRow,
@@ -23,6 +24,8 @@ import type {
 import { ClientContactService } from '../../services/client-contact.service';
 import { ClientService } from '../../services/client.service';
 import { ProformaRequestService } from '../../services/proforma-request.service';
+import { contactAdvisorAssignBody } from '../../utils/client-contact-body.utils';
+import { coerceUserPk } from '../../utils/user-pk.utils';
 
 const PICKER_PAGE = 100;
 
@@ -78,7 +81,7 @@ export class ProformaRequestsPageComponent implements OnInit {
   readonly filteredItems = computed(() => {
     let rows = this.items();
     const assignedId = this.filterAssignedUserId();
-    if (assignedId != null) rows = rows.filter((r) => r.assigned_user === assignedId);
+    if (assignedId != null) rows = rows.filter((r) => this.rowAssignedUserPk(r) === assignedId);
     const ch = this.filterEntryChannel();
     if (ch !== 'ALL') rows = rows.filter((r) => r.entry_channel === ch);
     const tp = this.filterProformaType();
@@ -116,11 +119,12 @@ export class ProformaRequestsPageComponent implements OnInit {
   /** Usuarios asignados que aparecen en el listado cargado. */
   readonly assignedUserFilterOptions = computed(() => {
     const rows = this.items();
-    const ids = [...new Set(rows.map((r) => r.assigned_user))].filter((id) => id > 0);
+    const ids = [...new Set(rows.map((r) => this.rowAssignedUserPk(r)))].filter((id) => id > 0);
     const labelById = new Map<number, string>();
     for (const r of rows) {
-      if (r.assigned_user > 0 && !labelById.has(r.assigned_user)) {
-        labelById.set(r.assigned_user, this.assignedDisplayName(r));
+      const pk = this.rowAssignedUserPk(r);
+      if (pk > 0 && !labelById.has(pk)) {
+        labelById.set(pk, this.assignedDisplayName(r));
       }
     }
     ids.sort((a, b) =>
@@ -266,6 +270,10 @@ export class ProformaRequestsPageComponent implements OnInit {
         this.existingClientFromDb.set(null);
         this.rucAdvisorHint.set(null);
       });
+
+    this.form.controls.assigned_user.valueChanges
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => this.coerceAssignedUserControlValue());
   }
 
   /**
@@ -472,7 +480,13 @@ export class ProformaRequestsPageComponent implements OnInit {
     this.assignableLoading.set(true);
     this.api.assignableUsers().subscribe({
       next: (users) => {
-        this.assignableUsers.set([...users].sort((a, b) => a.nombre.localeCompare(b.nombre)));
+        const normalized = users
+          .map((u) => this.normalizeAssignableUser(u))
+          .filter((u): u is AssignableUser => u != null);
+        this.assignableUsers.set(
+          normalized.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' })),
+        );
+        this.coerceAssignedUserControlValue();
         this.assignableLoading.set(false);
         done?.();
       },
@@ -513,7 +527,7 @@ export class ProformaRequestsPageComponent implements OnInit {
     this.modalView.set('proforma');
     this.form.patchValue({
       client: row.client,
-      assigned_user: row.assigned_user,
+      assigned_user: this.rowAssignedUserPk(row) || 0,
       entry_channel: row.entry_channel,
       proforma_type: row.proforma_type,
       status: this.rowStatus(row),
@@ -545,23 +559,31 @@ export class ProformaRequestsPageComponent implements OnInit {
       phone: '',
     });
     this.modalView.set('newClient');
-    this.loadAssignableUsers(() => this.prefillAssignedUserIfEmpty());
+    this.form.patchValue({ assigned_user: 0 }, { emitEvent: false });
+    this.loadAssignableUsers();
   }
 
-  /** Si aún no hay asesor elegido, preselecciona al usuario actual (puede cambiarlo). */
-  private prefillAssignedUserIfEmpty(): void {
-    if (this.form.controls.assigned_user.value > 0) return;
-    const me = this.myUserId();
-    if (me == null) return;
-    if (this.assignableUsers().some((u) => u.id === me)) {
-      this.form.patchValue({ assigned_user: me });
-    }
+  hasSelectedAssignedUser(): boolean {
+    return this.selectedAssignedUserPk() != null;
   }
 
   assignedAdvisorNombre(): string | null {
-    const id = this.form.controls.assigned_user.value;
-    if (id <= 0) return null;
-    return this.assignableUsers().find((u) => u.id === id)?.nombre ?? null;
+    return this.selectedAssignableUser()?.nombre ?? null;
+  }
+
+  private selectedAssignableUser(): AssignableUser | null {
+    const id = this.selectedAssignedUserPk();
+    if (id == null) return null;
+    return this.assignableUsers().find((u) => u.id === id) ?? null;
+  }
+
+  private contactAssignBodyForSelectedAdvisor(): Pick<
+    ClientContactPatchPayload,
+    'user' | 'owner'
+  > | null {
+    const sel = this.selectedAssignableUser();
+    if (sel == null) return null;
+    return contactAdvisorAssignBody(sel.id, sel.profileId);
   }
 
   backToProformaForm(): void {
@@ -726,11 +748,9 @@ export class ProformaRequestsPageComponent implements OnInit {
   registerContactForExistingLookupClient(): void {
     const hit = this.existingClientFromDb();
     if (!hit) return;
-    if (this.form.controls.assigned_user.value <= 0) {
-      this.form.controls.assigned_user.markAsTouched();
-      this.errorMessage.set('Seleccione el asesor en «Derivar a».');
-      return;
-    }
+    this.coerceAssignedUserControlValue();
+    const assignedPk = this.requireUserPkOrError();
+    if (assignedPk == null) return;
     const cf = this.newClientForm.controls;
     if (cf.contact_first_name.invalid || cf.contact_last_name.invalid) {
       this.newClientForm.markAllAsTouched();
@@ -739,8 +759,6 @@ export class ProformaRequestsPageComponent implements OnInit {
     const v = this.newClientForm.getRawValue();
     const fn = v.contact_first_name.trim();
     const ln = v.contact_last_name.trim();
-    const assigned = this.form.controls.assigned_user.value;
-
     this.contactSaving.set(true);
     this.errorMessage.set(null);
 
@@ -755,7 +773,7 @@ export class ProformaRequestsPageComponent implements OnInit {
               contact_last_name: ln,
               ...(v.email.trim() ? { email: v.email.trim() } : {}),
               ...(v.phone.trim() ? { phone: v.phone.trim() } : {}),
-              ...(assigned > 0 ? { user: assigned } : {}),
+              ...this.contactAssignBodyForSelectedAdvisor()!,
             })
             .subscribe({
               next: () => {
@@ -819,11 +837,9 @@ export class ProformaRequestsPageComponent implements OnInit {
   }
 
   saveNewClient(): void {
-    if (this.form.controls.assigned_user.value <= 0) {
-      this.form.controls.assigned_user.markAsTouched();
-      this.errorMessage.set('Seleccione el asesor en «Derivar a».');
-      return;
-    }
+    this.coerceAssignedUserControlValue();
+    const assignedPk = this.requireUserPkOrError();
+    if (assignedPk == null) return;
     if (this.newClientForm.invalid) {
       this.newClientForm.markAllAsTouched();
       return;
@@ -835,7 +851,6 @@ export class ProformaRequestsPageComponent implements OnInit {
       return;
     }
     const v = this.newClientForm.getRawValue();
-    const assigned = this.form.controls.assigned_user.value;
     const payload: ClientCreatePayload = {
       ruc: v.ruc.trim(),
       name: v.name.trim(),
@@ -844,25 +859,92 @@ export class ProformaRequestsPageComponent implements OnInit {
         contact_last_name: v.contact_last_name.trim(),
         ...(v.email.trim() ? { email: v.email.trim() } : {}),
         ...(v.phone.trim() ? { phone: v.phone.trim() } : {}),
-        ...(assigned > 0 ? { user: assigned } : {}),
       },
     };
     this.saving.set(true);
     this.errorMessage.set(null);
     this.clientsApi.create(payload).subscribe({
       next: (created) => {
-        this.saving.set(false);
-        this.clearNewClientRucLookup();
-        this.clients.update((prev) => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)));
-        this.form.patchValue({ client: created.id });
-        this.clientSearchQuery.set(created.name);
-        this.modalView.set('proforma');
+        this.assignAdvisorToInitialContact(created.id, assignedPk, () => {
+          this.saving.set(false);
+          this.clearNewClientRucLookup();
+          this.clients.update((prev) => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)));
+          this.form.patchValue({ client: created.id });
+          this.clientSearchQuery.set(created.name);
+          this.modalView.set('proforma');
+        });
       },
       error: (err) => {
         this.saving.set(false);
         this.errorMessage.set(this.fmt(err));
       },
     });
+  }
+
+  /**
+   * POST /clients/ no admite asignar vendedor en el contacto anidado; se hace después vía client-contacts.
+   */
+  private assignAdvisorToInitialContact(
+    clientId: number,
+    targetUserId: number,
+    done: () => void,
+  ): void {
+    const assignBody = this.contactAssignBodyForSelectedAdvisor();
+    if (assignBody == null) {
+      this.saving.set(false);
+      this.errorMessage.set('Seleccione el asesor en «Derivar a».');
+      return;
+    }
+
+    const me = this.myUserId();
+    const mustReassign = me != null && targetUserId !== me;
+
+    const patchContact = (contact: ClientContactRow): void => {
+      this.contactsApi.patch(contact.id, assignBody).subscribe({
+        next: () => done(),
+        error: (err) => {
+          this.saving.set(false);
+          this.errorMessage.set(
+            `Cliente creado (#${clientId}), pero no se pudo asignar al asesor: ${this.fmt(err)}`,
+          );
+        },
+      });
+    };
+
+    const tryLoadContacts = (attempt: number): void => {
+      this.contactsApi.listForClient(clientId).subscribe({
+        next: (contacts) => {
+          const contact = contacts.find((c) => c.client === clientId) ?? contacts[0];
+          if (!contact) {
+            if (attempt < 3) {
+              window.setTimeout(() => tryLoadContacts(attempt + 1), 250);
+              return;
+            }
+            this.saving.set(false);
+            this.errorMessage.set(
+              `Cliente creado (#${clientId}), pero no se encontró el contacto para asignar al asesor. Actualice la página o asigne el encargado en Contactos.`,
+            );
+            return;
+          }
+
+          const current = coerceUserPk(contact.user ?? contact.owner);
+          if (!mustReassign && current === targetUserId) {
+            done();
+            return;
+          }
+
+          patchContact(contact);
+        },
+        error: (err) => {
+          this.saving.set(false);
+          this.errorMessage.set(
+            `Cliente creado (#${clientId}), pero no se pudo vincular el contacto: ${this.fmt(err)}`,
+          );
+        },
+      });
+    };
+
+    tryLoadContacts(0);
   }
 
   saveNewContact(): void {
@@ -887,7 +969,7 @@ export class ProformaRequestsPageComponent implements OnInit {
       }
     }
 
-    const assigned = this.form.controls.assigned_user.value;
+    const assignedPk = this.selectedAssignedUserPk();
     this.contactSaving.set(true);
     this.errorMessage.set(null);
     this.contactsApi
@@ -897,7 +979,7 @@ export class ProformaRequestsPageComponent implements OnInit {
         contact_last_name: ln,
         ...(v.email.trim() ? { email: v.email.trim() } : {}),
         ...(v.phone.trim() ? { phone: v.phone.trim() } : {}),
-        ...(assigned > 0 ? { user: assigned } : {}),
+        ...(this.contactAssignBodyForSelectedAdvisor() ?? {}),
       })
       .subscribe({
         next: () => {
@@ -924,6 +1006,8 @@ export class ProformaRequestsPageComponent implements OnInit {
     }
     const id = this.editingId();
     const v = this.form.getRawValue();
+    const assignedPk = this.requireUserPkOrError();
+    if (assignedPk == null) return;
 
     if (id == null) {
       if (this.form.invalid) {
@@ -935,7 +1019,7 @@ export class ProformaRequestsPageComponent implements OnInit {
       this.api
         .create({
           client: v.client,
-          assigned_user: v.assigned_user,
+          assigned_user: assignedPk,
           entry_channel: v.entry_channel,
           proforma_type: v.proforma_type,
           status: v.status,
@@ -950,7 +1034,7 @@ export class ProformaRequestsPageComponent implements OnInit {
 
     const patch: Record<string, unknown> = {
       client: v.client,
-      assigned_user: v.assigned_user,
+      assigned_user: assignedPk,
       entry_channel: v.entry_channel,
       proforma_type: v.proforma_type,
       status: v.status,
@@ -1036,6 +1120,83 @@ export class ProformaRequestsPageComponent implements OnInit {
           r.contact_last_name.trim().toLowerCase() === b,
       ) ?? null
     );
+  }
+
+  private userPkFromUnknown(value: unknown): number | null {
+    return coerceUserPk(value);
+  }
+
+  private normalizeAssignableUser(raw: unknown): AssignableUser | null {
+    if (!raw || typeof raw !== 'object') return null;
+    const r = raw as Record<string, unknown>;
+
+    let userId: number | null = null;
+    let profileId: number | undefined;
+
+    if (typeof r['user'] === 'number') {
+      userId = coerceUserPk(r['user']);
+      profileId = coerceUserPk(r['id']) ?? undefined;
+    } else if (r['user'] != null && typeof r['user'] === 'object') {
+      userId = coerceUserPk(r['user']);
+      profileId = coerceUserPk(r['profile_id'] ?? r['profile'] ?? r['id']) ?? undefined;
+    } else {
+      userId = coerceUserPk(r['user_id'] ?? r['id']);
+    }
+
+    if (userId == null) return null;
+
+    const src =
+      r['user'] && typeof r['user'] === 'object'
+        ? (r['user'] as Record<string, unknown>)
+        : r;
+
+    const nombre =
+      (typeof r['nombre'] === 'string' && r['nombre'].trim()) ||
+      (typeof src['nombre'] === 'string' && String(src['nombre']).trim()) ||
+      [src['first_name'], src['last_name']].filter(Boolean).join(' ').trim() ||
+      (typeof src['username'] === 'string' ? src['username'] : '') ||
+      `Usuario #${userId}`;
+
+    return {
+      id: userId,
+      profileId,
+      username: String(src['username'] ?? ''),
+      first_name: String(src['first_name'] ?? ''),
+      last_name: String(src['last_name'] ?? ''),
+      nombre,
+    };
+  }
+
+  selectedAssignedUserPk(): number | null {
+    return coerceUserPk(this.form.controls.assigned_user.value);
+  }
+
+  private rowAssignedUserPk(row: ProformaRequestRow): number {
+    return coerceUserPk(row.assigned_user) ?? 0;
+  }
+
+  /** Normaliza el control a id numérico (string del DOM u objeto User del API). */
+  private coerceAssignedUserControlValue(): void {
+    const raw = this.form.controls.assigned_user.value;
+    const pk = coerceUserPk(raw);
+    if (pk != null) {
+      if (typeof raw !== 'number' || raw !== pk) {
+        this.form.patchValue({ assigned_user: pk }, { emitEvent: false });
+      }
+    } else if (raw != null && typeof raw === 'object') {
+      this.form.patchValue({ assigned_user: 0 }, { emitEvent: false });
+    }
+  }
+
+  private requireUserPkOrError(): number | null {
+    this.coerceAssignedUserControlValue();
+    const pk = this.selectedAssignedUserPk();
+    if (pk == null) {
+      this.form.controls.assigned_user.markAsTouched();
+      this.errorMessage.set('Seleccione el asesor en «Derivar a».');
+      return null;
+    }
+    return pk;
   }
 
   private fmt(err: unknown): string {

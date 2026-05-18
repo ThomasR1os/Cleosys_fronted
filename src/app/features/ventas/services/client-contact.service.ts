@@ -7,6 +7,7 @@ import type {
   ClientContactPatchPayload,
   ClientContactRow,
 } from '../models/ventas.models';
+import { sanitizeClientContactBody } from '../utils/client-contact-body.utils';
 
 @Injectable({ providedIn: 'root' })
 export class ClientContactService {
@@ -25,10 +26,13 @@ export class ClientContactService {
   }
 
   create(body: ClientContactCreatePayload): Observable<ClientContactRow> {
-    return this.http.post<ClientContactRow>(`${this.base}/`, body);
+    return this.http.post<ClientContactRow>(`${this.base}/`, sanitizeClientContactBody(body));
   }
 
   patch(id: number, body: ClientContactPatchPayload): Observable<ClientContactRow> {
-    return this.http.patch<ClientContactRow>(`${this.base}/${id}/`, body);
+    return this.http.patch<ClientContactRow>(
+      `${this.base}/${id}/`,
+      sanitizeClientContactBody(body),
+    );
   }
 }
