@@ -7,6 +7,7 @@ import {
 } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router, RouterLink } from '@angular/router';
+import { textMatchesLooseQuery } from '../../../../core/utils/text-search.utils';
 import { AuthService } from '../../../../core/services/auth.service';
 import type {
   AssignableUser,
@@ -16,6 +17,7 @@ import type {
   ClientRow,
   ProformaEntryChannel,
   ProformaRequestRow,
+  ProformaRequestStatus,
   ProformaRequestType,
 } from '../../models/ventas.models';
 import { ClientContactService } from '../../services/client-contact.service';
@@ -38,6 +40,16 @@ const PROFORMA_TYPES_LIST: ProformaRequestType[] = [
   'ALQUILERES',
 ];
 
+const PROFORMA_STATUS_LIST: ProformaRequestStatus[] = [
+  'PENDIENTE',
+  'APROBADA',
+  'RECHAZADA',
+  'SIN_RESPUESTA',
+];
+
+/** Filtro por vínculo con cotización en el listado. */
+type ProformaQuotationLinkFilter = 'ALL' | 'PENDING' | 'QUOTED';
+
 @Component({
   selector: 'app-proforma-requests-page',
   imports: [ReactiveFormsModule, RouterLink],
@@ -53,6 +65,108 @@ export class ProformaRequestsPageComponent implements OnInit {
   readonly auth = inject(AuthService);
 
   readonly items = signal<ProformaRequestRow[]>([]);
+
+  /** Búsqueda en listado (cliente, asesor, descripción, correlativo, etc.). */
+  readonly listSearchQuery = signal('');
+  /** null = todos los asignados. */
+  readonly filterAssignedUserId = signal<number | null>(null);
+  readonly filterEntryChannel = signal<'ALL' | ProformaEntryChannel>('ALL');
+  readonly filterProformaType = signal<'ALL' | ProformaRequestType>('ALL');
+  readonly filterStatus = signal<'ALL' | ProformaRequestStatus>('ALL');
+  readonly filterQuotationLink = signal<ProformaQuotationLinkFilter>('ALL');
+
+  readonly filteredItems = computed(() => {
+    let rows = this.items();
+    const assignedId = this.filterAssignedUserId();
+    if (assignedId != null) rows = rows.filter((r) => r.assigned_user === assignedId);
+    const ch = this.filterEntryChannel();
+    if (ch !== 'ALL') rows = rows.filter((r) => r.entry_channel === ch);
+    const tp = this.filterProformaType();
+    if (tp !== 'ALL') rows = rows.filter((r) => r.proforma_type === tp);
+    const st = this.filterStatus();
+    if (st !== 'ALL') rows = rows.filter((r) => this.rowStatus(r) === st);
+    const ql = this.filterQuotationLink();
+    if (ql === 'PENDING') rows = rows.filter((r) => r.quotation == null);
+    else if (ql === 'QUOTED') rows = rows.filter((r) => r.quotation != null);
+    const raw = this.listSearchQuery().trim();
+    if (raw) {
+      rows = rows.filter((r) => {
+        const haystack = [
+          String(r.id),
+          this.clientDisplayName(r),
+          r.client_detail?.ruc ?? '',
+          this.assignedDisplayName(r),
+          r.assigned_user_detail?.username ?? '',
+          r.assigned_user_detail?.nombre ?? '',
+          this.channelLabel(r.entry_channel),
+          this.typeLabel(r.proforma_type),
+          this.statusLabel(this.rowStatus(r)),
+          r.description,
+          r.quotation_correlativo ?? '',
+          r.quotation != null ? String(r.quotation) : '',
+          this.formatStamp(r.entered_at),
+          this.formatStamp(r.quoted_at),
+        ].join(' ');
+        return textMatchesLooseQuery(haystack, raw);
+      });
+    }
+    return rows;
+  });
+
+  /** Usuarios asignados que aparecen en el listado cargado. */
+  readonly assignedUserFilterOptions = computed(() => {
+    const rows = this.items();
+    const ids = [...new Set(rows.map((r) => r.assigned_user))].filter((id) => id > 0);
+    const labelById = new Map<number, string>();
+    for (const r of rows) {
+      if (r.assigned_user > 0 && !labelById.has(r.assigned_user)) {
+        labelById.set(r.assigned_user, this.assignedDisplayName(r));
+      }
+    }
+    ids.sort((a, b) =>
+      (labelById.get(a) ?? '').localeCompare(labelById.get(b) ?? '', 'es', { sensitivity: 'base' }),
+    );
+    return ids.map((id) => ({ id, label: labelById.get(id) ?? `Usuario #${id}` }));
+  });
+
+  readonly hasActiveListFilters = computed(
+    () =>
+      this.listSearchQuery().trim() !== '' ||
+      this.filterAssignedUserId() != null ||
+      this.filterEntryChannel() !== 'ALL' ||
+      this.filterProformaType() !== 'ALL' ||
+      this.filterStatus() !== 'ALL' ||
+      this.filterQuotationLink() !== 'ALL',
+  );
+
+  readonly pageIndex = signal(0);
+  readonly pageSize = signal(10);
+  readonly pageSizeOptions = [10, 25, 50] as const;
+
+  readonly totalCount = computed(() => this.filteredItems().length);
+  readonly totalPages = computed(() => {
+    const n = this.totalCount();
+    const ps = this.pageSize();
+    if (n === 0) return 0;
+    return Math.ceil(n / ps);
+  });
+  readonly pagedItems = computed(() => {
+    const all = this.filteredItems();
+    const ps = this.pageSize();
+    const start = this.pageIndex() * ps;
+    return all.slice(start, start + ps);
+  });
+  readonly rangeStart = computed(() => {
+    const n = this.totalCount();
+    if (n === 0) return 0;
+    return this.pageIndex() * this.pageSize() + 1;
+  });
+  readonly rangeEnd = computed(() => {
+    const n = this.totalCount();
+    if (n === 0) return 0;
+    return Math.min((this.pageIndex() + 1) * this.pageSize(), n);
+  });
+
   readonly loading = signal(false);
   readonly saving = signal(false);
   readonly errorMessage = signal<string | null>(null);
@@ -84,6 +198,7 @@ export class ProformaRequestsPageComponent implements OnInit {
 
   readonly ENTRY_CHANNELS = ENTRY_CHANNELS;
   readonly PROFORMA_TYPES_LIST = PROFORMA_TYPES_LIST;
+  readonly PROFORMA_STATUS_LIST = PROFORMA_STATUS_LIST;
 
   readonly hasCompanyProfile = computed(() => this.auth.me()?.profile != null);
 
@@ -115,6 +230,7 @@ export class ProformaRequestsPageComponent implements OnInit {
     assigned_user: this.fb.nonNullable.control<number>(0, [Validators.required, Validators.min(1)]),
     entry_channel: this.fb.nonNullable.control<ProformaEntryChannel>('WHATSAPP', Validators.required),
     proforma_type: this.fb.nonNullable.control<ProformaRequestType>('MAQUINARIA', Validators.required),
+    status: this.fb.nonNullable.control<ProformaRequestStatus>('PENDIENTE', Validators.required),
     description: ['', Validators.required],
     unlink_quotation: [false],
   });
@@ -181,6 +297,31 @@ export class ProformaRequestsPageComponent implements OnInit {
     return labels[t];
   }
 
+  /** Estado efectivo (registros antiguos sin campo en API). */
+  rowStatus(row: ProformaRequestRow): ProformaRequestStatus {
+    return row.status ?? 'PENDIENTE';
+  }
+
+  statusLabel(s: ProformaRequestStatus): string {
+    const labels: Record<ProformaRequestStatus, string> = {
+      PENDIENTE: 'Pendiente',
+      APROBADA: 'Aprobada',
+      RECHAZADA: 'Rechazada',
+      SIN_RESPUESTA: 'Sin respuesta',
+    };
+    return labels[s];
+  }
+
+  statusBadgeClass(s: ProformaRequestStatus): string {
+    const classes: Record<ProformaRequestStatus, string> = {
+      PENDIENTE: 'badge-warning',
+      APROBADA: 'badge-success',
+      RECHAZADA: 'badge-error',
+      SIN_RESPUESTA: 'badge-ghost border border-base-300',
+    };
+    return classes[s];
+  }
+
   clientDisplayName(row: ProformaRequestRow): string {
     const d = row.client_detail;
     if (d?.name?.trim()) return d.name.trim();
@@ -217,12 +358,88 @@ export class ProformaRequestsPageComponent implements OnInit {
     return me != null && row.assigned_user === me;
   }
 
+  onListSearchInput(ev: Event): void {
+    this.listSearchQuery.set((ev.target as HTMLInputElement).value);
+    this.resetListPagingAfterFilter();
+  }
+
+  onFilterAssignedUserChange(ev: Event): void {
+    const v = (ev.target as HTMLSelectElement).value;
+    this.filterAssignedUserId.set(v === '' ? null : Number(v));
+    this.resetListPagingAfterFilter();
+  }
+
+  onFilterEntryChannelChange(ev: Event): void {
+    const v = (ev.target as HTMLSelectElement).value;
+    this.filterEntryChannel.set(v === 'ALL' ? 'ALL' : (v as ProformaEntryChannel));
+    this.resetListPagingAfterFilter();
+  }
+
+  onFilterProformaTypeChange(ev: Event): void {
+    const v = (ev.target as HTMLSelectElement).value;
+    this.filterProformaType.set(v === 'ALL' ? 'ALL' : (v as ProformaRequestType));
+    this.resetListPagingAfterFilter();
+  }
+
+  onFilterStatusChange(ev: Event): void {
+    const v = (ev.target as HTMLSelectElement).value;
+    this.filterStatus.set(v === 'ALL' ? 'ALL' : (v as ProformaRequestStatus));
+    this.resetListPagingAfterFilter();
+  }
+
+  onFilterQuotationLinkChange(ev: Event): void {
+    const v = (ev.target as HTMLSelectElement).value;
+    this.filterQuotationLink.set(v as ProformaQuotationLinkFilter);
+    this.resetListPagingAfterFilter();
+  }
+
+  clearListFilters(): void {
+    this.listSearchQuery.set('');
+    this.filterAssignedUserId.set(null);
+    this.filterEntryChannel.set('ALL');
+    this.filterProformaType.set('ALL');
+    this.filterStatus.set('ALL');
+    this.filterQuotationLink.set('ALL');
+    this.resetListPagingAfterFilter();
+  }
+
+  setPageSize(size: number): void {
+    this.pageSize.set(size);
+    this.pageIndex.set(0);
+  }
+
+  prevPage(): void {
+    this.pageIndex.update((i) => Math.max(0, i - 1));
+  }
+
+  nextPage(): void {
+    const last = Math.max(0, this.totalPages() - 1);
+    this.pageIndex.update((i) => Math.min(last, i + 1));
+  }
+
+  private resetListPagingAfterFilter(): void {
+    this.pageIndex.set(0);
+    this.clampPageIndex();
+  }
+
+  private clampPageIndex(): void {
+    const tp = this.totalPages();
+    if (tp === 0) {
+      this.pageIndex.set(0);
+      return;
+    }
+    if (this.pageIndex() >= tp) {
+      this.pageIndex.set(tp - 1);
+    }
+  }
+
   reload(): void {
     this.loading.set(true);
     this.errorMessage.set(null);
     this.api.list().subscribe({
       next: (rows) => {
         this.items.set([...rows].sort((a, b) => b.id - a.id));
+        this.clampPageIndex();
         this.loading.set(false);
       },
       error: (err) => {
@@ -276,6 +493,7 @@ export class ProformaRequestsPageComponent implements OnInit {
         assigned_user: 0,
         entry_channel: 'WHATSAPP',
         proforma_type: 'MAQUINARIA',
+        status: 'PENDIENTE',
         description: '',
         unlink_quotation: false,
       },
@@ -298,6 +516,7 @@ export class ProformaRequestsPageComponent implements OnInit {
       assigned_user: row.assigned_user,
       entry_channel: row.entry_channel,
       proforma_type: row.proforma_type,
+      status: this.rowStatus(row),
       description: row.description,
       unlink_quotation: false,
     });
@@ -692,6 +911,7 @@ export class ProformaRequestsPageComponent implements OnInit {
           assigned_user: v.assigned_user,
           entry_channel: v.entry_channel,
           proforma_type: v.proforma_type,
+          status: v.status,
           description: v.description.trim(),
         })
         .subscribe({
@@ -706,6 +926,7 @@ export class ProformaRequestsPageComponent implements OnInit {
       assigned_user: v.assigned_user,
       entry_channel: v.entry_channel,
       proforma_type: v.proforma_type,
+      status: v.status,
       description: v.description.trim(),
     };
     if (v.unlink_quotation) {

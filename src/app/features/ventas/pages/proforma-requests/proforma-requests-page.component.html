@@ -1,5 +1,14 @@
-<div class="space-y-4">
+<div class="space-y-6">
   <a routerLink="/ventas" class="link link-hover text-sm">← Volver a Ventas</a>
+
+  <nav
+    aria-label="Secciones de ventas"
+    class="tabs tabs-boxed w-fit max-w-full overflow-x-auto border border-base-300 bg-base-100"
+  >
+    <a routerLink="/ventas/clientes" class="tab whitespace-nowrap">Clientes</a>
+    <a routerLink="/ventas/solicitudes-proforma" class="tab tab-active whitespace-nowrap">Solicitudes proforma</a>
+    <a routerLink="/ventas/cotizaciones" class="tab whitespace-nowrap">Cotizaciones</a>
+  </nav>
 
   <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
     <div>
@@ -29,6 +38,93 @@
     <div role="alert" class="alert alert-error text-sm">{{ err }}</div>
   }
 
+  @if (!loading()) {
+    <div
+      class="flex flex-col gap-3 rounded-lg border border-base-300 bg-base-100 p-4 sm:flex-row sm:flex-wrap sm:items-end"
+    >
+      <label class="form-control min-w-0 flex-1 sm:min-w-[14rem]">
+        <span class="label-text">Buscar</span>
+        <input
+          type="search"
+          class="input input-bordered input-sm w-full"
+          [value]="listSearchQuery()"
+          (input)="onListSearchInput($event)"
+          placeholder="Cliente, asesor, descripción, cotización…"
+          autocomplete="off"
+        />
+      </label>
+      <label class="form-control w-full sm:w-44">
+        <span class="label-text">Asignado</span>
+        <select
+          class="select select-bordered select-sm w-full"
+          [value]="filterAssignedUserId() ?? ''"
+          (change)="onFilterAssignedUserChange($event)"
+        >
+          <option value="">Todos</option>
+          @for (opt of assignedUserFilterOptions(); track opt.id) {
+            <option [value]="opt.id">{{ opt.label }}</option>
+          }
+        </select>
+      </label>
+      <label class="form-control w-full sm:w-40">
+        <span class="label-text">Canal</span>
+        <select
+          class="select select-bordered select-sm w-full"
+          [value]="filterEntryChannel()"
+          (change)="onFilterEntryChannelChange($event)"
+        >
+          <option value="ALL">Todos</option>
+          @for (ch of ENTRY_CHANNELS; track ch) {
+            <option [value]="ch">{{ channelLabel(ch) }}</option>
+          }
+        </select>
+      </label>
+      <label class="form-control w-full sm:w-40">
+        <span class="label-text">Tipo</span>
+        <select
+          class="select select-bordered select-sm w-full"
+          [value]="filterProformaType()"
+          (change)="onFilterProformaTypeChange($event)"
+        >
+          <option value="ALL">Todos</option>
+          @for (tp of PROFORMA_TYPES_LIST; track tp) {
+            <option [value]="tp">{{ typeLabel(tp) }}</option>
+          }
+        </select>
+      </label>
+      <label class="form-control w-full sm:w-40">
+        <span class="label-text">Estado</span>
+        <select
+          class="select select-bordered select-sm w-full"
+          [value]="filterStatus()"
+          (change)="onFilterStatusChange($event)"
+        >
+          <option value="ALL">Todos</option>
+          @for (st of PROFORMA_STATUS_LIST; track st) {
+            <option [value]="st">{{ statusLabel(st) }}</option>
+          }
+        </select>
+      </label>
+      <label class="form-control w-full sm:w-44">
+        <span class="label-text">Cotización</span>
+        <select
+          class="select select-bordered select-sm w-full"
+          [value]="filterQuotationLink()"
+          (change)="onFilterQuotationLinkChange($event)"
+        >
+          <option value="ALL">Todas</option>
+          <option value="PENDING">Sin cotizar</option>
+          <option value="QUOTED">Cotizada</option>
+        </select>
+      </label>
+      @if (hasActiveListFilters()) {
+        <button type="button" class="btn btn-outline btn-sm w-full sm:w-auto" (click)="clearListFilters()">
+          Limpiar filtros
+        </button>
+      }
+    </div>
+  }
+
   <div class="overflow-hidden rounded-lg border border-base-300 bg-base-100">
     @if (loading()) {
       <div class="flex justify-center p-12">
@@ -46,13 +142,14 @@
               <th>Cotizado</th>
               <th>Canal</th>
               <th>Tipo</th>
+              <th>Estado</th>
               <th>Descripción</th>
               <th>Cotización</th>
               <th class="text-right">Acciones</th>
             </tr>
           </thead>
           <tbody>
-            @for (row of items(); track row.id) {
+            @for (row of pagedItems(); track row.id) {
               <tr>
                 <td>{{ row.id }}</td>
                 <td class="max-w-[14rem]">
@@ -66,6 +163,11 @@
                 <td class="whitespace-nowrap text-xs text-base-content/90">{{ formatStamp(row.quoted_at) }}</td>
                 <td>{{ channelLabel(row.entry_channel) }}</td>
                 <td>{{ typeLabel(row.proforma_type) }}</td>
+                <td>
+                  <span class="badge badge-sm whitespace-nowrap" [class]="statusBadgeClass(rowStatus(row))">
+                    {{ statusLabel(rowStatus(row)) }}
+                  </span>
+                </td>
                 <td class="max-w-[14rem]">{{ truncate(row.description) }}</td>
                 <td>
                   @if (row.quotation_correlativo) {
@@ -101,14 +203,67 @@
               </tr>
             } @empty {
               <tr>
-                <td colspan="10" class="text-base-content/60 text-center py-8">
-                  No hay solicitudes de proforma.
+                <td colspan="11" class="text-base-content/60 text-center py-8">
+                  @if (items().length === 0) {
+                    No hay solicitudes de proforma.
+                  } @else {
+                    Ninguna solicitud coincide con la búsqueda o los filtros.
+                  }
                 </td>
               </tr>
             }
           </tbody>
         </table>
       </div>
+      @if (totalCount() > 0) {
+        <div
+          class="flex flex-col gap-3 border-t border-base-300 bg-base-200/40 px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <p class="text-sm text-base-content/70">
+            Mostrando {{ rangeStart() }}–{{ rangeEnd() }} de {{ totalCount() }}
+            @if (hasActiveListFilters() && items().length !== totalCount()) {
+              <span class="text-base-content/50">({{ items().length }} en total cargadas)</span>
+            }
+          </p>
+          <div class="flex flex-wrap items-center gap-2">
+            <label class="flex items-center gap-2 text-sm text-base-content/70">
+              <span>Por página</span>
+              <select
+                class="select select-bordered select-sm w-[4.75rem] min-h-8"
+                [value]="pageSize()"
+                (change)="setPageSize(+$any($event.target).value)"
+              >
+                @for (opt of pageSizeOptions; track opt) {
+                  <option [value]="opt">{{ opt }}</option>
+                }
+              </select>
+            </label>
+            <div class="join border border-base-300">
+              <button
+                type="button"
+                class="btn btn-sm join-item"
+                [disabled]="pageIndex() === 0"
+                (click)="prevPage()"
+                aria-label="Página anterior"
+              >
+                «
+              </button>
+              <span class="btn btn-sm join-item btn-ghost pointer-events-none cursor-default no-animation">
+                {{ pageIndex() + 1 }} / {{ totalPages() }}
+              </span>
+              <button
+                type="button"
+                class="btn btn-sm join-item"
+                [disabled]="pageIndex() >= totalPages() - 1"
+                (click)="nextPage()"
+                aria-label="Página siguiente"
+              >
+                »
+              </button>
+            </div>
+          </div>
+        </div>
+      }
     }
   </div>
 </div>
@@ -423,6 +578,18 @@
                 <option [ngValue]="tp">{{ typeLabel(tp) }}</option>
               }
             </select>
+          </label>
+
+          <label class="form-control w-full">
+            <span class="label-text">Estado</span>
+            <select class="select select-bordered w-full" formControlName="status">
+              @for (st of PROFORMA_STATUS_LIST; track st) {
+                <option [ngValue]="st">{{ statusLabel(st) }}</option>
+              }
+            </select>
+            @if (editingId() == null) {
+              <span class="label-text-alt text-base-content/60">Por defecto: Pendiente</span>
+            }
           </label>
 
           <label class="form-control w-full">

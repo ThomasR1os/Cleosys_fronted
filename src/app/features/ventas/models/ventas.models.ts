@@ -136,6 +136,7 @@ export interface ClientContactCreatePayload {
 
 export type ProformaEntryChannel = 'META' | 'GOOGLE_ADS' | 'WHATSAPP' | 'EMAIL';
 export type ProformaRequestType = 'MAQUINARIA' | 'REPUESTOS' | 'SERVICIOS' | 'ALQUILERES';
+export type ProformaRequestStatus = 'PENDIENTE' | 'APROBADA' | 'RECHAZADA' | 'SIN_RESPUESTA';
 
 /** Cliente anidado en solicitud de proforma (solo lectura). */
 export interface ProformaClientDetail {
@@ -163,6 +164,8 @@ export interface ProformaRequestRow {
   assigned_user_detail?: ProformaAssignedUserDetail | null;
   entry_channel: ProformaEntryChannel;
   proforma_type: ProformaRequestType;
+  /** Estado de respuesta al requerimiento (`PENDIENTE` por defecto al crear). */
+  status?: ProformaRequestStatus;
   description: string;
   quotation: number | null;
   quotation_correlativo?: string | null;
@@ -178,6 +181,8 @@ export interface ProformaRequestCreatePayload {
   entry_channel: ProformaEntryChannel;
   proforma_type: ProformaRequestType;
   description: string;
+  /** Opcional: el servidor usa `PENDIENTE` si no se envía. */
+  status?: ProformaRequestStatus;
   quotation?: number | null;
 }
 
@@ -186,6 +191,7 @@ export interface ProformaRequestPatchPayload {
   assigned_user?: number;
   entry_channel?: ProformaEntryChannel;
   proforma_type?: ProformaRequestType;
+  status?: ProformaRequestStatus;
   description?: string;
   quotation?: number | null;
 }
