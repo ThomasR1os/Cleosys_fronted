@@ -22,16 +22,10 @@ export function sanitizeClientContactBody<
   return out as T;
 }
 
-/** Asignación de vendedor al contacto según ids del listado assignable-users. */
+/** Asignación de encargado en contacto (mismo `user` que /ventas/contactos). */
 export function contactAdvisorAssignBody(
-  userId: number,
-  profileId?: number | null,
-): Pick<ClientContactPatchPayload, 'user' | 'owner'> {
-  const uid = Math.trunc(userId);
-  const body: Pick<ClientContactPatchPayload, 'user' | 'owner'> = { user: uid };
-  const pid = profileId != null ? coerceUserPk(profileId) : null;
-  if (pid != null && pid > 0 && pid !== uid) {
-    body.owner = pid;
-  }
-  return body;
+  assignableUserId: number,
+): Pick<ClientContactPatchPayload, 'user'> {
+  const pk = coerceUserPk(assignableUserId);
+  return { user: pk != null ? Math.trunc(pk) : Math.trunc(assignableUserId) };
 }

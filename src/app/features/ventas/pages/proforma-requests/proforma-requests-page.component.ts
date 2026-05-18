@@ -271,9 +271,6 @@ export class ProformaRequestsPageComponent implements OnInit {
         this.rucAdvisorHint.set(null);
       });
 
-    this.form.controls.assigned_user.valueChanges
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe(() => this.coerceAssignedUserControlValue());
   }
 
   /**
@@ -375,6 +372,13 @@ export class ProformaRequestsPageComponent implements OnInit {
     const v = (ev.target as HTMLSelectElement).value;
     this.filterAssignedUserId.set(v === '' ? null : Number(v));
     this.resetListPagingAfterFilter();
+  }
+
+  /** Select nativo «Derivar a»: el valor se guarda en el formulario como id numérico. */
+  onDerivarAsesorChange(ev: Event): void {
+    const pk = coerceUserPk((ev.target as HTMLSelectElement).value);
+    this.form.patchValue({ assigned_user: pk ?? 0 });
+    this.form.controls.assigned_user.markAsTouched();
   }
 
   onFilterEntryChannelChange(ev: Event): void {
@@ -487,6 +491,7 @@ export class ProformaRequestsPageComponent implements OnInit {
           normalized.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' })),
         );
         this.coerceAssignedUserControlValue();
+        this.syncAssignedUserSelectToAssignableList();
         this.assignableLoading.set(false);
         done?.();
       },
@@ -577,13 +582,17 @@ export class ProformaRequestsPageComponent implements OnInit {
     return this.assignableUsers().find((u) => u.id === id) ?? null;
   }
 
-  private contactAssignBodyForSelectedAdvisor(): Pick<
-    ClientContactPatchPayload,
-    'user' | 'owner'
-  > | null {
+  private contactAssignBodyForUserId(
+    assignableId: number,
+  ): Pick<ClientContactPatchPayload, 'user'> {
+    return contactAdvisorAssignBody(assignableId);
+  }
+
+  /** Usuario Django para POST/PATCH de solicitud de proforma (`assigned_user`). */
+  private proformaAssignedUserId(): number | null {
     const sel = this.selectedAssignableUser();
-    if (sel == null) return null;
-    return contactAdvisorAssignBody(sel.id, sel.profileId);
+    if (sel != null) return sel.djangoUserId ?? sel.id;
+    return this.selectedAssignedUserPk();
   }
 
   backToProformaForm(): void {
@@ -749,8 +758,8 @@ export class ProformaRequestsPageComponent implements OnInit {
     const hit = this.existingClientFromDb();
     if (!hit) return;
     this.coerceAssignedUserControlValue();
-    const assignedPk = this.requireUserPkOrError();
-    if (assignedPk == null) return;
+    const sel = this.requireAssignableUserOrError();
+    if (sel == null) return;
     const cf = this.newClientForm.controls;
     if (cf.contact_first_name.invalid || cf.contact_last_name.invalid) {
       this.newClientForm.markAllAsTouched();
@@ -773,7 +782,7 @@ export class ProformaRequestsPageComponent implements OnInit {
               contact_last_name: ln,
               ...(v.email.trim() ? { email: v.email.trim() } : {}),
               ...(v.phone.trim() ? { phone: v.phone.trim() } : {}),
-              ...this.contactAssignBodyForSelectedAdvisor()!,
+              ...this.contactAssignBodyForUserId(sel.id),
             })
             .subscribe({
               next: () => {
@@ -838,8 +847,9 @@ export class ProformaRequestsPageComponent implements OnInit {
 
   saveNewClient(): void {
     this.coerceAssignedUserControlValue();
-    const assignedPk = this.requireUserPkOrError();
-    if (assignedPk == null) return;
+    const sel = this.requireAssignableUserOrError();
+    if (sel == null) return;
+    const contactAssignId = sel.id;
     if (this.newClientForm.invalid) {
       this.newClientForm.markAllAsTouched();
       return;
@@ -865,14 +875,20 @@ export class ProformaRequestsPageComponent implements OnInit {
     this.errorMessage.set(null);
     this.clientsApi.create(payload).subscribe({
       next: (created) => {
-        this.assignAdvisorToInitialContact(created.id, assignedPk, () => {
+        this.assignAdvisorToInitialContact(
+          created.id,
+          contactAssignId,
+          sel.djangoUserId ?? sel.id,
+          () => {
           this.saving.set(false);
           this.clearNewClientRucLookup();
           this.clients.update((prev) => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)));
           this.form.patchValue({ client: created.id });
           this.clientSearchQuery.set(created.name);
           this.modalView.set('proforma');
-        });
+          this.loadContactsForSelectedClient(created.id);
+          },
+        );
       },
       error: (err) => {
         this.saving.set(false);
@@ -886,22 +902,18 @@ export class ProformaRequestsPageComponent implements OnInit {
    */
   private assignAdvisorToInitialContact(
     clientId: number,
-    targetUserId: number,
+    contactAssignId: number,
+    djangoUserId: number,
     done: () => void,
   ): void {
-    const assignBody = this.contactAssignBodyForSelectedAdvisor();
-    if (assignBody == null) {
-      this.saving.set(false);
-      this.errorMessage.set('Seleccione el asesor en «Derivar a».');
-      return;
-    }
-
-    const me = this.myUserId();
-    const mustReassign = me != null && targetUserId !== me;
+    const assignBody = this.contactAssignBodyForUserId(contactAssignId);
 
     const patchContact = (contact: ClientContactRow): void => {
       this.contactsApi.patch(contact.id, assignBody).subscribe({
-        next: () => done(),
+        next: () => {
+          this.loadContactsForSelectedClient(clientId);
+          done();
+        },
         error: (err) => {
           this.saving.set(false);
           this.errorMessage.set(
@@ -909,6 +921,12 @@ export class ProformaRequestsPageComponent implements OnInit {
           );
         },
       });
+    };
+
+    const contactAlreadyAssigned = (contact: ClientContactRow): boolean => {
+      const current = coerceUserPk(contact.user) ?? coerceUserPk(contact.owner);
+      if (current == null) return false;
+      return current === contactAssignId || current === djangoUserId;
     };
 
     const tryLoadContacts = (attempt: number): void => {
@@ -927,8 +945,7 @@ export class ProformaRequestsPageComponent implements OnInit {
             return;
           }
 
-          const current = coerceUserPk(contact.user ?? contact.owner);
-          if (!mustReassign && current === targetUserId) {
+          if (contactAlreadyAssigned(contact)) {
             done();
             return;
           }
@@ -969,7 +986,9 @@ export class ProformaRequestsPageComponent implements OnInit {
       }
     }
 
-    const assignedPk = this.selectedAssignedUserPk();
+    this.coerceAssignedUserControlValue();
+    const sel = this.requireAssignableUserOrError();
+    if (sel == null) return;
     this.contactSaving.set(true);
     this.errorMessage.set(null);
     this.contactsApi
@@ -979,7 +998,7 @@ export class ProformaRequestsPageComponent implements OnInit {
         contact_last_name: ln,
         ...(v.email.trim() ? { email: v.email.trim() } : {}),
         ...(v.phone.trim() ? { phone: v.phone.trim() } : {}),
-        ...(this.contactAssignBodyForSelectedAdvisor() ?? {}),
+        ...this.contactAssignBodyForUserId(sel.id),
       })
       .subscribe({
         next: () => {
@@ -1006,8 +1025,11 @@ export class ProformaRequestsPageComponent implements OnInit {
     }
     const id = this.editingId();
     const v = this.form.getRawValue();
-    const assignedPk = this.requireUserPkOrError();
-    if (assignedPk == null) return;
+    const assignedPk = this.proformaAssignedUserId();
+    if (assignedPk == null) {
+      this.requireAssignableUserOrError();
+      return;
+    }
 
     if (id == null) {
       if (this.form.invalid) {
@@ -1126,24 +1148,24 @@ export class ProformaRequestsPageComponent implements OnInit {
     return coerceUserPk(value);
   }
 
+  /**
+   * Mapea assignable-users igual que /ventas/contactos: `id` del API → contacto;
+   * `djangoUserId` → solicitud de proforma.
+   */
   private normalizeAssignableUser(raw: unknown): AssignableUser | null {
     if (!raw || typeof raw !== 'object') return null;
     const r = raw as Record<string, unknown>;
 
-    let userId: number | null = null;
-    let profileId: number | undefined;
+    const apiId = coerceUserPk(r['id']);
+    if (apiId == null) return null;
 
-    if (typeof r['user'] === 'number') {
-      userId = coerceUserPk(r['user']);
-      profileId = coerceUserPk(r['id']) ?? undefined;
-    } else if (r['user'] != null && typeof r['user'] === 'object') {
-      userId = coerceUserPk(r['user']);
-      profileId = coerceUserPk(r['profile_id'] ?? r['profile'] ?? r['id']) ?? undefined;
-    } else {
-      userId = coerceUserPk(r['user_id'] ?? r['id']);
-    }
-
-    if (userId == null) return null;
+    const djangoUserId =
+      coerceUserPk(r['user']) ??
+      coerceUserPk(r['user_id']) ??
+      (r['user'] != null && typeof r['user'] === 'object'
+        ? coerceUserPk(r['user'])
+        : null) ??
+      apiId;
 
     const src =
       r['user'] && typeof r['user'] === 'object'
@@ -1155,11 +1177,11 @@ export class ProformaRequestsPageComponent implements OnInit {
       (typeof src['nombre'] === 'string' && String(src['nombre']).trim()) ||
       [src['first_name'], src['last_name']].filter(Boolean).join(' ').trim() ||
       (typeof src['username'] === 'string' ? src['username'] : '') ||
-      `Usuario #${userId}`;
+      `Usuario #${apiId}`;
 
     return {
-      id: userId,
-      profileId,
+      id: apiId,
+      djangoUserId,
       username: String(src['username'] ?? ''),
       first_name: String(src['first_name'] ?? ''),
       last_name: String(src['last_name'] ?? ''),
@@ -1169,6 +1191,18 @@ export class ProformaRequestsPageComponent implements OnInit {
 
   selectedAssignedUserPk(): number | null {
     return coerceUserPk(this.form.controls.assigned_user.value);
+  }
+
+  /** Tras cargar assignable-users, alinea el valor del select con el `id` del API. */
+  private syncAssignedUserSelectToAssignableList(): void {
+    const current = this.selectedAssignedUserPk();
+    if (current == null) return;
+    const match = this.assignableUsers().find(
+      (u) => u.id === current || u.djangoUserId === current,
+    );
+    if (match && match.id !== current) {
+      this.form.patchValue({ assigned_user: match.id }, { emitEvent: false });
+    }
   }
 
   private rowAssignedUserPk(row: ProformaRequestRow): number {
@@ -1188,15 +1222,15 @@ export class ProformaRequestsPageComponent implements OnInit {
     }
   }
 
-  private requireUserPkOrError(): number | null {
+  private requireAssignableUserOrError(): AssignableUser | null {
     this.coerceAssignedUserControlValue();
-    const pk = this.selectedAssignedUserPk();
-    if (pk == null) {
+    const sel = this.selectedAssignableUser();
+    if (sel == null) {
       this.form.controls.assigned_user.markAsTouched();
       this.errorMessage.set('Seleccione el asesor en «Derivar a».');
       return null;
     }
-    return pk;
+    return sel;
   }
 
   private fmt(err: unknown): string {

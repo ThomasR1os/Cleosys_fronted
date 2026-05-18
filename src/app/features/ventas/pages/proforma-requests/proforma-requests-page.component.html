@@ -289,13 +289,17 @@
           </div>
         }
 
-        <div class="mb-4 space-y-2 rounded-lg border border-primary/25 bg-primary/5 p-3" [formGroup]="form">
+        <div class="mb-4 space-y-2 rounded-lg border border-primary/25 bg-primary/5 p-3">
           <label class="form-control w-full">
             <span class="label-text font-medium">Derivar a (asesor encargado)</span>
-            <select class="select select-bordered w-full" formControlName="assigned_user">
-              <option [ngValue]="0" disabled hidden>Seleccione asesor…</option>
+            <select
+              class="select select-bordered w-full"
+              [value]="selectedAssignedUserPk() ?? ''"
+              (change)="onDerivarAsesorChange($event)"
+            >
+              <option value="" disabled>Seleccione asesor…</option>
               @for (u of assignableUsers(); track u.id) {
-                <option [ngValue]="u.id">{{ u.nombre }}</option>
+                <option [value]="u.id">{{ u.nombre }}</option>
               }
             </select>
             @if (form.controls.assigned_user.touched && !hasSelectedAssignedUser()) {
@@ -588,10 +592,14 @@
 
           <label class="form-control w-full">
             <span class="label-text">Derivar a</span>
-            <select class="select select-bordered w-full" formControlName="assigned_user">
-              <option [ngValue]="0" disabled hidden>Elegir usuario…</option>
+            <select
+              class="select select-bordered w-full"
+              [value]="selectedAssignedUserPk() ?? ''"
+              (change)="onDerivarAsesorChange($event)"
+            >
+              <option value="" disabled>Elegir usuario…</option>
               @for (u of assignableUsers(); track u.id) {
-                <option [ngValue]="u.id">{{ u.nombre }}</option>
+                <option [value]="u.id">{{ u.nombre }}</option>
               }
             </select>
           </label>
