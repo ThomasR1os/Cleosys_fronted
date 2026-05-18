@@ -2419,12 +2419,22 @@ export class QuotationsPageComponent implements OnInit {
     return map;
   }
 
-  /** Texto de ficha: línea o catálogo. */
+  /**
+   * Ficha técnica efectiva para el PDF.
+   * `line_datasheet === null` → sin ficha; si el producto no tiene ficha en catálogo, tampoco.
+   */
   private lineDatasheetForPdf(line: QuotationProductRow): string {
-    const t = line.line_datasheet?.trim();
-    if (t) return t;
+    if (line.line_datasheet === null) return '';
+    const fromLine = line.line_datasheet?.trim() ?? '';
+    if (fromLine) return fromLine;
     const p = this.productsCatalog().find((x) => x.id === line.product);
-    return p?.datasheet?.trim() ?? '';
+    const fromProduct = p?.datasheet;
+    if (fromProduct == null) return '';
+    return fromProduct.trim();
+  }
+
+  private hasLineDatasheetForPdf(line: QuotationProductRow): boolean {
+    return !!this.lineDatasheetForPdf(line).trim();
   }
 
   /** Garantía del producto (catálogo; campo API `warranty`; compat: `warrannty`). */
@@ -2463,13 +2473,14 @@ export class QuotationsPageComponent implements OnInit {
     const innerW = Math.max(18, descColWidthMm - 4);
     const main = this.displayLineDescription(line, row);
     const ds = this.lineDatasheetForPdf(line);
+    const hasDs = this.hasLineDatasheetForPdf(line);
     const gw = this.lineWarrantyForPdf(line);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8.5);
     const mainLines = doc.splitTextToSize(main, innerW).length;
     /** Alineado con `didDrawCell`: padding + offset a primera línea + cuerpo + padding. */
     let h = padV + 3.3 + mainLines * 4.1 + padV;
-    if (ds) {
+    if (hasDs) {
       doc.setFont('times', 'italic');
       doc.setFontSize(7);
       const dsLines = doc.splitTextToSize(ds, innerW).length;
@@ -2481,7 +2492,7 @@ export class QuotationsPageComponent implements OnInit {
       doc.setFontSize(7);
       const gaLines = doc.splitTextToSize(`GARANTIA: ${gw}`.toUpperCase(), innerW).length;
       doc.setFont('helvetica', 'normal');
-      h += (ds ? 2 : 1.2) + gaLines * 3.5;
+      h += (hasDs ? 2 : 1.2) + gaLines * 3.5;
     }
     if (hasImg) {
       const url = productImages.get(line.product);
@@ -3385,7 +3396,9 @@ export class QuotationsPageComponent implements OnInit {
     const lastY = (doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY;
     y = (lastY ?? y + 24) + 10;
 
-    // ===== Página 2+: Datos técnicos (imagen 50% | ficha técnica 50%) =====
+    // ===== Página 2+: Datos técnicos (solo productos con ficha técnica) =====
+    const linesWithDatasheet = lines.filter((l) => this.hasLineDatasheetForPdf(l));
+    if (linesWithDatasheet.length > 0) {
     doc.addPage();
     y = drawCompresoresPageHeaderContent('DATOS TÉCNICOS', headerBottomY);
 
@@ -3481,7 +3494,8 @@ export class QuotationsPageComponent implements OnInit {
       y += rowH;
     };
 
-    for (const line of lines) drawTechRow(line);
+    for (const line of linesWithDatasheet) drawTechRow(line);
+    }
 
     const ensureCondicionesY = (needMm: number, yy: number): number => {
       if (yy + needMm <= pageH - reserveBottom) return yy;
@@ -3524,6 +3538,34 @@ export class QuotationsPageComponent implements OnInit {
       doc.setFontSize(9);
       doc.setTextColor(...T.textBody);
       for (const para of conditionsText.split(/\r?\n/)) {
+        const trimmed = para.trim();
+        if (!trimmed) {
+          y += 2;
+          continue;
+        }
+        for (const line of doc.splitTextToSize(trimmed, tableInnerW)) {
+          y = ensureCondicionesY(5, y);
+          doc.text(line, margin, y);
+          y += 4.2;
+        }
+        y += 1;
+      }
+      y += 4;
+    }
+
+    const worksText = row.works?.trim();
+    if (worksText) {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.setTextColor(...T.primary);
+      y = ensureCondicionesY(8, y);
+      doc.text('SERVICIO TÉCNICO', margin, y);
+      y += 6;
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(...T.textBody);
+      for (const para of worksText.split(/\r?\n/)) {
         const trimmed = para.trim();
         if (!trimmed) {
           y += 2;
@@ -3982,7 +4024,7 @@ export class QuotationsPageComponent implements OnInit {
           cy += 4.1;
         }
         const ds = this.lineDatasheetForPdf(qLine);
-        if (ds) {
+        if (this.hasLineDatasheetForPdf(qLine)) {
           cy += 1.2;
           if (cy <= maxY) {
             doc.setFont('times', 'bold');
@@ -4003,7 +4045,7 @@ export class QuotationsPageComponent implements OnInit {
         const gw = this.lineWarrantyForPdf(qLine);
         if (gw) {
           const garantiaText = `GARANTIA: ${gw}`.toUpperCase();
-          cy += ds ? 2 : 1.2;
+          cy += this.hasLineDatasheetForPdf(qLine) ? 2 : 1.2;
           if (cy <= maxY) {
             doc.setFont('helvetica', 'bold');
             doc.setFontSize(7);
@@ -4081,31 +4123,7 @@ export class QuotationsPageComponent implements OnInit {
       row.conditions?.trim() ?? null,
     );
 
-    const works = row.works?.trim();
-    if (works) {
-      const worksReserve = 22;
-      const worksMaxY = this.quotationPdfMaxContentY(doc, worksReserve);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(8.5);
-      doc.setTextColor(...T.primary);
-      if (y + 12 > worksMaxY) {
-        doc.addPage();
-        y = margin + 8;
-      }
-      doc.text('Trabajos / alcance', margin, y);
-      doc.setFont('helvetica', 'normal');
-      doc.setTextColor(...T.textBody);
-      y += 4.5;
-      for (const line of doc.splitTextToSize(works, tableInnerW)) {
-        if (y + 4.2 > worksMaxY) {
-          doc.addPage();
-          y = margin + 8;
-        }
-        doc.text(line, margin, y);
-        y += 4.2;
-      }
-      y += 5;
-    }
+    y = this.drawPdfQuotationWorksSection(doc, T, margin, tableInnerW, y, row.works);
 
     y = this.drawPdfBankAccountsSection(doc, pageW, margin, tableInnerW, y, bankAccounts, T);
     y = this.drawPdfQuotationCreatorFooter(
@@ -4142,6 +4160,42 @@ export class QuotationsPageComponent implements OnInit {
   /** Cifras en celdas de la tabla de líneas (sin símbolo en cada celda; el resumen lleva moneda). */
   private formatMoneyPdfPlain(n: number): string {
     return n.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  /** Bloque «Servicio técnico»; omitido si el texto es null o vacío. */
+  private drawPdfQuotationWorksSection(
+    doc: jsPDF,
+    T: PdfQuotationTheme,
+    margin: number,
+    tableInnerW: number,
+    y: number,
+    works: string | null | undefined,
+  ): number {
+    const text = works?.trim();
+    if (!text) return y;
+
+    const worksReserve = 22;
+    const worksMaxY = this.quotationPdfMaxContentY(doc, worksReserve);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.5);
+    doc.setTextColor(...T.primary);
+    if (y + 12 > worksMaxY) {
+      doc.addPage();
+      y = margin + 8;
+    }
+    doc.text('SERVICIO TÉCNICO', margin, y);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...T.textBody);
+    y += 4.5;
+    for (const line of doc.splitTextToSize(text, tableInnerW)) {
+      if (y + 4.2 > worksMaxY) {
+        doc.addPage();
+        y = margin + 8;
+      }
+      doc.text(line, margin, y);
+      y += 4.2;
+    }
+    return y + 5;
   }
 
   /** Plazo de entrega en PDF: 0 días se muestra como Stock Inmediato. */
@@ -4206,7 +4260,7 @@ export class QuotationsPageComponent implements OnInit {
           client: 'Cliente',
           money: 'Moneda',
           conditions: 'Condiciones',
-          works: 'Trabajos / alcance',
+          works: 'SERVICIO TÉCNICO',
           payment_methods: 'Método de pago',
           quotation_type: 'Tipo de cotización',
           rental_unit: 'Modalidad de alquiler',

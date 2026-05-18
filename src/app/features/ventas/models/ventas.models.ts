@@ -296,7 +296,7 @@ export interface QuotationRow {
   /** Texto libre o null. */
   conditions: string | null;
   payment_methods: number;
-  /** Alcance / trabajos; texto o null. */
+  /** Servicio técnico; texto o null. */
   works: string | null;
   see_sku: boolean;
   creation_date?: string;
