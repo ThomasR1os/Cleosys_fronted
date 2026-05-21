@@ -2,6 +2,7 @@ import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { jsPDF } from 'jspdf';
+import { PDFDocument } from 'pdf-lib';
 import autoTable from 'jspdf-autotable';
 import type { RowInput } from 'jspdf-autotable';
 import type { Row as AutoTableRow } from 'jspdf-autotable';
@@ -64,6 +65,10 @@ const DEFAULT_QUOTATION_CONDITIONS = `• La instalación es por cuenta del clie
 • Atención Post venta, para manttos., reparación y suministro de repuestos.
 • Le brindamos asistencia técnica en nuestros talleres con personal calificado.
 • Incluye el traslado del equipo hasta sus instalaciones dentro de Lima Metropolitana`;
+
+/** Compresores del Perú (empresa id 1): anexo fijo al final del PDF de cotización. */
+const COMPRESORES_COMPANY_ID = 1;
+const COMPRESORES_APPEND_CONDITIONS_PDF_URL = '/branding/condiciones-comerciales-2026.pdf';
 
 /** Línea pendiente antes de existir la cotización (POST cotización → POST líneas). */
 interface DraftQuotationLine {
@@ -545,6 +550,11 @@ export class QuotationsPageComponent implements OnInit {
 
   isRentalQuotationType(): boolean {
     return this.form.controls.quotation_type.value === 'ALQUILER';
+  }
+
+  /** PDF: cotización de servicios — sin imágenes ni fichas; 1.ª hoja = precios + trabajos. */
+  private isServiceQuotationPdf(row: QuotationRow): boolean {
+    return row.quotation_type === 'SERVICIO';
   }
 
   rentalPriceLabel(p: Product | null | undefined, mode: 'without' | 'with'): string {
@@ -2099,15 +2109,19 @@ export class QuotationsPageComponent implements OnInit {
           const companyId = this.resolveQuotationPdfCompanyId(row, creatorUser);
           const companyPdf = await this.loadCompanyPdfAssets(companyId);
           const T = brandingToPdfTheme(companyPdf.branding);
+          const isServicePdf = this.isServiceQuotationPdf(row);
           const [productImages, creatorIconPng] = await Promise.all([
-            this.loadProductImageDataUrlsForPdf(qpLines.map((l) => l.product)),
+            isServicePdf
+              ? Promise.resolve(new Map<number, string | null>())
+              : this.loadProductImageDataUrlsForPdf(qpLines.map((l) => l.product)),
             this.rasterizePdfUserIconSvg(T.primary),
           ]);
-          if (companyId === 1) {
+          if (companyId === COMPRESORES_COMPANY_ID) {
             const heroLine = qpLines.find((l) => !!productImages.get(l.product)) ?? qpLines[0];
-            const rawHero = heroLine ? productImages.get(heroLine.product) ?? null : null;
+            const rawHero =
+              isServicePdf || !heroLine ? null : productImages.get(heroLine.product) ?? null;
             const heroCropped = rawHero ? await this.cropImageDataUrlToSquare(rawHero) : null;
-            this.generateQuotationPdfCompresores(
+            await this.generateQuotationPdfCompresores(
               row,
               T,
               companyPdf.logoDataUrl,
@@ -2469,12 +2483,13 @@ export class QuotationsPageComponent implements OnInit {
     row: QuotationRow,
   ): number {
     const padV = 3.5;
-    const hasImg = !!productImages.get(line.product);
+    const servicePdf = this.isServiceQuotationPdf(row);
+    const hasImg = !servicePdf && !!productImages.get(line.product);
     const innerW = Math.max(18, descColWidthMm - 4);
     const main = this.displayLineDescription(line, row);
-    const ds = this.lineDatasheetForPdf(line);
-    const hasDs = this.hasLineDatasheetForPdf(line);
-    const gw = this.lineWarrantyForPdf(line);
+    const ds = servicePdf ? '' : this.lineDatasheetForPdf(line);
+    const hasDs = !servicePdf && this.hasLineDatasheetForPdf(line);
+    const gw = servicePdf ? '' : this.lineWarrantyForPdf(line);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8.5);
     const mainLines = doc.splitTextToSize(main, innerW).length;
@@ -3174,7 +3189,39 @@ export class QuotationsPageComponent implements OnInit {
     });
   }
 
-  private generateQuotationPdfCompresores(
+  /** Descarga PDF generado con jsPDF; en Compresores fusiona condiciones comerciales 2026 al final. */
+  private async saveCompresoresQuotationPdf(doc: jsPDF, filename: string): Promise<void> {
+    const mainBytes = doc.output('arraybuffer') as ArrayBuffer;
+    try {
+      const merged = await this.mergePdfWithCompresoresConditionsAppend(mainBytes);
+      this.downloadPdfBlob(new Blob([Uint8Array.from(merged)], { type: 'application/pdf' }), filename);
+    } catch {
+      this.downloadPdfBlob(new Blob([mainBytes], { type: 'application/pdf' }), filename);
+    }
+  }
+
+  private downloadPdfBlob(blob: Blob, filename: string): void {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  /** Anexa todas las páginas de `condiciones-comerciales-2026.pdf` al PDF de la cotización. */
+  private async mergePdfWithCompresoresConditionsAppend(mainPdf: ArrayBuffer): Promise<Uint8Array> {
+    const mainDoc = await PDFDocument.load(mainPdf);
+    const appendBytes = await firstValueFrom(
+      this.http.get(COMPRESORES_APPEND_CONDITIONS_PDF_URL, { responseType: 'arraybuffer' }),
+    );
+    const appendDoc = await PDFDocument.load(appendBytes);
+    const copied = await mainDoc.copyPages(appendDoc, appendDoc.getPageIndices());
+    for (const page of copied) mainDoc.addPage(page);
+    return mainDoc.save();
+  }
+
+  private async generateQuotationPdfCompresores(
     row: QuotationRow,
     T: PdfQuotationTheme,
     logoDataUrl: string | null = null,
@@ -3185,7 +3232,7 @@ export class QuotationsPageComponent implements OnInit {
     creatorIconPng: string | null = null,
     companyRazonSocial: string = '',
     companyRuc: string = '',
-  ): void {
+  ): Promise<void> {
     const doc = new jsPDF();
     const margin = 16;
     const pageW = doc.internal.pageSize.getWidth();
@@ -3204,6 +3251,7 @@ export class QuotationsPageComponent implements OnInit {
     const client = this.clientForPdf(row);
     const pay = this.paymentMethods().find((p) => p.id === row.payment_methods);
     const typeLabel = this.typeOpts.find((o) => o.value === row.quotation_type)?.label ?? row.quotation_type;
+    const isServicePdf = this.isServiceQuotationPdf(row);
     let penEx: string | null = null;
     if (row.money === 'PEN') {
       const ex = this.exchangeRateFromRow(row);
@@ -3261,10 +3309,17 @@ export class QuotationsPageComponent implements OnInit {
     );
     y = drawCompresoresSeparators(y - 2);
 
-    // Imagen grande (primer producto) antes del cuadro de precios
+    if (isServicePdf) {
+      y = drawCompresoresSectionTitle('RESUMEN DE PRECIOS', y);
+    }
+
+    // Imagen grande (primer producto) antes del cuadro de precios — omitida en servicios
     const firstLineWithImg = lines.find((l) => !!productImages.get(l.product));
     const heroLine = firstLineWithImg ?? lines[0];
-    const heroImg = heroImageDataUrl ?? (heroLine ? productImages.get(heroLine.product) ?? null : null);
+    const heroImg =
+      isServicePdf
+        ? null
+        : heroImageDataUrl ?? (heroLine ? productImages.get(heroLine.product) ?? null : null);
     if (heroImg) {
       try {
         const fmt: 'PNG' | 'JPEG' = heroImg.includes('image/jpeg') ? 'JPEG' : 'PNG';
@@ -3396,8 +3451,22 @@ export class QuotationsPageComponent implements OnInit {
     const lastY = (doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY;
     y = (lastY ?? y + 24) + 10;
 
-    // ===== Página 2+: Datos técnicos (solo productos con ficha técnica) =====
-    const linesWithDatasheet = lines.filter((l) => this.hasLineDatasheetForPdf(l));
+    if (isServicePdf) {
+      y = this.drawPdfQuotationWorksSection(
+        doc,
+        T,
+        margin,
+        tableInnerW,
+        y,
+        row.works,
+        'TRABAJOS A REALIZAR',
+      );
+    }
+
+    // ===== Página 2+: Datos técnicos (solo productos con ficha técnica; no en servicios) =====
+    const linesWithDatasheet = isServicePdf
+      ? []
+      : lines.filter((l) => this.hasLineDatasheetForPdf(l));
     if (linesWithDatasheet.length > 0) {
     doc.addPage();
     y = drawCompresoresPageHeaderContent('DATOS TÉCNICOS', headerBottomY);
@@ -3554,7 +3623,7 @@ export class QuotationsPageComponent implements OnInit {
     }
 
     const worksText = row.works?.trim();
-    if (worksText) {
+    if (worksText && !isServicePdf) {
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(10);
       doc.setTextColor(...T.primary);
@@ -3698,7 +3767,7 @@ export class QuotationsPageComponent implements OnInit {
     doc.text('Documento generado por CleoSystem', margin, pageH - 10, { maxWidth: tableInnerW });
 
     const safeName = row.correlativo.replace(/[^\w.-]+/g, '_');
-    doc.save(`cotizacion-${safeName}.pdf`);
+    await this.saveCompresoresQuotationPdf(doc, `cotizacion-${safeName}.pdf`);
   }
 
   private generateQuotationPdf(
@@ -3745,6 +3814,7 @@ export class QuotationsPageComponent implements OnInit {
     y += 7;
 
     const lines = this.linesForQuotationId(row.id);
+    const isServicePdf = this.isServiceQuotationPdf(row);
     const showSku = row.see_sku;
     const money = row.money;
     const descIdx = showSku ? 2 : 1;
@@ -3754,6 +3824,14 @@ export class QuotationsPageComponent implements OnInit {
     /** Anchos relativos (9+26+72+… y 9+98+…) suman 182 en ambos modos. */
     const colSum = 182;
     const descColWidthMm = (tableInnerW * col.desc) / colSum;
+
+    if (isServicePdf) {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.setTextColor(...T.primary);
+      doc.text('RESUMEN DE PRECIOS', margin, y);
+      y += 7;
+    }
 
     const head = showSku
       ? [['#', 'Nro. Parte', 'Descripción', 'Cant.', 'P.Unit.', 'P.Total']]
@@ -4006,7 +4084,7 @@ export class QuotationsPageComponent implements OnInit {
         const padL = cell.padding('left');
         const padT = cell.padding('top');
         const padR = cell.padding('right');
-        const imgData = productImages.get(qLine.product);
+        const imgData = isServicePdf ? null : productImages.get(qLine.product);
         const hasImg = !!imgData;
         const left = cell.x + padL;
         const textW = Math.max(18, cell.width - padL - padR);
@@ -4023,6 +4101,7 @@ export class QuotationsPageComponent implements OnInit {
           doc.text(ml, left, cy);
           cy += 4.1;
         }
+        if (isServicePdf) return;
         const ds = this.lineDatasheetForPdf(qLine);
         if (this.hasLineDatasheetForPdf(qLine)) {
           cy += 1.2;
@@ -4109,6 +4188,18 @@ export class QuotationsPageComponent implements OnInit {
     doc.line(margin, y - 3, pageW - margin, y - 3);
     y += 4;
 
+    if (isServicePdf) {
+      y = this.drawPdfQuotationWorksSection(
+        doc,
+        T,
+        margin,
+        tableInnerW,
+        y,
+        row.works,
+        'TRABAJOS A REALIZAR',
+      );
+    }
+
     y = this.drawPdfQuotationOperacionYComerciales(
       doc,
       T,
@@ -4123,7 +4214,9 @@ export class QuotationsPageComponent implements OnInit {
       row.conditions?.trim() ?? null,
     );
 
-    y = this.drawPdfQuotationWorksSection(doc, T, margin, tableInnerW, y, row.works);
+    if (!isServicePdf) {
+      y = this.drawPdfQuotationWorksSection(doc, T, margin, tableInnerW, y, row.works);
+    }
 
     y = this.drawPdfBankAccountsSection(doc, pageW, margin, tableInnerW, y, bankAccounts, T);
     y = this.drawPdfQuotationCreatorFooter(
@@ -4162,7 +4255,7 @@ export class QuotationsPageComponent implements OnInit {
     return n.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
 
-  /** Bloque «Servicio técnico»; omitido si el texto es null o vacío. */
+  /** Bloque de trabajos / servicio técnico; omitido si el texto es null o vacío. */
   private drawPdfQuotationWorksSection(
     doc: jsPDF,
     T: PdfQuotationTheme,
@@ -4170,6 +4263,7 @@ export class QuotationsPageComponent implements OnInit {
     tableInnerW: number,
     y: number,
     works: string | null | undefined,
+    sectionTitle = 'SERVICIO TÉCNICO',
   ): number {
     const text = works?.trim();
     if (!text) return y;
@@ -4183,7 +4277,7 @@ export class QuotationsPageComponent implements OnInit {
       doc.addPage();
       y = margin + 8;
     }
-    doc.text('SERVICIO TÉCNICO', margin, y);
+    doc.text(sectionTitle, margin, y);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(...T.textBody);
     y += 4.5;
