@@ -1821,7 +1821,7 @@ export class QuotationsPageComponent implements OnInit {
               this.modalOpen.set(false);
               this.draftLines.set([]);
               this.resetLineEditor();
-              this.syncQuotationFinalPriceAfterLinesChange(qRow.id);
+              this.syncQuotationFinalPriceAfterLinesChange(qRow.id, { touchCreationDate: false });
             };
             if (pending == null) {
               finalizeCreate();
@@ -1846,7 +1846,7 @@ export class QuotationsPageComponent implements OnInit {
       return;
     }
 
-    this.quotationsApi.update(id, body as Partial<QuotationRow>).subscribe({
+    this.patchQuotationOnEdit(id, body as Partial<QuotationRow>).subscribe({
       next: () => {
         this.saving.set(false);
         this.modalOpen.set(false);
@@ -2031,7 +2031,10 @@ export class QuotationsPageComponent implements OnInit {
       next: () => {
         this.savingLine.set(false);
         this.resetLineEditor();
-        this.reload();
+        this.patchQuotationOnEdit(qid, {}).subscribe({
+          next: () => this.reload(),
+          error: () => this.reload(),
+        });
       },
       error: (err) => {
         this.savingLine.set(false);
@@ -2070,8 +2073,29 @@ export class QuotationsPageComponent implements OnInit {
     return p?.description ?? '—';
   }
 
+  /** Fecha de cotización al guardar una edición (listado, PDF). */
+  private quotationEditionDateIso(): string {
+    return new Date().toISOString();
+  }
+
+  /** PATCH de cotización existente; actualiza `creation_date` salvo que se indique lo contrario. */
+  private patchQuotationOnEdit(
+    id: number,
+    body: Partial<QuotationRow>,
+    options?: { touchCreationDate?: boolean },
+  ) {
+    const payload: Partial<QuotationRow> = { ...body };
+    if (options?.touchCreationDate !== false) {
+      payload.creation_date = this.quotationEditionDateIso();
+    }
+    return this.quotationsApi.update(id, payload);
+  }
+
   /** Recalcula subtotal de líneas y persiste `final_price` en la cotización (no editable a mano). */
-  private syncQuotationFinalPriceAfterLinesChange(quotationId: number): void {
+  private syncQuotationFinalPriceAfterLinesChange(
+    quotationId: number,
+    options?: { touchCreationDate?: boolean },
+  ): void {
     this.qpApi.list().subscribe({
       next: (qp) => {
         const row = this.quotations().find((x) => x.id === quotationId);
@@ -2083,7 +2107,11 @@ export class QuotationsPageComponent implements OnInit {
           .filter((l) => l.quotation === quotationId)
           .reduce((sum, l) => sum + l.cant * Number(l.product_price), 0);
         const net = Math.max(0, sub - Number(row.discount));
-        this.quotationsApi.update(quotationId, { final_price: net.toFixed(2) }).subscribe({
+        this.patchQuotationOnEdit(
+          quotationId,
+          { final_price: net.toFixed(2) },
+          { touchCreationDate: options?.touchCreationDate ?? true },
+        ).subscribe({
           next: () => this.reload(),
           error: () => this.reload(),
         });
