@@ -97,6 +97,7 @@ export class ProductosPageComponent implements OnInit {
   readonly errorMessage = signal<string | null>(null);
   readonly modalOpen = signal(false);
   readonly editingId = signal<number | null>(null);
+  readonly fichaProduct = signal<Product | null>(null);
 
   readonly categories = signal<CatalogRow[]>([]);
   readonly subcategories = signal<SubcategoryRow[]>([]);
@@ -226,6 +227,29 @@ export class ProductosPageComponent implements OnInit {
     if (status === 'ACTIVE') return 'Activo';
     if (status === 'INACTIVE') return 'Inactivo';
     return status;
+  }
+
+  hasFichaTecnica(row: Product): boolean {
+    return !!(
+      row.datasheet?.trim() ||
+      row.warranty?.trim() ||
+      row.dimensions?.trim() ||
+      row.gross_weight?.trim()
+    );
+  }
+
+  openFicha(row: Product): void {
+    if (!this.hasFichaTecnica(row)) return;
+    this.fichaProduct.set(row);
+  }
+
+  closeFicha(): void {
+    this.fichaProduct.set(null);
+  }
+
+  editFromFicha(row: Product): void {
+    this.closeFicha();
+    this.openEdit(row);
   }
 
   filteredSubcategories(): SubcategoryRow[] {

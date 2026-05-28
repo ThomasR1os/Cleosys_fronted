@@ -111,32 +111,43 @@
         </thead>
         <tbody>
           @for (row of pagedItems(); track row.id) {
-            <tr>
-              <td>{{ row.id }}</td>
-              <td class="font-medium">{{ row.sku }}</td>
-              <td class="max-w-md truncate">{{ row.description }}</td>
-              <td>
+            <tr class="align-top">
+              <td class="whitespace-nowrap">{{ row.id }}</td>
+              <td class="font-medium whitespace-nowrap">{{ row.sku }}</td>
+              <td class="min-w-[14rem] max-w-2xl whitespace-normal break-words leading-snug">
+                <span [title]="row.description">{{ row.description }}</span>
+              </td>
+              <td class="whitespace-nowrap">
                 @if (row.price != null) {
                   {{ row.price | number: '1.2-2' }}
                 } @else {
                   —
                 }
               </td>
-              <td>{{ statusLabel(row.status) }}</td>
-              <td class="text-right space-x-1 whitespace-nowrap">
-                <a
-                  class="btn btn-ghost btn-sm"
-                  [routerLink]="['/core/productos', row.id]"
-                  >Imágenes</a
-                >
-                @if (auth.canWriteAlmacen()) {
-                  <button type="button" class="btn btn-ghost btn-sm" (click)="openEdit(row)">
-                    Editar
+              <td class="whitespace-nowrap">{{ statusLabel(row.status) }}</td>
+              <td class="text-right">
+                <div class="flex flex-wrap justify-end gap-1">
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-sm"
+                    [disabled]="!hasFichaTecnica(row)"
+                    [attr.title]="
+                      hasFichaTecnica(row) ? 'Ver ficha técnica' : 'Este producto no tiene ficha técnica'
+                    "
+                    (click)="openFicha(row)"
+                  >
+                    Ficha técnica
                   </button>
-                  <button type="button" class="btn btn-outline btn-error btn-sm" (click)="remove(row)">
-                    Eliminar
-                  </button>
-                }
+                  <a class="btn btn-ghost btn-sm" [routerLink]="['/core/productos', row.id]">Imágenes</a>
+                  @if (auth.canWriteAlmacen()) {
+                    <button type="button" class="btn btn-ghost btn-sm" (click)="openEdit(row)">
+                      Editar
+                    </button>
+                    <button type="button" class="btn btn-outline btn-error btn-sm" (click)="remove(row)">
+                      Eliminar
+                    </button>
+                  }
+                </div>
               </td>
             </tr>
           }
@@ -407,6 +418,59 @@
       class="modal-backdrop bg-black/50"
       (click)="closeModal()"
       aria-label="Cerrar"
+    ></button>
+  </div>
+}
+
+@if (fichaProduct(); as fp) {
+  <div class="modal modal-open">
+    <div class="modal-box max-h-[90vh] max-w-2xl overflow-y-auto">
+      <h2 class="text-lg font-bold">Ficha técnica</h2>
+      <p class="text-base-content/70 mt-1 text-sm">
+        <span class="font-medium">{{ fp.sku }}</span>
+        <span class="mx-1">·</span>
+        {{ fp.description }}
+      </p>
+
+      <dl class="mt-5 flex flex-col gap-4 text-sm">
+        <div>
+          <dt class="text-base-content/60 font-medium">Especificaciones</dt>
+          <dd class="mt-1 whitespace-pre-wrap break-words rounded-lg bg-base-200/60 p-3">
+            @if (fp.datasheet?.trim()) {
+              {{ fp.datasheet }}
+            } @else {
+              <span class="text-base-content/50">—</span>
+            }
+          </dd>
+        </div>
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <div>
+            <dt class="text-base-content/60 font-medium">Garantía</dt>
+            <dd class="mt-1">{{ fp.warranty?.trim() || '—' }}</dd>
+          </div>
+          <div>
+            <dt class="text-base-content/60 font-medium">Dimensiones</dt>
+            <dd class="mt-1">{{ fp.dimensions?.trim() || '—' }}</dd>
+          </div>
+          <div>
+            <dt class="text-base-content/60 font-medium">Peso bruto</dt>
+            <dd class="mt-1">{{ fp.gross_weight?.trim() || '—' }}</dd>
+          </div>
+        </div>
+      </dl>
+
+      <div class="modal-action mt-2">
+        <button type="button" class="btn" (click)="closeFicha()">Cerrar</button>
+        @if (auth.canWriteAlmacen()) {
+          <button type="button" class="btn btn-primary" (click)="editFromFicha(fp)">Editar producto</button>
+        }
+      </div>
+    </div>
+    <button
+      type="button"
+      class="modal-backdrop bg-black/50"
+      (click)="closeFicha()"
+      aria-label="Cerrar ficha técnica"
     ></button>
   </div>
 }
