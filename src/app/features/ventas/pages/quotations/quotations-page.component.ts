@@ -3489,6 +3489,8 @@ export class QuotationsPageComponent implements OnInit {
         row.works,
         'TRABAJOS A REALIZAR',
       );
+    } else {
+      y = this.drawPdfQuotationWorksSection(doc, T, margin, tableInnerW, y, row.works);
     }
 
     // ===== Página 2+: Datos técnicos (solo productos con ficha técnica; no en servicios) =====
@@ -3635,34 +3637,6 @@ export class QuotationsPageComponent implements OnInit {
       doc.setFontSize(9);
       doc.setTextColor(...T.textBody);
       for (const para of conditionsText.split(/\r?\n/)) {
-        const trimmed = para.trim();
-        if (!trimmed) {
-          y += 2;
-          continue;
-        }
-        for (const line of doc.splitTextToSize(trimmed, tableInnerW)) {
-          y = ensureCondicionesY(5, y);
-          doc.text(line, margin, y);
-          y += 4.2;
-        }
-        y += 1;
-      }
-      y += 4;
-    }
-
-    const worksText = row.works?.trim();
-    if (worksText && !isServicePdf) {
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(10);
-      doc.setTextColor(...T.primary);
-      y = ensureCondicionesY(8, y);
-      doc.text('SERVICIO TÉCNICO', margin, y);
-      y += 6;
-
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(9);
-      doc.setTextColor(...T.textBody);
-      for (const para of worksText.split(/\r?\n/)) {
         const trimmed = para.trim();
         if (!trimmed) {
           y += 2;
