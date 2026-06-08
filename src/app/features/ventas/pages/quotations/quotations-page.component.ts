@@ -1851,6 +1851,20 @@ export class QuotationsPageComponent implements OnInit {
       quotationUserId = uid;
     }
 
+    const headerDelivery = this.headerDeliveryTimeForSave(
+      v.quotation_type,
+      v.delivery_time,
+      id == null ? this.draftLines() : this.linesForQuotationId(id),
+    );
+    if (!headerDelivery) {
+      this.errorMessage.set(
+        v.quotation_type === 'SERVICIO'
+          ? 'Indique el plazo de entrega en la cabecera.'
+          : 'Añada al menos un producto con tiempo de entrega.',
+      );
+      return;
+    }
+
     this.saving.set(true);
     this.errorMessage.set(null);
     const sub = this.previewSubtotal();
@@ -1870,7 +1884,7 @@ export class QuotationsPageComponent implements OnInit {
       /** API histórico: importe descontado (compatible con `subtotal − discount`). */
       discount: discAmt.toFixed(2),
       final_price: finalNet.toFixed(2),
-      delivery_time: v.quotation_type === 'SERVICIO' ? v.delivery_time.trim() : '',
+      delivery_time: headerDelivery,
       conditions: v.conditions,
       payment_methods: v.payment_methods,
       works: v.works,
@@ -2153,10 +2167,7 @@ export class QuotationsPageComponent implements OnInit {
       next: () => {
         this.savingLine.set(false);
         this.resetLineEditor();
-        this.patchQuotationOnEdit(qid, {}).subscribe({
-          next: () => this.reload(),
-          error: () => this.reload(),
-        });
+        this.syncQuotationFinalPriceAfterLinesChange(qid);
       },
       error: (err) => {
         this.savingLine.set(false);
@@ -2225,13 +2236,17 @@ export class QuotationsPageComponent implements OnInit {
           this.reload();
           return;
         }
-        const sub = qp
-          .filter((l) => l.quotation === quotationId)
-          .reduce((sum, l) => sum + l.cant * Number(l.product_price), 0);
+        const qLines = qp.filter((l) => l.quotation === quotationId);
+        const sub = qLines.reduce((sum, l) => sum + l.cant * Number(l.product_price), 0);
         const net = Math.max(0, sub - Number(row.discount));
+        const patch: Partial<QuotationRow> = { final_price: net.toFixed(2) };
+        if (row.quotation_type === 'VENTA' || row.quotation_type === 'ALQUILER') {
+          const headerDt = this.headerDeliveryTimeForSave(row.quotation_type, '', qLines);
+          if (headerDt) patch.delivery_time = headerDt;
+        }
         this.patchQuotationOnEdit(
           quotationId,
-          { final_price: net.toFixed(2) },
+          patch,
           { touchCreationDate: options?.touchCreationDate ?? true },
         ).subscribe({
           next: () => this.reload(),
@@ -2609,8 +2624,46 @@ export class QuotationsPageComponent implements OnInit {
     return this.productWarrantyFromCatalog(p);
   }
 
-  private lineDeliveryTimeForPdf(line: QuotationProductRow): string {
-    return line.delivery_time?.trim() ?? '';
+  /** Puntúa un plazo de texto libre (mayor = más largo; usa el número más alto del texto). */
+  private deliveryTimeSortScore(text: string): number {
+    const matches = text.match(/\d+/g);
+    if (!matches?.length) return text.length;
+    return Math.max(...matches.map((m) => Number(m)));
+  }
+
+  private pickLongestDeliveryTimeText(values: string[]): string {
+    if (!values.length) return '';
+    let best = values[0];
+    let bestScore = this.deliveryTimeSortScore(best);
+    for (let i = 1; i < values.length; i++) {
+      const v = values[i];
+      const score = this.deliveryTimeSortScore(v);
+      if (score > bestScore || (score === bestScore && v.length > best.length)) {
+        best = v;
+        bestScore = score;
+      }
+    }
+    return best;
+  }
+
+  /** Plazo de cabecera: SERVICIO = formulario; VENTA/ALQUILER = el más largo entre líneas. */
+  private headerDeliveryTimeForSave(
+    quotationType: QuotationType,
+    headerInput: string,
+    lines: Array<{ delivery_time?: string | null }>,
+  ): string {
+    if (quotationType === 'SERVICIO') return headerInput.trim();
+    const fromLines = lines.map((l) => (l.delivery_time ?? '').trim()).filter((s) => s.length > 0);
+    return this.pickLongestDeliveryTimeText(fromLines);
+  }
+
+  private lineDeliveryTimeForPdf(line: QuotationProductRow, row?: QuotationRow): string {
+    const fromLine = line.delivery_time?.trim();
+    if (fromLine) return fromLine;
+    if (row && this.isServiceQuotationPdf(row)) {
+      return String(row.delivery_time ?? '').trim();
+    }
+    return '';
   }
 
   /** Tamaño de la foto de producto en PDF (debajo de la ficha); ancho máx. ~ancho de celda. */
@@ -2645,8 +2698,8 @@ export class QuotationsPageComponent implements OnInit {
     const main = this.displayLineDescription(line, row);
     const ds = servicePdf ? '' : this.lineDatasheetForPdf(line);
     const hasDs = !servicePdf && this.hasLineDatasheetForPdf(line);
-    const gw = servicePdf ? '' : this.lineWarrantyForPdf(line);
-    const dt = servicePdf ? '' : this.lineDeliveryTimeForPdf(line);
+    const gw = this.lineWarrantyForPdf(line);
+    const dt = this.lineDeliveryTimeForPdf(line, row);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8.5);
     const mainLines = doc.splitTextToSize(main, innerW).length;
@@ -2664,14 +2717,14 @@ export class QuotationsPageComponent implements OnInit {
       doc.setFontSize(7);
       const dtLines = doc.splitTextToSize(`PLAZO DE ENTREGA: ${dt}`.toUpperCase(), innerW).length;
       doc.setFont('helvetica', 'normal');
-      h += (this.hasLineDatasheetForPdf(line) || gw ? 2 : 1.2) + dtLines * 3.5;
+      h += (hasDs && !servicePdf ? 2 : 1.2) + dtLines * 3.5;
     }
     if (gw) {
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(7);
       const gaLines = doc.splitTextToSize(`GARANTIA: ${gw}`.toUpperCase(), innerW).length;
       doc.setFont('helvetica', 'normal');
-      h += (hasDs || dt ? 2 : 1.2) + gaLines * 3.5;
+      h += ((hasDs && !servicePdf) || dt ? 2 : 1.2) + gaLines * 3.5;
     }
     if (hasImg) {
       const url = productImages.get(line.product);
@@ -3648,7 +3701,7 @@ export class QuotationsPageComponent implements OnInit {
       // Página "Datos técnicos": solo la descripción del producto, sin prefijo de alquiler.
       const title = this.productLineDescription(line);
       const ds = this.lineDatasheetForPdf(line);
-      const dt = this.lineDeliveryTimeForPdf(line);
+      const dt = this.lineDeliveryTimeForPdf(line, row);
       const gw = this.lineWarrantyForPdf(line);
       const img = productImages.get(line.product);
 
@@ -4253,30 +4306,32 @@ export class QuotationsPageComponent implements OnInit {
           doc.text(ml, left, cy);
           cy += 4.1;
         }
-        if (isServicePdf) return;
-        const ds = this.lineDatasheetForPdf(qLine);
-        if (this.hasLineDatasheetForPdf(qLine)) {
-          cy += 1.2;
-          if (cy <= maxY) {
-            doc.setFont('times', 'bold');
-            doc.setFontSize(8.5);
-            doc.setTextColor(...T.textLabel);
-            doc.text('Ficha técnica', left, cy);
-            cy += 4;
-            doc.setFont('times', 'italic');
-            doc.setFontSize(8);
-            doc.setTextColor(...T.textCaption);
-            for (const dl of doc.splitTextToSize(ds, textW)) {
-              if (cy > maxY) break;
-              doc.text(dl, left, cy);
-              cy += 3.5;
+        if (!isServicePdf) {
+          const ds = this.lineDatasheetForPdf(qLine);
+          if (this.hasLineDatasheetForPdf(qLine)) {
+            cy += 1.2;
+            if (cy <= maxY) {
+              doc.setFont('times', 'bold');
+              doc.setFontSize(8.5);
+              doc.setTextColor(...T.textLabel);
+              doc.text('Ficha técnica', left, cy);
+              cy += 4;
+              doc.setFont('times', 'italic');
+              doc.setFontSize(8);
+              doc.setTextColor(...T.textCaption);
+              for (const dl of doc.splitTextToSize(ds, textW)) {
+                if (cy > maxY) break;
+                doc.text(dl, left, cy);
+                cy += 3.5;
+              }
             }
           }
         }
-        const dt = this.lineDeliveryTimeForPdf(qLine);
+        const dt = this.lineDeliveryTimeForPdf(qLine, row);
         if (dt) {
           const plazoText = `PLAZO DE ENTREGA: ${dt}`.toUpperCase();
-          cy += this.hasLineDatasheetForPdf(qLine) ? 2 : 1.2;
+          cy +=
+            !isServicePdf && this.hasLineDatasheetForPdf(qLine) ? 2 : 1.2;
           if (cy <= maxY) {
             doc.setFont('helvetica', 'bold');
             doc.setFontSize(7);
@@ -4291,7 +4346,8 @@ export class QuotationsPageComponent implements OnInit {
         const gw = this.lineWarrantyForPdf(qLine);
         if (gw) {
           const garantiaText = `GARANTIA: ${gw}`.toUpperCase();
-          cy += this.hasLineDatasheetForPdf(qLine) || dt ? 2 : 1.2;
+          cy +=
+            (!isServicePdf && this.hasLineDatasheetForPdf(qLine)) || dt ? 2 : 1.2;
           if (cy <= maxY) {
             doc.setFont('helvetica', 'bold');
             doc.setFontSize(7);
@@ -4305,7 +4361,7 @@ export class QuotationsPageComponent implements OnInit {
         }
         doc.setFont('helvetica', 'normal');
         doc.setTextColor(...T.totalBar);
-        if (hasImg && imgData) {
+        if (!isServicePdf && hasImg && imgData) {
           try {
             cy += 3;
             const fmt: 'PNG' | 'JPEG' = imgData.includes('image/jpeg') ? 'JPEG' : 'PNG';
