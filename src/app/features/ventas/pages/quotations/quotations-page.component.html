@@ -427,6 +427,10 @@
                     <th>Cant.</th>
                     <th>P. unit.</th>
                     <th>Subt.</th>
+                    @if (showLineDeliveryColumn()) {
+                      <th>Tiempo de entrega</th>
+                    }
+                    <th>Garantía</th>
                     @if (canEditLinesInModal()) {
                       <th class="text-right">Acciones</th>
                     }
@@ -440,6 +444,14 @@
                       <td>{{ d.cant }}</td>
                       <td>{{ formatMoney(d.product_price) }}</td>
                       <td>{{ formatMoney(d.cant * d.product_price) }}</td>
+                      @if (showLineDeliveryColumn()) {
+                        <td class="max-w-[10rem] truncate" [title]="displayDraftDeliveryTime(d)">
+                          {{ displayDraftDeliveryTime(d) }}
+                        </td>
+                      }
+                      <td class="max-w-[10rem] truncate" [title]="displayDraftWarranty(d)">
+                        {{ displayDraftWarranty(d) }}
+                      </td>
                       @if (canEditLinesInModal()) {
                         <td class="text-right space-x-1">
                           <button type="button" class="btn btn-ghost btn-xs" (click)="beginEditDraftLineInModal(d)">
@@ -453,7 +465,10 @@
                     </tr>
                   } @empty {
                     <tr>
-                      <td [attr.colspan]="!canEditLinesInModal() ? 5 : 6" class="text-base-content/60">
+                      <td
+                        [attr.colspan]="lineTableColspan() + (canEditLinesInModal() ? 1 : 0)"
+                        class="text-base-content/60"
+                      >
                         Añada productos; el texto de cada línea viene del catálogo si no lo modifica.
                       </td>
                     </tr>
@@ -471,6 +486,10 @@
                     <th>Cant.</th>
                     <th>P. unit.</th>
                     <th>Subt.</th>
+                    @if (showLineDeliveryColumn()) {
+                      <th>Tiempo de entrega</th>
+                    }
+                    <th>Garantía</th>
                     @if (canEditLinesInModal()) {
                       <th class="text-right">Acciones</th>
                     }
@@ -486,6 +505,14 @@
                       <td>{{ line.cant }}</td>
                       <td>{{ formatMoney(+line.product_price) }}</td>
                       <td>{{ formatMoney(line.cant * +line.product_price) }}</td>
+                      @if (showLineDeliveryColumn()) {
+                        <td class="max-w-[10rem] truncate" [title]="displayLineDeliveryTime(line)">
+                          {{ displayLineDeliveryTime(line) }}
+                        </td>
+                      }
+                      <td class="max-w-[10rem] truncate" [title]="displayLineWarranty(line)">
+                        {{ displayLineWarranty(line) }}
+                      </td>
                       @if (canEditLinesInModal()) {
                         <td class="text-right space-x-1">
                           <button type="button" class="btn btn-ghost btn-xs" (click)="beginEditServerLineInModal(line)">
@@ -499,7 +526,10 @@
                     </tr>
                   } @empty {
                     <tr>
-                      <td [attr.colspan]="!canEditLinesInModal() ? 5 : 6" class="text-base-content/60">
+                      <td
+                        [attr.colspan]="lineTableColspan() + (canEditLinesInModal() ? 1 : 0)"
+                        class="text-base-content/60"
+                      >
                         Sin líneas aún.
                       </td>
                     </tr>
@@ -628,6 +658,31 @@
                     formControlName="line_datasheet"
                   ></textarea>
                 </label>
+                @if (showLineDeliveryColumn()) {
+                  <label class="form-control w-full">
+                    <span class="label-text">Tiempo de entrega</span>
+                    <input
+                      class="input input-bordered w-full"
+                      type="text"
+                      formControlName="delivery_time"
+                      placeholder="Ej. 15 días hábiles"
+                      maxlength="100"
+                    />
+                    @if (lineForm.controls.delivery_time.invalid && lineForm.controls.delivery_time.touched) {
+                      <span class="label-text-alt text-error">Obligatorio para venta y alquiler</span>
+                    }
+                  </label>
+                }
+                <label class="form-control w-full">
+                  <span class="label-text">Garantía en línea</span>
+                  <input
+                    class="input input-bordered w-full"
+                    type="text"
+                    formControlName="line_warranty"
+                    placeholder="Precargada del catálogo; editable por línea"
+                    maxlength="100"
+                  />
+                </label>
               </div>
               <div class="flex flex-wrap justify-end gap-2 border-t border-base-300/60 pt-3">
                 <button type="button" class="btn btn-ghost btn-sm" (click)="cancelLineEditorInModal()">Cancelar</button>
@@ -665,19 +720,22 @@
           </div>
           <span class="label-text-alt">Sobre el subtotal de líneas (se envía el importe a la API).</span>
         </label>
-        <label class="form-control w-full">
-          <span class="label-text">Plazo entrega (días)</span>
-          <input
-            class="input input-bordered w-full"
-            type="number"
-            min="0"
-            formControlName="delivery_time"
-            [readonly]="quotationModalReadonly()"
-          />
-          @if (form.controls.delivery_time.value === 0) {
-            <span class="label-text-alt text-base-content/70">En cotización PDF: Stock Inmediato</span>
-          }
-        </label>
+        @if (isServiceQuotationType()) {
+          <label class="form-control w-full">
+            <span class="label-text">Plazo de entrega</span>
+            <input
+              class="input input-bordered w-full"
+              type="text"
+              formControlName="delivery_time"
+              placeholder="Ej. 15 días hábiles"
+              maxlength="100"
+              [readonly]="quotationModalReadonly()"
+            />
+            @if (form.controls.delivery_time.invalid && form.controls.delivery_time.touched) {
+              <span class="label-text-alt text-error">Obligatorio en cotizaciones de servicio</span>
+            }
+          </label>
+        }
 
         <div class="bg-base-200/60 sm:col-span-2 rounded-box border border-base-300/80 p-4 text-sm">
           @if (isPenCurrency()) {

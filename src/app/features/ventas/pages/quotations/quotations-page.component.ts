@@ -79,6 +79,8 @@ interface DraftQuotationLine {
   line_sku: string;
   line_description: string;
   line_datasheet: string;
+  delivery_time: string;
+  line_warranty: string;
 }
 
 @Component({
@@ -348,6 +350,8 @@ export class QuotationsPageComponent implements OnInit {
     line_sku: [''],
     line_description: [''],
     line_datasheet: [''],
+    delivery_time: [''],
+    line_warranty: [''],
   });
 
   /**
@@ -379,7 +383,7 @@ export class QuotationsPageComponent implements OnInit {
       Validators.min(0),
       Validators.max(100),
     ]),
-    delivery_time: this.fb.nonNullable.control<number>(0, Validators.required),
+    delivery_time: this.fb.nonNullable.control<string>(''),
     conditions: ['', Validators.required],
     payment_methods: this.fb.nonNullable.control<number>(0, Validators.required),
     works: [''],
@@ -391,6 +395,7 @@ export class QuotationsPageComponent implements OnInit {
     this.lineForm.disable({ emitEvent: false });
     this.syncExchangeRateValidators(this.form.controls.money.value);
     this.syncRentalValidators(this.form.controls.quotation_type.value);
+    this.syncDeliveryValidators(this.form.controls.quotation_type.value);
     this.prevMoneyForLines = this.form.controls.money.value;
     this.linePricesCurrency = this.form.controls.money.value;
 
@@ -418,6 +423,7 @@ export class QuotationsPageComponent implements OnInit {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((qt) => {
         this.syncRentalValidators(qt);
+        this.syncDeliveryValidators(qt);
         if (qt === 'ALQUILER') {
           // Al cambiar a ALQUILER (acción manual del usuario), sembrar la condición por defecto
           // de "no incluye operador". Si después pulsa "Usar alquiler con operador", se reemplaza.
@@ -552,9 +558,56 @@ export class QuotationsPageComponent implements OnInit {
     return this.form.controls.quotation_type.value === 'ALQUILER';
   }
 
+  isServiceQuotationType(): boolean {
+    return this.form.controls.quotation_type.value === 'SERVICIO';
+  }
+
+  /** VENTA y ALQUILER: plazo de entrega por línea de producto. */
+  showLineDeliveryColumn(): boolean {
+    const qt = this.form.controls.quotation_type.value;
+    return qt === 'VENTA' || qt === 'ALQUILER';
+  }
+
+  /** Columnas dinámicas de la tabla de líneas (sin contar acciones). */
+  lineTableColspan(): number {
+    let n = 5;
+    if (this.showLineDeliveryColumn()) n += 1;
+    n += 1;
+    return n;
+  }
+
   /** PDF: cotización de servicios — sin imágenes ni fichas; 1.ª hoja = precios + trabajos. */
   private isServiceQuotationPdf(row: QuotationRow): boolean {
     return row.quotation_type === 'SERVICIO';
+  }
+
+  /** Plazo de entrega en cabecera solo aplica en SERVICIO. */
+  private usesHeaderDeliveryTime(row: QuotationRow): boolean {
+    return row.quotation_type === 'SERVICIO';
+  }
+
+  private productWarrantyFromCatalog(p: Product | undefined): string {
+    return (p?.warranty ?? p?.warrannty)?.trim() ?? '';
+  }
+
+  private syncDeliveryValidators(qt: QuotationType): void {
+    const headerCtrl = this.form.controls.delivery_time;
+    if (qt === 'SERVICIO') {
+      headerCtrl.setValidators([Validators.required, Validators.pattern(/\S/)]);
+    } else {
+      headerCtrl.clearValidators();
+      headerCtrl.setValue('', { emitEvent: false });
+    }
+    headerCtrl.updateValueAndValidity({ emitEvent: false });
+
+    const lineCtrl = this.lineForm.controls.delivery_time;
+    if (qt === 'VENTA' || qt === 'ALQUILER') {
+      lineCtrl.setValidators([Validators.required, Validators.pattern(/\S/)]);
+    } else {
+      lineCtrl.clearValidators();
+      lineCtrl.setValue('', { emitEvent: false });
+    }
+    lineCtrl.updateValueAndValidity({ emitEvent: false });
   }
 
   rentalPriceLabel(p: Product | null | undefined, mode: 'without' | 'with'): string {
@@ -1048,7 +1101,7 @@ export class QuotationsPageComponent implements OnInit {
         user: this.auth.isAdmin() ? adminPicksSeller : (sellerId ?? null),
         client_contact: null,
         discountPercent: 0,
-        delivery_time: 0,
+        delivery_time: '',
         conditions: DEFAULT_QUOTATION_CONDITIONS,
         payment_methods: pm,
         works: '',
@@ -1060,6 +1113,7 @@ export class QuotationsPageComponent implements OnInit {
     this.linePricesCurrency = 'USD';
     this.syncExchangeRateValidators('USD');
     this.syncRentalValidators('VENTA');
+    this.syncDeliveryValidators('VENTA');
     this.modalOpen.set(true);
     this.clientPickerOpen.set(false);
     this.sellerPickerOpen.set(false);
@@ -1457,6 +1511,8 @@ export class QuotationsPageComponent implements OnInit {
         line_sku: p.sku,
         line_description: p.description,
         line_datasheet: p.datasheet ?? '',
+        delivery_time: '',
+        line_warranty: this.productWarrantyFromCatalog(p),
       },
       { emitEvent: false },
     );
@@ -1500,6 +1556,54 @@ export class QuotationsPageComponent implements OnInit {
       return { line_sku: '', line_description: '', line_datasheet: '' };
     }
     return { line_sku: sku, line_description: desc, line_datasheet: ds };
+  }
+
+  private lineFieldsForApi(
+    productId: number,
+    quotationType: QuotationType,
+    line_sku: string,
+    line_description: string,
+    line_datasheet: string,
+    delivery_time: string,
+    line_warranty: string,
+  ): Record<string, string> {
+    const texts = this.lineTextFieldsForApi(productId, line_sku, line_description, line_datasheet);
+    const result: Record<string, string> = { ...texts };
+    const dt = delivery_time.trim();
+    if (quotationType === 'VENTA' || quotationType === 'ALQUILER') {
+      result['delivery_time'] = dt;
+    } else if (dt) {
+      result['delivery_time'] = dt;
+    }
+    const warranty = line_warranty.trim();
+    const p = this.productsCatalog().find((x) => x.id === productId);
+    const catalogWarranty = this.productWarrantyFromCatalog(p);
+    result['line_warranty'] = warranty === '' || warranty === catalogWarranty ? '' : warranty;
+    return result;
+  }
+
+  displayLineDeliveryTime(line: QuotationProductRow): string {
+    const t = line.delivery_time?.trim();
+    return t || '—';
+  }
+
+  displayDraftDeliveryTime(d: DraftQuotationLine): string {
+    const t = d.delivery_time.trim();
+    return t || '—';
+  }
+
+  displayLineWarranty(line: QuotationProductRow): string {
+    const t = line.line_warranty?.trim();
+    if (t) return t;
+    const p = this.productsCatalog().find((x) => x.id === line.product);
+    return this.productWarrantyFromCatalog(p) || '—';
+  }
+
+  displayDraftWarranty(d: DraftQuotationLine): string {
+    const t = d.line_warranty.trim();
+    if (t) return t;
+    const p = this.productsCatalog().find((x) => x.id === d.product);
+    return this.productWarrantyFromCatalog(p) || '—';
   }
 
   private resetLineEditor(): void {
@@ -1573,7 +1677,7 @@ export class QuotationsPageComponent implements OnInit {
         user: this.auth.isAdmin() ? null : (sellerId ?? null),
         client_contact: null,
         discountPercent: 0,
-        delivery_time: 0,
+        delivery_time: '',
         conditions: DEFAULT_QUOTATION_CONDITIONS,
         payment_methods: pm,
         works: '',
@@ -1585,6 +1689,7 @@ export class QuotationsPageComponent implements OnInit {
     this.linePricesCurrency = 'USD';
     this.syncExchangeRateValidators('USD');
     this.syncRentalValidators('VENTA');
+    this.syncDeliveryValidators('VENTA');
     this.modalOpen.set(true);
     this.clientPickerOpen.set(false);
     this.sellerPickerOpen.set(false);
@@ -1623,7 +1728,7 @@ export class QuotationsPageComponent implements OnInit {
         client_contact: row.client_contact ?? null,
         user: row.user,
         discountPercent: this.discountPercentFromStoredAmount(sub, Number(row.discount)),
-        delivery_time: row.delivery_time,
+        delivery_time: String(row.delivery_time ?? '').trim(),
         conditions: row.conditions ?? '',
         payment_methods: row.payment_methods,
         works: row.works ?? '',
@@ -1635,6 +1740,7 @@ export class QuotationsPageComponent implements OnInit {
     this.linePricesCurrency = row.money;
     this.syncExchangeRateValidators(row.money);
     this.syncRentalValidators(row.quotation_type);
+    this.syncDeliveryValidators(row.quotation_type);
     this.modalOpen.set(true);
     this.clientPickerOpen.set(false);
     this.sellerPickerOpen.set(false);
@@ -1670,7 +1776,7 @@ export class QuotationsPageComponent implements OnInit {
         client_contact: row.client_contact ?? null,
         user: row.user,
         discountPercent: this.discountPercentFromStoredAmount(sub, Number(row.discount)),
-        delivery_time: row.delivery_time,
+        delivery_time: String(row.delivery_time ?? '').trim(),
         conditions: row.conditions ?? '',
         payment_methods: row.payment_methods,
         works: row.works ?? '',
@@ -1682,6 +1788,7 @@ export class QuotationsPageComponent implements OnInit {
     this.linePricesCurrency = row.money;
     this.syncExchangeRateValidators(row.money);
     this.syncRentalValidators(row.quotation_type);
+    this.syncDeliveryValidators(row.quotation_type);
     this.modalOpen.set(true);
     this.clientPickerOpen.set(false);
     this.sellerPickerOpen.set(false);
@@ -1763,7 +1870,7 @@ export class QuotationsPageComponent implements OnInit {
       /** API histórico: importe descontado (compatible con `subtotal − discount`). */
       discount: discAmt.toFixed(2),
       final_price: finalNet.toFixed(2),
-      delivery_time: v.delivery_time,
+      delivery_time: v.quotation_type === 'SERVICIO' ? v.delivery_time.trim() : '',
       conditions: v.conditions,
       payment_methods: v.payment_methods,
       works: v.works,
@@ -1794,18 +1901,21 @@ export class QuotationsPageComponent implements OnInit {
             if (!drafts.length) return of(qRow);
             return from(drafts).pipe(
               concatMap((d) => {
-                const texts = this.lineTextFieldsForApi(
+                const fields = this.lineFieldsForApi(
                   d.product,
+                  qRow.quotation_type,
                   d.line_sku,
                   d.line_description,
                   d.line_datasheet,
+                  d.delivery_time,
+                  d.line_warranty,
                 );
                 return this.qpApi.create({
                   quotation: qRow.id,
                   product: d.product,
                   cant: d.cant,
                   product_price: Number(d.product_price).toFixed(2),
-                  ...texts,
+                  ...fields,
                 } as Partial<QuotationProductRow>);
               }),
               toArray(),
@@ -1912,6 +2022,8 @@ export class QuotationsPageComponent implements OnInit {
           line_sku: row.line_sku ?? p?.sku ?? '',
           line_description: row.line_description ?? p?.description ?? '',
           line_datasheet: row.line_datasheet ?? p?.datasheet ?? '',
+          delivery_time: row.delivery_time ?? '',
+          line_warranty: row.line_warranty ?? this.productWarrantyFromCatalog(p),
         },
         { emitEvent: false },
       );
@@ -1937,6 +2049,8 @@ export class QuotationsPageComponent implements OnInit {
           line_sku: d.line_sku,
           line_description: d.line_description,
           line_datasheet: d.line_datasheet,
+          delivery_time: d.delivery_time,
+          line_warranty: d.line_warranty,
         },
         { emitEvent: false },
       );
@@ -1958,11 +2072,15 @@ export class QuotationsPageComponent implements OnInit {
     }
     const v = this.lineForm.getRawValue();
     const qid = this.editingQuotationId();
-    const texts = this.lineTextFieldsForApi(
+    const quotationType = this.form.controls.quotation_type.value;
+    const fields = this.lineFieldsForApi(
       v.product,
+      quotationType,
       v.line_sku ?? '',
       v.line_description ?? '',
       v.line_datasheet ?? '',
+      v.delivery_time ?? '',
+      v.line_warranty ?? '',
     );
 
     if (qid == null) {
@@ -1978,6 +2096,8 @@ export class QuotationsPageComponent implements OnInit {
             line_sku: v.line_sku ?? '',
             line_description: v.line_description ?? '',
             line_datasheet: v.line_datasheet ?? '',
+            delivery_time: v.delivery_time ?? '',
+            line_warranty: v.line_warranty ?? '',
           },
         ]);
       } else if (mode === 'edit') {
@@ -1994,6 +2114,8 @@ export class QuotationsPageComponent implements OnInit {
                     line_sku: v.line_sku ?? '',
                     line_description: v.line_description ?? '',
                     line_datasheet: v.line_datasheet ?? '',
+                    delivery_time: v.delivery_time ?? '',
+                    line_warranty: v.line_warranty ?? '',
                   }
                 : l,
             ),
@@ -2015,7 +2137,7 @@ export class QuotationsPageComponent implements OnInit {
       product: v.product,
       cant: v.cant,
       product_price: Number(v.product_price).toFixed(2),
-      ...texts,
+      ...fields,
     };
     const req =
       lineId == null
@@ -2025,7 +2147,7 @@ export class QuotationsPageComponent implements OnInit {
             product: v.product,
             cant: v.cant,
             product_price: Number(v.product_price).toFixed(2),
-            ...texts,
+            ...fields,
           } as Partial<QuotationProductRow>);
     req.subscribe({
       next: () => {
@@ -2479,10 +2601,16 @@ export class QuotationsPageComponent implements OnInit {
     return !!this.lineDatasheetForPdf(line).trim();
   }
 
-  /** Garantía del producto (catálogo; campo API `warranty`; compat: `warrannty`). */
+  /** Garantía de línea (override) o catálogo. */
   private lineWarrantyForPdf(line: QuotationProductRow): string {
+    const fromLine = line.line_warranty?.trim();
+    if (fromLine) return fromLine;
     const p = this.productsCatalog().find((x) => x.id === line.product);
-    return (p?.warranty ?? p?.warrannty)?.trim() ?? '';
+    return this.productWarrantyFromCatalog(p);
+  }
+
+  private lineDeliveryTimeForPdf(line: QuotationProductRow): string {
+    return line.delivery_time?.trim() ?? '';
   }
 
   /** Tamaño de la foto de producto en PDF (debajo de la ficha); ancho máx. ~ancho de celda. */
@@ -2518,6 +2646,7 @@ export class QuotationsPageComponent implements OnInit {
     const ds = servicePdf ? '' : this.lineDatasheetForPdf(line);
     const hasDs = !servicePdf && this.hasLineDatasheetForPdf(line);
     const gw = servicePdf ? '' : this.lineWarrantyForPdf(line);
+    const dt = servicePdf ? '' : this.lineDeliveryTimeForPdf(line);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8.5);
     const mainLines = doc.splitTextToSize(main, innerW).length;
@@ -2530,12 +2659,19 @@ export class QuotationsPageComponent implements OnInit {
       doc.setFont('helvetica', 'normal');
       h += 1.2 + 4 + dsLines * 3.5;
     }
+    if (dt) {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
+      const dtLines = doc.splitTextToSize(`PLAZO DE ENTREGA: ${dt}`.toUpperCase(), innerW).length;
+      doc.setFont('helvetica', 'normal');
+      h += (this.hasLineDatasheetForPdf(line) || gw ? 2 : 1.2) + dtLines * 3.5;
+    }
     if (gw) {
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(7);
       const gaLines = doc.splitTextToSize(`GARANTIA: ${gw}`.toUpperCase(), innerW).length;
       doc.setFont('helvetica', 'normal');
-      h += (hasDs ? 2 : 1.2) + gaLines * 3.5;
+      h += (hasDs || dt ? 2 : 1.2) + gaLines * 3.5;
     }
     if (hasImg) {
       const url = productImages.get(line.product);
@@ -3091,7 +3227,7 @@ export class QuotationsPageComponent implements OnInit {
     y: number,
     typeLabel: string,
     moneyLabel: string,
-    deliveryLabel: string,
+    deliveryLabel: string | null,
     penExchangeLine: string | null,
     payName: string,
     conditionsFreeText: string | null,
@@ -3106,7 +3242,7 @@ export class QuotationsPageComponent implements OnInit {
     const rightLines = conditionsFreeText?.trim()
       ? doc.splitTextToSize(conditionsFreeText.trim(), colW)
       : [];
-    const leftRows = 5 + (penExchangeLine != null ? 1 : 0);
+    const leftRows = 4 + (deliveryLabel != null ? 1 : 0) + (penExchangeLine != null ? 1 : 0);
     const estLeftMm = 8 + leftRows * 6;
     const estRightMm = 8 + rightLines.length * 4.2;
     const estBlock = 10 + Math.max(estLeftMm, estRightMm);
@@ -3138,7 +3274,9 @@ export class QuotationsPageComponent implements OnInit {
     if (penExchangeLine != null) {
       leftY = L(leftY, 'Tipo de cambio (PEN/USD):', penExchangeLine);
     }
-    leftY = L(leftY, 'Plazo de entrega:', deliveryLabel);
+    if (deliveryLabel != null) {
+      leftY = L(leftY, 'Plazo de entrega:', deliveryLabel);
+    }
     leftY = L(leftY, 'Método de pago:', payName);
 
     const postLeftPage = this.quotationPdfCurrentPageOneBased(doc);
@@ -3510,12 +3648,14 @@ export class QuotationsPageComponent implements OnInit {
       // Página "Datos técnicos": solo la descripción del producto, sin prefijo de alquiler.
       const title = this.productLineDescription(line);
       const ds = this.lineDatasheetForPdf(line);
+      const dt = this.lineDeliveryTimeForPdf(line);
       const gw = this.lineWarrantyForPdf(line);
       const img = productImages.get(line.product);
 
       const rightText: string[] = [];
       rightText.push(title);
       if (ds?.trim()) rightText.push(ds.trim());
+      if (dt) rightText.push(`PLAZO DE ENTREGA: ${dt}`);
       if (gw?.trim()) rightText.push(`GARANTÍA: ${gw.trim()}`);
 
       doc.setFont('helvetica', 'normal');
@@ -3582,6 +3722,14 @@ export class QuotationsPageComponent implements OnInit {
         ty += 2;
       }
 
+      if (dt) {
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8.5);
+        doc.setTextColor(...T.textBody);
+        doc.text(`PLAZO DE ENTREGA: ${dt}`.toUpperCase(), rightX, ty);
+        ty += 5;
+      }
+
       if (gw?.trim()) {
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(8.5);
@@ -3614,7 +3762,9 @@ export class QuotationsPageComponent implements OnInit {
     baseLines.push(`Tipo: ${typeLabel}`);
     baseLines.push(`Moneda: ${row.money}`);
     if (penEx != null) baseLines.push(`Tipo de cambio (PEN/USD): ${penEx}`);
-    baseLines.push(`Plazo de entrega: ${this.deliveryTimePdfLabel(row.delivery_time)}`);
+    if (this.usesHeaderDeliveryTime(row)) {
+      baseLines.push(`Plazo de entrega: ${this.deliveryTimePdfLabel(row.delivery_time)}`);
+    }
     baseLines.push(`Forma de pago: ${(pay?.name ?? '—').trim()}`);
 
     for (const bl of baseLines) {
@@ -4123,10 +4273,25 @@ export class QuotationsPageComponent implements OnInit {
             }
           }
         }
+        const dt = this.lineDeliveryTimeForPdf(qLine);
+        if (dt) {
+          const plazoText = `PLAZO DE ENTREGA: ${dt}`.toUpperCase();
+          cy += this.hasLineDatasheetForPdf(qLine) ? 2 : 1.2;
+          if (cy <= maxY) {
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(7);
+            doc.setTextColor(...T.textLabel);
+            for (const dl of doc.splitTextToSize(plazoText, textW)) {
+              if (cy > maxY) break;
+              doc.text(dl, left, cy);
+              cy += 3.5;
+            }
+          }
+        }
         const gw = this.lineWarrantyForPdf(qLine);
         if (gw) {
           const garantiaText = `GARANTIA: ${gw}`.toUpperCase();
-          cy += this.hasLineDatasheetForPdf(qLine) ? 2 : 1.2;
+          cy += this.hasLineDatasheetForPdf(qLine) || dt ? 2 : 1.2;
           if (cy <= maxY) {
             doc.setFont('helvetica', 'bold');
             doc.setFontSize(7);
@@ -4210,7 +4375,7 @@ export class QuotationsPageComponent implements OnInit {
       y,
       typeLabel,
       row.money,
-      this.deliveryTimePdfLabel(row.delivery_time),
+      this.usesHeaderDeliveryTime(row) ? this.deliveryTimePdfLabel(row.delivery_time) : null,
       penEx,
       pay?.name ?? '—',
       row.conditions?.trim() ?? null,
@@ -4294,10 +4459,16 @@ export class QuotationsPageComponent implements OnInit {
     return y + 5;
   }
 
-  /** Plazo de entrega en PDF: 0 días se muestra como Stock Inmediato. */
-  private deliveryTimePdfLabel(days: number): string {
-    if (days === 0) return 'Stock Inmediato';
-    return `${days} día(s)`;
+  /** Plazo de entrega en PDF (cabecera SERVICIO o texto libre por línea). */
+  private deliveryTimePdfLabel(value: string | number | null | undefined): string {
+    const s = String(value ?? '').trim();
+    if (!s || s === '0') return 'Stock Inmediato';
+    if (/^\d+$/.test(s)) {
+      const n = Number(s);
+      if (n === 0) return 'Stock Inmediato';
+      return `${n} día(s)`;
+    }
+    return s;
   }
 
   /** Fecha legible para el PDF (sin etiqueta «Creado»). */

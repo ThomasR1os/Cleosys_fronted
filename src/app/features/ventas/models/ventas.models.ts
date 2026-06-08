@@ -300,7 +300,8 @@ export interface QuotationRow {
   /** Importes como string decimal típico de DRF. */
   discount: string;
   final_price: string;
-  delivery_time: number;
+  /** Texto libre (p. ej. «15 días hábiles»). Principal en SERVICIO; en VENTA/ALQUILER puede ir vacío. */
+  delivery_time: string;
   /** Texto libre o null. */
   conditions: string | null;
   payment_methods: number;
@@ -323,6 +324,10 @@ export interface QuotationProductRow {
   line_sku?: string;
   line_description?: string;
   line_datasheet?: string | null;
+  /** Plazo por línea (VENTA/ALQUILER). Opcional en SERVICIO. */
+  delivery_time?: string | null;
+  /** Garantía editable por línea; si vacío, el backend puede copiar del catálogo. */
+  line_warranty?: string | null;
 }
 
 export interface PaymentMethodRow {
