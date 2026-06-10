@@ -2666,6 +2666,79 @@ export class QuotationsPageComponent implements OnInit {
     return '';
   }
 
+  /** Plazo de entrega mostrado bajo el nombre del ítem en la tabla de precios. */
+  private lineDeliveryTimeLabelUnderItemPdf(line: QuotationProductRow, row: QuotationRow): string {
+    const dt = this.lineDeliveryTimeForPdf(line, row);
+    if (!dt) return '';
+    const s = String(dt).trim();
+    if (!s || s === '0') return 'TIEMPO DE ENTREGA: STOCK INMEDIATO';
+    if (/^\d+$/.test(s)) {
+      const n = Number(s);
+      if (n === 0) return 'TIEMPO DE ENTREGA: STOCK INMEDIATO';
+      return `TIEMPO DE ENTREGA: ${n} DIA(s)`;
+    }
+    return `TIEMPO DE ENTREGA: ${s.toUpperCase()}`;
+  }
+
+  /** Dibuja descripción + plazo de entrega (tipografía reducida y color secundario). */
+  private drawPdfItemDescriptionWithDeliveryTime(
+    doc: jsPDF,
+    left: number,
+    textW: number,
+    startY: number,
+    maxY: number,
+    main: string,
+    deliveryLabel: string,
+    T: PdfQuotationTheme,
+  ): number {
+    let cy = startY;
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...T.totalBar);
+    doc.setFontSize(8.5);
+    for (const ml of doc.splitTextToSize(main, textW)) {
+      if (cy > maxY) break;
+      doc.text(ml, left, cy);
+      cy += 4.1;
+    }
+    if (deliveryLabel) {
+      cy +=0.5;
+      if (cy <= maxY) {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(6.5);
+        doc.setTextColor(...T.textCaption);
+        for (const dl of doc.splitTextToSize(deliveryLabel, textW)) {
+          if (cy > maxY) break;
+          doc.text(dl, left, cy);
+          cy += 3.2;
+        }
+      }
+    }
+    return cy;
+  }
+
+  /** Altura mínima de celda de descripción (solo nombre + plazo de entrega). */
+  private estimatePdfPriceDescWithDeliveryHeight(
+    doc: jsPDF,
+    line: QuotationProductRow,
+    row: QuotationRow,
+    descColWidthMm: number,
+  ): number {
+    const padV = 3.5;
+    const innerW = Math.max(18, descColWidthMm - 4);
+    const main = this.displayLineDescription(line, row);
+    const dtLabel = this.lineDeliveryTimeLabelUnderItemPdf(line, row);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    const mainLines = doc.splitTextToSize(main, innerW).length;
+    let h = padV + 3.3 + mainLines * 4.1 + padV;
+    if (dtLabel) {
+      doc.setFontSize(6.5);
+      const dtLines = doc.splitTextToSize(dtLabel, innerW).length;
+      h += dtLines * 2.5;
+    }
+    return h;
+  }
+
   /** Tamaño de la foto de producto en PDF (debajo de la ficha); ancho máx. ~ancho de celda. */
   private pdfDescImageDisplayMm(
     doc: jsPDF,
@@ -2696,6 +2769,7 @@ export class QuotationsPageComponent implements OnInit {
     const hasImg = !servicePdf && !!productImages.get(line.product);
     const innerW = Math.max(18, descColWidthMm - 4);
     const main = this.displayLineDescription(line, row);
+    const dtLabel = this.lineDeliveryTimeLabelUnderItemPdf(line, row);
     const ds = servicePdf ? '' : this.lineDatasheetForPdf(line);
     const hasDs = !servicePdf && this.hasLineDatasheetForPdf(line);
     const gw = servicePdf ? '' : this.lineWarrantyForPdf(line);
@@ -2704,6 +2778,12 @@ export class QuotationsPageComponent implements OnInit {
     const mainLines = doc.splitTextToSize(main, innerW).length;
     /** Alineado con `didDrawCell`: padding + offset a primera línea + cuerpo + padding. */
     let h = padV + 3.3 + mainLines * 4.1 + padV;
+    if (dtLabel) {
+      doc.setFontSize(6.5);
+      const dtLines = doc.splitTextToSize(dtLabel, innerW).length;
+      doc.setFont('helvetica', 'normal');
+      h += 1.5 + dtLines * 3.2;
+    }
     if (hasDs) {
       doc.setFont('times', 'italic');
       doc.setFontSize(7);
@@ -3260,9 +3340,57 @@ export class QuotationsPageComponent implements OnInit {
     return Math.max(leftY, rightY) + 6;
   }
 
+  /** Texto libre de consideraciones comerciales (ancho completo). */
+  private drawPdfQuotationConsideracionesComerciales(
+    doc: jsPDF,
+    T: PdfQuotationTheme,
+    margin: number,
+    tableInnerW: number,
+    y: number,
+    conditionsFreeText: string | null | undefined,
+    reserveBottom = 22,
+    titleFontSize = 9,
+    bodyFontSize = 8,
+    minStartY?: number,
+  ): number {
+    const text = conditionsFreeText?.trim();
+    if (!text) return y;
+
+    const maxY = this.quotationPdfMaxContentY(doc, reserveBottom);
+    const bump = (yy: number, need = 8): number => {
+      if (yy + need <= maxY) return yy;
+      doc.addPage();
+      return minStartY ?? margin + 8;
+    };
+
+    y = bump(y, 10);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(titleFontSize);
+    doc.setTextColor(...T.primary);
+    doc.text('CONSIDERACIONES COMERCIALES', margin, y);
+    y += 5.5;
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(bodyFontSize);
+    doc.setTextColor(0, 0, 0);
+    for (const para of text.split(/\r?\n/)) {
+      const trimmed = para.trim();
+      if (!trimmed) {
+        y += 2;
+        continue;
+      }
+      for (const line of doc.splitTextToSize(trimmed, tableInnerW)) {
+        y = bump(y, 5);
+        doc.text(line, margin, y);
+        y += 4.1;
+      }
+      y += 1;
+    }
+    return y + 4;
+  }
+
   /**
-   * Tras la tabla de productos: 50/50 «Condiciones de la operación» (incl. método de pago)
-   * y «Condiciones comerciales» (solo texto libre; cuerpo en negro).
+   * Tras la tabla de productos: 1) Condiciones comerciales, 2) Consideraciones comerciales.
    */
   private drawPdfQuotationOperacionYComerciales(
     doc: jsPDF,
@@ -3278,157 +3406,54 @@ export class QuotationsPageComponent implements OnInit {
     conditionsFreeText: string | null,
   ): number {
     const reserveBottom = 22;
-    const colGap = 4;
-    const colW = (tableInnerW - colGap) / 2;
-    const leftX = margin;
-    const rightX = margin + colW + colGap;
     const maxY = this.quotationPdfMaxContentY(doc, reserveBottom);
-
-    const rightLines = conditionsFreeText?.trim()
-      ? doc.splitTextToSize(conditionsFreeText.trim(), colW)
-      : [];
-    const leftRows = 4 + (deliveryLabel != null ? 1 : 0) + (penExchangeLine != null ? 1 : 0);
-    const estLeftMm = 8 + leftRows * 6;
-    const estRightMm = 8 + rightLines.length * 4.2;
-    const estBlock = 10 + Math.max(estLeftMm, estRightMm);
-
-    let titleY = y;
-    if (titleY + estBlock > maxY) {
-      doc.addPage();
-      titleY = margin + 8;
-    }
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9);
-    doc.setTextColor(...T.primary);
-    doc.text('Condiciones de la operación', leftX, titleY);
-    doc.text('Condiciones comerciales', rightX, titleY);
-    const pageOfTitles = this.quotationPdfCurrentPageOneBased(doc);
-
-    let leftY = titleY + 5.5;
-
-    const L = (
-      yy: number,
-      label: string,
-      value: string,
-    ): number =>
-      this.pdfPdfBoldLabelParagraphAtPageSafe(doc, T, margin, reserveBottom, leftX, colW, yy, label, value);
-
-    leftY = L(leftY, 'Tipo:', typeLabel);
-    leftY = L(leftY, 'Moneda:', moneyLabel);
-    if (penExchangeLine != null) {
-      leftY = L(leftY, 'Tipo de cambio (PEN/USD):', penExchangeLine);
-    }
-    if (deliveryLabel != null) {
-      leftY = L(leftY, 'Plazo de entrega:', deliveryLabel);
-    }
-    leftY = L(leftY, 'Método de pago:', payName);
-
-    const postLeftPage = this.quotationPdfCurrentPageOneBased(doc);
-    const postLeftY = leftY;
-
-    let rightY = titleY + 5.5;
-    if (rightLines.length > 0) {
-      doc.setPage(pageOfTitles);
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8);
-      doc.setTextColor(0, 0, 0);
-      for (const line of rightLines) {
-        if (rightY + 4.1 > maxY) {
-          doc.addPage();
-          rightY = margin + 8;
-        }
-        doc.text(line, rightX, rightY);
-        rightY += 4.1;
-      }
-    }
-
-    const postRightPage = this.quotationPdfCurrentPageOneBased(doc);
-    const postRightY = rightY;
-    let endY: number;
-    let endPage: number;
-    if (postRightPage > postLeftPage) {
-      endPage = postRightPage;
-      endY = postRightY;
-    } else if (postLeftPage > postRightPage) {
-      endPage = postLeftPage;
-      endY = postLeftY;
-    } else {
-      endPage = postLeftPage;
-      endY = Math.max(postLeftY, postRightY);
-    }
-    doc.setPage(endPage);
-    return endY + 6;
-  }
-
-  /** Etiqueta de ítem para listados del PDF (tabla de precios / plazos). */
-  private pdfLineItemLabel(line: QuotationProductRow, row: QuotationRow, index: number): string {
-    const n = index + 1;
-    if (row.see_sku) {
-      const sku = this.productLineLabel(line);
-      return `${n}. ${sku}`;
-    }
-    const desc = this.displayLineDescription(line, row);
-    return `${n}. ${desc}`;
-  }
-
-  private deliveryTimePdfEntries(
-    row: QuotationRow,
-    lines: QuotationProductRow[],
-  ): { label: string; delivery: string }[] {
-    return lines
-      .map((line, idx) => {
-        const delivery = this.lineDeliveryTimeForPdf(line, row);
-        if (!delivery) return null;
-        return {
-          label: this.pdfLineItemLabel(line, row, idx),
-          delivery: this.deliveryTimePdfLabel(delivery),
-        };
-      })
-      .filter((x): x is { label: string; delivery: string } => x != null);
-  }
-
-  /** Bloque bajo «Condiciones comerciales»: plazo de entrega de cada ítem. */
-  private drawPdfQuotationDeliveryTimesPerItem(
-    doc: jsPDF,
-    T: PdfQuotationTheme,
-    margin: number,
-    tableInnerW: number,
-    y: number,
-    row: QuotationRow,
-    lines: QuotationProductRow[],
-    reserveBottom = 22,
-  ): number {
-    const entries = this.deliveryTimePdfEntries(row, lines);
-    if (!entries.length) return y;
-
-    const maxY = this.quotationPdfMaxContentY(doc, reserveBottom);
-    const bump = (yy: number, need = 6): number => {
+    const bump = (yy: number, need = 10): number => {
       if (yy + need <= maxY) return yy;
       doc.addPage();
       return margin + 8;
     };
 
-    y = bump(y, 14);
+    y = bump(y);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(9);
     doc.setTextColor(...T.primary);
-    doc.text('Tiempos de entrega por ítem', margin, y);
-    y += 6;
+    doc.text('CONDICIONES COMERCIALES', margin, y);
+    y += 5.5;
 
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8.5);
-    doc.setTextColor(...T.textBody);
-    for (const { label, delivery } of entries) {
-      const lineText = `${label}: ${delivery}`;
-      for (const part of doc.splitTextToSize(lineText, tableInnerW)) {
-        y = bump(y, 5);
-        doc.text(part, margin, y);
-        y += 4.2;
-      }
-      y += 1;
+    const L = (yy: number, label: string, value: string): number =>
+      this.pdfPdfBoldLabelParagraphAtPageSafe(
+        doc,
+        T,
+        margin,
+        reserveBottom,
+        margin,
+        tableInnerW,
+        yy,
+        label,
+        value,
+      );
+
+    y = L(y, 'Tipo:', typeLabel);
+    y = L(y, 'Moneda:', moneyLabel);
+    if (penExchangeLine != null) {
+      y = L(y, 'Tipo de cambio (PEN/USD):', penExchangeLine);
     }
-    return y + 4;
+    if (deliveryLabel != null) {
+      y = L(y, 'Plazo de entrega:', deliveryLabel);
+    }
+    y = L(y, 'Método de pago:', payName);
+    y += 4;
+
+    y = this.drawPdfQuotationConsideracionesComerciales(
+      doc,
+      T,
+      margin,
+      tableInnerW,
+      y,
+      conditionsFreeText,
+      reserveBottom,
+    );
+    return y;
   }
 
   private cropImageDataUrlToSquare(dataUrl: string): Promise<string | null> {
@@ -3622,6 +3647,9 @@ export class QuotationsPageComponent implements OnInit {
     const col = showSku
       ? { num: 9, sku: 26, desc: 72, cant: 12, pUnit: 30, pTot: 33 }
       : { num: 9, desc: 98, cant: 12, pUnit: 31, pTot: 32 };
+    const descIdx = showSku ? 2 : 1;
+    const colSum = 182;
+    const descColWidthMm = (tableInnerW * col.desc) / colSum;
     const head = showSku
       ? [['#', 'Nro. Parte', 'Descripción', 'Cant.', 'Valor Unit.', 'Valor Total']]
       : [['#', 'Descripción', 'Cant.', 'Valor Unit.', 'Valor Total']];
@@ -3632,13 +3660,14 @@ export class QuotationsPageComponent implements OnInit {
       const item = String(idx + 1);
       const puStr = this.formatMoneyPdfPlain(pu);
       const subStr = this.formatMoneyPdfPlain(subt);
-      const desc = this.displayLineDescription(line, row);
       const sym = money === 'PEN' ? 'S/' : '$';
       if (showSku) {
-        return [item, this.productLineLabel(line), desc, String(line.cant), `${sym} ${puStr}`, `${sym} ${subStr}`];
+        return [item, this.productLineLabel(line), ' ', String(line.cant), `${sym} ${puStr}`, `${sym} ${subStr}`];
       }
-      return [item, desc, String(line.cant), `${sym} ${puStr}`, `${sym} ${subStr}`];
+      return [item, ' ', String(line.cant), `${sym} ${puStr}`, `${sym} ${subStr}`];
     });
+
+    const nProductRows = lineBody.length;
 
     const subtotal = this.subtotalForQuotationId(row.id);
     const disc = Number(row.discount);
@@ -3727,6 +3756,58 @@ export class QuotationsPageComponent implements OnInit {
           },
       margin: { left: margin, right: margin, top: headerBottomY },
       tableWidth: tableInnerW,
+      didParseCell: (data) => {
+        if (data.section !== 'body' || data.column.index == null) return;
+        const lineIdx = this.resolveQuotationPdfProductLineIndex(data.row, nProductRows);
+        if (lineIdx == null) return;
+        if (data.column.index === descIdx) {
+          const qLine = lines[lineIdx];
+          if (qLine) {
+            data.cell.styles.minCellHeight = this.estimatePdfPriceDescWithDeliveryHeight(
+              doc,
+              qLine,
+              row,
+              descColWidthMm,
+            );
+            data.cell.styles.valign = 'top';
+          }
+        }
+      },
+      willDrawCell: (data) => {
+        if (data.section !== 'body' || data.column.index !== descIdx) return;
+        const lineIdx = this.resolveQuotationPdfProductLineIndex(data.row, nProductRows);
+        if (lineIdx != null) {
+          data.cell.text = [];
+        }
+      },
+      didDrawCell: (data) => {
+        if (data.section !== 'body' || data.column.index !== descIdx) return;
+        const lineIdx = this.resolveQuotationPdfProductLineIndex(data.row, nProductRows);
+        if (lineIdx == null) return;
+        const qLine = lines[lineIdx];
+        if (!qLine) return;
+        const cell = data.cell;
+        const padL = cell.padding('left');
+        const padT = cell.padding('top');
+        const padR = cell.padding('right');
+        const left = cell.x + padL;
+        const textW = Math.max(18, cell.width - padL - padR);
+        const maxY = cell.y + cell.height - cell.padding('bottom');
+        const main = this.displayLineDescription(qLine, row);
+        const dtLabel = this.lineDeliveryTimeLabelUnderItemPdf(qLine, row);
+        this.drawPdfItemDescriptionWithDeliveryTime(
+          doc,
+          left,
+          textW,
+          cell.y + padT + 3.3,
+          maxY,
+          main,
+          dtLabel,
+          T,
+        );
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(...T.totalBar);
+      },
     });
 
     const lastY = (doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY;
@@ -3876,43 +3957,17 @@ export class QuotationsPageComponent implements OnInit {
     }
     y += 6;
 
-    const conditionsText = row.conditions?.trim();
-    if (conditionsText) {
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(10);
-      doc.setTextColor(...T.primary);
-      y = ensureCondicionesY(8, y);
-      doc.text('CONSIDERACIONES COMERCIALES', margin, y);
-      y += 6;
-
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(9);
-      doc.setTextColor(...T.textBody);
-      for (const para of conditionsText.split(/\r?\n/)) {
-        const trimmed = para.trim();
-        if (!trimmed) {
-          y += 2;
-          continue;
-        }
-        for (const line of doc.splitTextToSize(trimmed, tableInnerW)) {
-          y = ensureCondicionesY(5, y);
-          doc.text(line, margin, y);
-          y += 4.2;
-        }
-        y += 1;
-      }
-      y += 4;
-    }
-
-    y = this.drawPdfQuotationDeliveryTimesPerItem(
+    y = this.drawPdfQuotationConsideracionesComerciales(
       doc,
       T,
       margin,
       tableInnerW,
       y,
-      row,
-      lines,
+      row.conditions,
       reserveBottom,
+      10,
+      9,
+      headerBottomY,
     );
 
     const bankText = bankAccounts?.trim();
@@ -4357,15 +4412,19 @@ export class QuotationsPageComponent implements OnInit {
         const maxY = cell.y + cell.height - cell.padding('bottom');
         let cy = cell.y + padT + 3.3;
         const main = this.displayLineDescription(qLine, row);
+        const dtLabel = this.lineDeliveryTimeLabelUnderItemPdf(qLine, row);
+        cy = this.drawPdfItemDescriptionWithDeliveryTime(
+          doc,
+          left,
+          textW,
+          cy,
+          maxY,
+          main,
+          dtLabel,
+          T,
+        );
         doc.setFont('helvetica', 'normal');
         doc.setTextColor(...T.totalBar);
-        doc.setFontSize(8.5);
-        const mainLines = doc.splitTextToSize(main, textW);
-        for (const ml of mainLines) {
-          if (cy > maxY) break;
-          doc.text(ml, left, cy);
-          cy += 4.1;
-        }
         if (!isServicePdf) {
           const ds = this.lineDatasheetForPdf(qLine);
           if (this.hasLineDatasheetForPdf(qLine)) {
@@ -4455,18 +4514,6 @@ export class QuotationsPageComponent implements OnInit {
     doc.line(margin, y - 3, pageW - margin, y - 3);
     y += 4;
 
-    if (isServicePdf) {
-      y = this.drawPdfQuotationWorksSection(
-        doc,
-        T,
-        margin,
-        tableInnerW,
-        y,
-        row.works,
-        'TRABAJOS A REALIZAR',
-      );
-    }
-
     y = this.drawPdfQuotationOperacionYComerciales(
       doc,
       T,
@@ -4481,9 +4528,17 @@ export class QuotationsPageComponent implements OnInit {
       row.conditions?.trim() ?? null,
     );
 
-    y = this.drawPdfQuotationDeliveryTimesPerItem(doc, T, margin, tableInnerW, y, row, lines);
-
-    if (!isServicePdf) {
+    if (isServicePdf) {
+      y = this.drawPdfQuotationWorksSection(
+        doc,
+        T,
+        margin,
+        tableInnerW,
+        y,
+        row.works,
+        'TRABAJOS A REALIZAR',
+      );
+    } else {
       y = this.drawPdfQuotationWorksSection(doc, T, margin, tableInnerW, y, row.works);
     }
 
