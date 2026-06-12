@@ -3822,9 +3822,10 @@ export class QuotationsPageComponent implements OnInit {
         y,
         row.works,
         'TRABAJOS A REALIZAR',
+        headerBottomY,
       );
     } else {
-      y = this.drawPdfQuotationWorksSection(doc, T, margin, tableInnerW, y, row.works);
+      y = this.drawPdfQuotationWorksSection(doc, T, margin, tableInnerW, y, row.works, 'SERVICIO TÉCNICO', headerBottomY);
     }
 
     // ===== Página 2+: Datos técnicos (solo productos con ficha técnica; no en servicios) =====
@@ -4588,28 +4589,31 @@ export class QuotationsPageComponent implements OnInit {
     y: number,
     works: string | null | undefined,
     sectionTitle = 'SERVICIO TÉCNICO',
+    /** Y mínima en páginas nuevas (p. ej. bajo membrete repetido en Compresores). */
+    contentTopY?: number,
   ): number {
     const text = works?.trim();
     if (!text) return y;
 
     const worksReserve = 22;
     const worksMaxY = this.quotationPdfMaxContentY(doc, worksReserve);
+    const pageStartY = contentTopY ?? margin + 8;
+    const bumpPage = (yy: number, need: number): number => {
+      if (yy + need <= worksMaxY) return yy;
+      doc.addPage();
+      return pageStartY;
+    };
+
+    y = bumpPage(y, 12);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8.5);
     doc.setTextColor(...T.primary);
-    if (y + 12 > worksMaxY) {
-      doc.addPage();
-      y = margin + 8;
-    }
     doc.text(sectionTitle, margin, y);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(...T.textBody);
     y += 4.5;
     for (const line of doc.splitTextToSize(text, tableInnerW)) {
-      if (y + 4.2 > worksMaxY) {
-        doc.addPage();
-        y = margin + 8;
-      }
+      y = bumpPage(y, 4.2);
       doc.text(line, margin, y);
       y += 4.2;
     }
