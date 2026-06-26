@@ -345,7 +345,12 @@
                   type="button"
                   class="btn btn-secondary btn-sm"
                   (click)="useExistingClientFromLookup()"
-                  [disabled]="contactSaving()"
+                  [disabled]="contactSaving() || !canUseExistingClientFromLookup()"
+                  [title]="
+                    !canUseExistingClientFromLookup()
+                      ? 'Para otro asesor, use «Registrar contacto y volver»'
+                      : ''
+                  "
                 >
                   Usar cliente existente
                 </button>
@@ -369,9 +374,8 @@
               <p class="text-xs text-base-content/70">
                 Muchos clientes tienen un solo asesor en la empresa; otros tienen varios contactos con distintos
                 encargados.
-                Use «Usar cliente existente» para cotizar con ese mismo cliente; si debe dar de alta un contacto nuevo
-                (p. ej. otro asesor), complete nombre y apellido y «Registrar contacto y volver». «Derivar a»
-                define el encargado del contacto nuevo.
+                Use «Usar cliente existente» solo si el asesor en «Derivar a» ya tiene contacto en ese cliente; si debe
+                derivar a otro asesor, complete nombre y apellido y «Registrar contacto y volver».
               </p>
             </div>
           }
@@ -602,6 +606,14 @@
                 <option [value]="u.id">{{ u.nombre }}</option>
               }
             </select>
+            @if (form.controls.assigned_user.touched && !hasSelectedAssignedUser()) {
+              <span class="label-text-alt text-error">Seleccione quién atenderá la solicitud</span>
+            }
+            @if (assignedAdvisorNombre(); as nombre) {
+              <span class="label-text-alt text-base-content/70">
+                La solicitud quedará asignada a {{ nombre }}.
+              </span>
+            }
           </label>
 
           <label class="form-control w-full">

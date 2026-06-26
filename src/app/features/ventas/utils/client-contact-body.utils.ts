@@ -22,10 +22,21 @@ export function sanitizeClientContactBody<
   return out as T;
 }
 
-/** Asignación de encargado en contacto (mismo `user` que /ventas/contactos). */
+/**
+ * Asignación de encargado en contacto (mismo criterio que /ventas/contactos).
+ * `user`: id de usuario Django; `owner`: id de perfil assignable-users cuando difiere.
+ */
 export function contactAdvisorAssignBody(
-  assignableUserId: number,
-): Pick<ClientContactPatchPayload, 'user'> {
-  const pk = coerceUserPk(assignableUserId);
-  return { user: pk != null ? Math.trunc(pk) : Math.trunc(assignableUserId) };
+  userId: number,
+  profileId?: number | null,
+): Pick<ClientContactPatchPayload, 'user' | 'owner'> {
+  const uid = coerceUserPk(userId) ?? Math.trunc(userId);
+  const body: Pick<ClientContactPatchPayload, 'user' | 'owner'> = {
+    user: Math.trunc(uid),
+  };
+  const pid = profileId != null ? coerceUserPk(profileId) : null;
+  if (pid != null && pid > 0 && pid !== body.user) {
+    body.owner = Math.trunc(pid);
+  }
+  return body;
 }

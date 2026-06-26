@@ -211,12 +211,15 @@ export interface ProformaRequestPatchPayload {
 /** GET /api/ventas/proforma-requests/assignable-users/ */
 export interface AssignableUser {
   /**
-   * Id del ítem en assignable-users (mismo valor que en /ventas/contactos).
-   * Se envía en PATCH/POST de contacto como `user`.
+   * Usuario Django (`User.pk`): valor del select «Derivar a» y campo `assigned_user`
+   * en POST/PATCH de solicitudes de proforma.
    */
   id: number;
-  /** Usuario Django para `assigned_user` en solicitudes de proforma (si el API lo separa de `id`). */
-  djangoUserId?: number;
+  /**
+   * Id de perfil/ítem en assignable-users cuando el API lo separa de `id`.
+   * Se envía como `owner` en contactos si difiere de `id`.
+   */
+  profileId?: number;
   username: string;
   first_name: string;
   last_name: string;

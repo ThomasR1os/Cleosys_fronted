@@ -14,6 +14,7 @@ import type {
   ClientCreatePayload,
   ClientContactPatchPayload,
   ClientContactRow,
+  ClientLookupContactItem,
   ClientLookupSalesSummary,
   ClientRow,
   ProformaEntryChannel,
@@ -197,6 +198,8 @@ export class ProformaRequestsPageComponent implements OnInit {
   readonly consultingRucNewClient = signal(false);
   /** Cliente ya existente en empresa tras consultar RUC (no crear duplicado). */
   readonly existingClientFromDb = signal<ClientRow | null>(null);
+  /** Contactos devueltos por lookup-by-ruc al consultar RUC en alta de cliente. */
+  readonly existingClientLookupContacts = signal<ClientLookupContactItem[]>([]);
   /** Texto bajo el RUC cuando ya existe en BD (asesores por contactos). */
   readonly rucAdvisorHint = signal<string | null>(null);
 
@@ -564,12 +567,21 @@ export class ProformaRequestsPageComponent implements OnInit {
       phone: '',
     });
     this.modalView.set('newClient');
-    this.form.patchValue({ assigned_user: 0 }, { emitEvent: false });
+    if (!this.hasSelectedAssignedUser()) {
+      this.form.patchValue({ assigned_user: 0 }, { emitEvent: false });
+    }
     this.loadAssignableUsers();
   }
 
   hasSelectedAssignedUser(): boolean {
     return this.selectedAssignedUserPk() != null;
+  }
+
+  /** True si el asesor elegido ya tiene un contacto en el cliente encontrado por RUC. */
+  canUseExistingClientFromLookup(): boolean {
+    const sel = this.selectedAssignableUser();
+    if (sel == null) return false;
+    return this.lookupHasContactForAdvisor(sel);
   }
 
   assignedAdvisorNombre(): string | null {
@@ -582,17 +594,10 @@ export class ProformaRequestsPageComponent implements OnInit {
     return this.assignableUsers().find((u) => u.id === id) ?? null;
   }
 
-  private contactAssignBodyForUserId(
-    assignableId: number,
-  ): Pick<ClientContactPatchPayload, 'user'> {
-    return contactAdvisorAssignBody(assignableId);
-  }
-
-  /** Usuario Django para POST/PATCH de solicitud de proforma (`assigned_user`). */
-  private proformaAssignedUserId(): number | null {
-    const sel = this.selectedAssignableUser();
-    if (sel != null) return sel.djangoUserId ?? sel.id;
-    return this.selectedAssignedUserPk();
+  private contactAssignBodyForAdvisor(
+    sel: AssignableUser,
+  ): Pick<ClientContactPatchPayload, 'user' | 'owner'> {
+    return contactAdvisorAssignBody(sel.id, sel.profileId);
   }
 
   backToProformaForm(): void {
@@ -714,6 +719,7 @@ export class ProformaRequestsPageComponent implements OnInit {
     this.errorMessage.set(null);
     this.rucAdvisorHint.set(null);
     this.existingClientFromDb.set(null);
+    this.existingClientLookupContacts.set([]);
 
     this.clientsApi.lookupByRuc(raw, 'company').subscribe({
       next: (res) => {
@@ -727,6 +733,7 @@ export class ProformaRequestsPageComponent implements OnInit {
           return [...prev, hit].sort((a, b) => a.name.localeCompare(b.name));
         });
         this.existingClientFromDb.set(hit);
+        this.existingClientLookupContacts.set(res.contacts ?? []);
         this.newClientForm.patchValue({ ruc: hit.ruc, name: hit.name }, { emitEvent: false });
         const hint =
           res.sales_summary?.message_for_ui?.trim() ||
@@ -745,6 +752,14 @@ export class ProformaRequestsPageComponent implements OnInit {
   useExistingClientFromLookup(): void {
     const hit = this.existingClientFromDb();
     if (!hit) return;
+    const sel = this.selectedAssignableUser();
+    if (sel != null && !this.lookupHasContactForAdvisor(sel)) {
+      this.errorMessage.set(
+        `Para derivar a ${sel.nombre}, registre un contacto con «Registrar contacto y volver». ` +
+          `«Usar cliente existente» mantiene los contactos actuales (otro asesor).`,
+      );
+      return;
+    }
     this.clearNewClientRucLookup();
     this.selectClient(hit);
     this.backToProformaForm();
@@ -782,7 +797,7 @@ export class ProformaRequestsPageComponent implements OnInit {
               contact_last_name: ln,
               ...(v.email.trim() ? { email: v.email.trim() } : {}),
               ...(v.phone.trim() ? { phone: v.phone.trim() } : {}),
-              ...this.contactAssignBodyForUserId(sel.id),
+              ...this.contactAssignBodyForAdvisor(sel),
             })
             .subscribe({
               next: () => {
@@ -796,7 +811,9 @@ export class ProformaRequestsPageComponent implements OnInit {
                   email: '',
                   phone: '',
                 });
-                this.selectClient(hit);
+                this.form.patchValue({ client: hit.id, assigned_user: sel.id });
+                this.clientSearchQuery.set(hit.name);
+                this.clientPickerOpen.set(false);
                 this.backToProformaForm();
                 this.loadContactsForSelectedClient(hit.id);
               },
@@ -842,6 +859,7 @@ export class ProformaRequestsPageComponent implements OnInit {
 
   private clearNewClientRucLookup(): void {
     this.existingClientFromDb.set(null);
+    this.existingClientLookupContacts.set([]);
     this.rucAdvisorHint.set(null);
   }
 
@@ -849,7 +867,6 @@ export class ProformaRequestsPageComponent implements OnInit {
     this.coerceAssignedUserControlValue();
     const sel = this.requireAssignableUserOrError();
     if (sel == null) return;
-    const contactAssignId = sel.id;
     if (this.newClientForm.invalid) {
       this.newClientForm.markAllAsTouched();
       return;
@@ -875,20 +892,18 @@ export class ProformaRequestsPageComponent implements OnInit {
     this.errorMessage.set(null);
     this.clientsApi.create(payload).subscribe({
       next: (created) => {
-        this.assignAdvisorToInitialContact(
-          created.id,
-          contactAssignId,
-          sel.djangoUserId ?? sel.id,
-          () => {
+        this.assignAdvisorToInitialContact(created.id, sel, () => {
           this.saving.set(false);
           this.clearNewClientRucLookup();
           this.clients.update((prev) => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)));
-          this.form.patchValue({ client: created.id });
+          this.form.patchValue({
+            client: created.id,
+            assigned_user: sel.id,
+          });
           this.clientSearchQuery.set(created.name);
           this.modalView.set('proforma');
           this.loadContactsForSelectedClient(created.id);
-          },
-        );
+        });
       },
       error: (err) => {
         this.saving.set(false);
@@ -902,11 +917,12 @@ export class ProformaRequestsPageComponent implements OnInit {
    */
   private assignAdvisorToInitialContact(
     clientId: number,
-    contactAssignId: number,
-    djangoUserId: number,
+    advisor: AssignableUser,
     done: () => void,
   ): void {
-    const assignBody = this.contactAssignBodyForUserId(contactAssignId);
+    const assignBody = this.contactAssignBodyForAdvisor(advisor);
+    const targetUserId = advisor.id;
+    const targetProfileId = advisor.profileId;
 
     const patchContact = (contact: ClientContactRow): void => {
       this.contactsApi.patch(contact.id, assignBody).subscribe({
@@ -923,10 +939,19 @@ export class ProformaRequestsPageComponent implements OnInit {
       });
     };
 
-    const contactAlreadyAssigned = (contact: ClientContactRow): boolean => {
-      const current = coerceUserPk(contact.user) ?? coerceUserPk(contact.owner);
-      if (current == null) return false;
-      return current === contactAssignId || current === djangoUserId;
+    const contactAssignedToAdvisor = (contact: ClientContactRow): boolean => {
+      const candidates: unknown[] = [
+        contact.user,
+        contact.owner,
+        contact.owner_user?.id,
+        contact.encargado?.id,
+      ];
+      return candidates.some((value) => {
+        const pk = coerceUserPk(value);
+        if (pk == null) return false;
+        if (pk === targetUserId) return true;
+        return targetProfileId != null && pk === targetProfileId;
+      });
     };
 
     const tryLoadContacts = (attempt: number): void => {
@@ -945,8 +970,22 @@ export class ProformaRequestsPageComponent implements OnInit {
             return;
           }
 
-          if (contactAlreadyAssigned(contact)) {
+          if (contactAssignedToAdvisor(contact)) {
             done();
+            return;
+          }
+
+          const sessionUserId = this.myUserId();
+          const contactOwnerPk =
+            coerceUserPk(contact.user) ??
+            coerceUserPk(contact.owner) ??
+            coerceUserPk(contact.owner_user?.id);
+          if (
+            sessionUserId != null &&
+            targetUserId !== sessionUserId &&
+            contactOwnerPk === sessionUserId
+          ) {
+            patchContact(contact);
             return;
           }
 
@@ -998,7 +1037,7 @@ export class ProformaRequestsPageComponent implements OnInit {
         contact_last_name: ln,
         ...(v.email.trim() ? { email: v.email.trim() } : {}),
         ...(v.phone.trim() ? { phone: v.phone.trim() } : {}),
-        ...this.contactAssignBodyForUserId(sel.id),
+        ...this.contactAssignBodyForAdvisor(sel),
       })
       .subscribe({
         next: () => {
@@ -1025,11 +1064,10 @@ export class ProformaRequestsPageComponent implements OnInit {
     }
     const id = this.editingId();
     const v = this.form.getRawValue();
-    const assignedPk = this.proformaAssignedUserId();
-    if (assignedPk == null) {
-      this.requireAssignableUserOrError();
-      return;
-    }
+    this.coerceAssignedUserControlValue();
+    const sel = this.requireAssignableUserOrError();
+    if (sel == null) return;
+    const assignedPk = sel.id;
 
     if (id == null) {
       if (this.form.invalid) {
@@ -1048,7 +1086,17 @@ export class ProformaRequestsPageComponent implements OnInit {
           description: v.description.trim(),
         })
         .subscribe({
-          next: () => this.afterSaveOk(),
+          next: (row) => {
+            if (row.assigned_user !== assignedPk) {
+              this.saving.set(false);
+              this.errorMessage.set(
+                `La solicitud se creó, pero el asesor asignado en el servidor (#${row.assigned_user}) no coincide con «${sel.nombre}» (#${assignedPk}). Revise con soporte o reasigne editando la solicitud.`,
+              );
+              this.reload();
+              return;
+            }
+            this.afterSaveOk();
+          },
           error: (err) => this.onSaveErr(err),
         });
       return;
@@ -1144,28 +1192,38 @@ export class ProformaRequestsPageComponent implements OnInit {
     );
   }
 
+  private lookupHasContactForAdvisor(advisor: AssignableUser): boolean {
+    return this.existingClientLookupContacts().some((ct) => {
+      const assignedId = coerceUserPk(ct.assigned_user?.id);
+      return assignedId != null && assignedId === advisor.id;
+    });
+  }
+
   private userPkFromUnknown(value: unknown): number | null {
     return coerceUserPk(value);
   }
 
   /**
-   * Mapea assignable-users igual que /ventas/contactos: `id` del API → contacto;
-   * `djangoUserId` → solicitud de proforma.
+   * Mapea assignable-users: `id` = usuario Django (proforma); `profileId` = perfil para contactos.
    */
   private normalizeAssignableUser(raw: unknown): AssignableUser | null {
     if (!raw || typeof raw !== 'object') return null;
     const r = raw as Record<string, unknown>;
 
-    const apiId = coerceUserPk(r['id']);
-    if (apiId == null) return null;
+    let userId: number | null = null;
+    let profileId: number | undefined;
 
-    const djangoUserId =
-      coerceUserPk(r['user']) ??
-      coerceUserPk(r['user_id']) ??
-      (r['user'] != null && typeof r['user'] === 'object'
-        ? coerceUserPk(r['user'])
-        : null) ??
-      apiId;
+    if (typeof r['user'] === 'number') {
+      userId = coerceUserPk(r['user']);
+      profileId = coerceUserPk(r['id']) ?? undefined;
+    } else if (r['user'] != null && typeof r['user'] === 'object') {
+      userId = coerceUserPk(r['user']);
+      profileId = coerceUserPk(r['profile_id'] ?? r['profile'] ?? r['id']) ?? undefined;
+    } else {
+      userId = coerceUserPk(r['user_id'] ?? r['id']);
+    }
+
+    if (userId == null) return null;
 
     const src =
       r['user'] && typeof r['user'] === 'object'
@@ -1177,11 +1235,11 @@ export class ProformaRequestsPageComponent implements OnInit {
       (typeof src['nombre'] === 'string' && String(src['nombre']).trim()) ||
       [src['first_name'], src['last_name']].filter(Boolean).join(' ').trim() ||
       (typeof src['username'] === 'string' ? src['username'] : '') ||
-      `Usuario #${apiId}`;
+      `Usuario #${userId}`;
 
     return {
-      id: apiId,
-      djangoUserId,
+      id: userId,
+      profileId,
       username: String(src['username'] ?? ''),
       first_name: String(src['first_name'] ?? ''),
       last_name: String(src['last_name'] ?? ''),
@@ -1197,9 +1255,7 @@ export class ProformaRequestsPageComponent implements OnInit {
   private syncAssignedUserSelectToAssignableList(): void {
     const current = this.selectedAssignedUserPk();
     if (current == null) return;
-    const match = this.assignableUsers().find(
-      (u) => u.id === current || u.djangoUserId === current,
-    );
+    const match = this.assignableUsers().find((u) => u.id === current);
     if (match && match.id !== current) {
       this.form.patchValue({ assigned_user: match.id }, { emitEvent: false });
     }
