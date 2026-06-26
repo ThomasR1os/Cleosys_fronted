@@ -669,7 +669,7 @@
                       maxlength="100"
                     />
                     @if (lineForm.controls.delivery_time.invalid && lineForm.controls.delivery_time.touched) {
-                      <span class="label-text-alt text-error">Obligatorio para venta y alquiler</span>
+                      <span class="label-text-alt text-error">Obligatorio</span>
                     }
                   </label>
                 }
@@ -720,22 +720,6 @@
           </div>
           <span class="label-text-alt">Sobre el subtotal de líneas (se envía el importe a la API).</span>
         </label>
-        @if (isServiceQuotationType()) {
-          <label class="form-control w-full">
-            <span class="label-text">Plazo de entrega</span>
-            <input
-              class="input input-bordered w-full"
-              type="text"
-              formControlName="delivery_time"
-              placeholder="Ej. 15 días hábiles"
-              maxlength="100"
-              [readonly]="quotationModalReadonly()"
-            />
-            @if (form.controls.delivery_time.invalid && form.controls.delivery_time.touched) {
-              <span class="label-text-alt text-error">Obligatorio en cotizaciones de servicio</span>
-            }
-          </label>
-        }
 
         <div class="bg-base-200/60 sm:col-span-2 rounded-box border border-base-300/80 p-4 text-sm">
           @if (isPenCurrency()) {

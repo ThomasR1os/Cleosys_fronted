@@ -562,10 +562,10 @@ export class QuotationsPageComponent implements OnInit {
     return this.form.controls.quotation_type.value === 'SERVICIO';
   }
 
-  /** VENTA y ALQUILER: plazo de entrega por línea de producto. */
+  /** VENTA, ALQUILER y SERVICIO: plazo de entrega por línea de producto. */
   showLineDeliveryColumn(): boolean {
     const qt = this.form.controls.quotation_type.value;
-    return qt === 'VENTA' || qt === 'ALQUILER';
+    return qt === 'VENTA' || qt === 'ALQUILER' || qt === 'SERVICIO';
   }
 
   /** Columnas dinámicas de la tabla de líneas (sin contar acciones). */
@@ -581,27 +581,18 @@ export class QuotationsPageComponent implements OnInit {
     return row.quotation_type === 'SERVICIO';
   }
 
-  /** Plazo de entrega en cabecera solo aplica en SERVICIO. */
-  private usesHeaderDeliveryTime(row: QuotationRow): boolean {
-    return row.quotation_type === 'SERVICIO';
-  }
-
   private productWarrantyFromCatalog(p: Product | undefined): string {
     return (p?.warranty ?? p?.warrannty)?.trim() ?? '';
   }
 
   private syncDeliveryValidators(qt: QuotationType): void {
     const headerCtrl = this.form.controls.delivery_time;
-    if (qt === 'SERVICIO') {
-      headerCtrl.setValidators([Validators.required, Validators.pattern(/\S/)]);
-    } else {
-      headerCtrl.clearValidators();
-      headerCtrl.setValue('', { emitEvent: false });
-    }
+    headerCtrl.clearValidators();
+    headerCtrl.setValue('', { emitEvent: false });
     headerCtrl.updateValueAndValidity({ emitEvent: false });
 
     const lineCtrl = this.lineForm.controls.delivery_time;
-    if (qt === 'VENTA' || qt === 'ALQUILER') {
+    if (qt === 'VENTA' || qt === 'ALQUILER' || qt === 'SERVICIO') {
       lineCtrl.setValidators([Validators.required, Validators.pattern(/\S/)]);
     } else {
       lineCtrl.clearValidators();
@@ -1570,7 +1561,7 @@ export class QuotationsPageComponent implements OnInit {
     const texts = this.lineTextFieldsForApi(productId, line_sku, line_description, line_datasheet);
     const result: Record<string, string> = { ...texts };
     const dt = delivery_time.trim();
-    if (quotationType === 'VENTA' || quotationType === 'ALQUILER') {
+    if (quotationType === 'VENTA' || quotationType === 'ALQUILER' || quotationType === 'SERVICIO') {
       result['delivery_time'] = dt;
     } else if (dt) {
       result['delivery_time'] = dt;
@@ -1857,11 +1848,7 @@ export class QuotationsPageComponent implements OnInit {
       id == null ? this.draftLines() : this.linesForQuotationId(id),
     );
     if (!headerDelivery) {
-      this.errorMessage.set(
-        v.quotation_type === 'SERVICIO'
-          ? 'Indique el plazo de entrega en la cabecera.'
-          : 'Añada al menos un producto con tiempo de entrega.',
-      );
+      this.errorMessage.set('Añada al menos un producto con tiempo de entrega.');
       return;
     }
 
@@ -2240,7 +2227,11 @@ export class QuotationsPageComponent implements OnInit {
         const sub = qLines.reduce((sum, l) => sum + l.cant * Number(l.product_price), 0);
         const net = Math.max(0, sub - Number(row.discount));
         const patch: Partial<QuotationRow> = { final_price: net.toFixed(2) };
-        if (row.quotation_type === 'VENTA' || row.quotation_type === 'ALQUILER') {
+        if (
+          row.quotation_type === 'VENTA' ||
+          row.quotation_type === 'ALQUILER' ||
+          row.quotation_type === 'SERVICIO'
+        ) {
           const headerDt = this.headerDeliveryTimeForSave(row.quotation_type, '', qLines);
           if (headerDt) patch.delivery_time = headerDt;
         }
@@ -2646,13 +2637,12 @@ export class QuotationsPageComponent implements OnInit {
     return best;
   }
 
-  /** Plazo de cabecera: SERVICIO = formulario; VENTA/ALQUILER = el más largo entre líneas. */
+  /** Plazo de cabecera en API: el más largo entre líneas de producto. */
   private headerDeliveryTimeForSave(
-    quotationType: QuotationType,
-    headerInput: string,
+    _quotationType: QuotationType,
+    _headerInput: string,
     lines: Array<{ delivery_time?: string | null }>,
   ): string {
-    if (quotationType === 'SERVICIO') return headerInput.trim();
     const fromLines = lines.map((l) => (l.delivery_time ?? '').trim()).filter((s) => s.length > 0);
     return this.pickLongestDeliveryTimeText(fromLines);
   }
@@ -2661,9 +2651,8 @@ export class QuotationsPageComponent implements OnInit {
     return (line.delivery_time ?? '').trim();
   }
 
-  /** Plazo de entrega mostrado bajo el nombre del ítem en la tabla de precios (no en SERVICIO). */
+  /** Plazo de entrega mostrado bajo el nombre del ítem en la tabla de precios. */
   private lineDeliveryTimeLabelUnderItemPdf(line: QuotationProductRow, row: QuotationRow): string {
-    if (this.isServiceQuotationPdf(row)) return '';
     const dt = this.lineDeliveryTimeForPdf(line);
     if (!dt) return '';
     const s = String(dt).trim();
@@ -3396,7 +3385,6 @@ export class QuotationsPageComponent implements OnInit {
     y: number,
     typeLabel: string,
     moneyLabel: string,
-    deliveryLabel: string | null,
     penExchangeLine: string | null,
     payName: string,
     conditionsFreeText: string | null,
@@ -3435,9 +3423,6 @@ export class QuotationsPageComponent implements OnInit {
       y = L(y, 'Tipo de cambio (PEN/USD):', penExchangeLine);
     }
     y = L(y, 'Método de pago:', payName);
-    if (deliveryLabel != null) {
-      y = L(y, 'Tiempo de entrega:', deliveryLabel);
-    }
     y += 4;
 
     y = this.drawPdfQuotationConsideracionesComerciales(
@@ -3946,9 +3931,6 @@ export class QuotationsPageComponent implements OnInit {
     baseLines.push(`Moneda: ${row.money}`);
     if (penEx != null) baseLines.push(`Tipo de cambio (PEN/USD): ${penEx}`);
     baseLines.push(`Forma de pago: ${(pay?.name ?? '—').trim()}`);
-    if (isServicePdf) {
-      baseLines.push(`Tiempo de entrega: ${this.deliveryTimePdfLabel(row.delivery_time)}`);
-    }
 
     for (const bl of baseLines) {
       y = ensureCondicionesY(5, y);
@@ -4522,7 +4504,6 @@ export class QuotationsPageComponent implements OnInit {
       y,
       typeLabel,
       row.money,
-      isServicePdf ? this.deliveryTimePdfLabel(row.delivery_time) : null,
       penEx,
       pay?.name ?? '—',
       row.conditions?.trim() ?? null,
@@ -4617,18 +4598,6 @@ export class QuotationsPageComponent implements OnInit {
       y += 4.2;
     }
     return y + 5;
-  }
-
-  /** Plazo de entrega en PDF (cabecera SERVICIO o texto libre por línea). */
-  private deliveryTimePdfLabel(value: string | number | null | undefined): string {
-    const s = String(value ?? '').trim();
-    if (!s || s === '0') return 'Stock Inmediato';
-    if (/^\d+$/.test(s)) {
-      const n = Number(s);
-      if (n === 0) return 'Stock Inmediato';
-      return `${n} día(s)`;
-    }
-    return s;
   }
 
   /** Fecha legible para el PDF (sin etiqueta «Creado»). */
