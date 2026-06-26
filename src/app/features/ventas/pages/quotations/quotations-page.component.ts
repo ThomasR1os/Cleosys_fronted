@@ -2657,18 +2657,14 @@ export class QuotationsPageComponent implements OnInit {
     return this.pickLongestDeliveryTimeText(fromLines);
   }
 
-  private lineDeliveryTimeForPdf(line: QuotationProductRow, row?: QuotationRow): string {
-    const fromLine = line.delivery_time?.trim();
-    if (fromLine) return fromLine;
-    if (row && this.isServiceQuotationPdf(row)) {
-      return String(row.delivery_time ?? '').trim();
-    }
-    return '';
+  private lineDeliveryTimeForPdf(line: QuotationProductRow): string {
+    return (line.delivery_time ?? '').trim();
   }
 
-  /** Plazo de entrega mostrado bajo el nombre del ítem en la tabla de precios. */
+  /** Plazo de entrega mostrado bajo el nombre del ítem en la tabla de precios (no en SERVICIO). */
   private lineDeliveryTimeLabelUnderItemPdf(line: QuotationProductRow, row: QuotationRow): string {
-    const dt = this.lineDeliveryTimeForPdf(line, row);
+    if (this.isServiceQuotationPdf(row)) return '';
+    const dt = this.lineDeliveryTimeForPdf(line);
     if (!dt) return '';
     const s = String(dt).trim();
     if (!s || s === '0') return 'TIEMPO DE ENTREGA: STOCK INMEDIATO';
@@ -3438,10 +3434,10 @@ export class QuotationsPageComponent implements OnInit {
     if (penExchangeLine != null) {
       y = L(y, 'Tipo de cambio (PEN/USD):', penExchangeLine);
     }
-    if (deliveryLabel != null) {
-      y = L(y, 'Plazo de entrega:', deliveryLabel);
-    }
     y = L(y, 'Método de pago:', payName);
+    if (deliveryLabel != null) {
+      y = L(y, 'Tiempo de entrega:', deliveryLabel);
+    }
     y += 4;
 
     y = this.drawPdfQuotationConsideracionesComerciales(
@@ -3950,6 +3946,9 @@ export class QuotationsPageComponent implements OnInit {
     baseLines.push(`Moneda: ${row.money}`);
     if (penEx != null) baseLines.push(`Tipo de cambio (PEN/USD): ${penEx}`);
     baseLines.push(`Forma de pago: ${(pay?.name ?? '—').trim()}`);
+    if (isServicePdf) {
+      baseLines.push(`Tiempo de entrega: ${this.deliveryTimePdfLabel(row.delivery_time)}`);
+    }
 
     for (const bl of baseLines) {
       y = ensureCondicionesY(5, y);
@@ -4523,7 +4522,7 @@ export class QuotationsPageComponent implements OnInit {
       y,
       typeLabel,
       row.money,
-      null,
+      isServicePdf ? this.deliveryTimePdfLabel(row.delivery_time) : null,
       penEx,
       pay?.name ?? '—',
       row.conditions?.trim() ?? null,
