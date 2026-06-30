@@ -28,6 +28,7 @@
     "@angular/forms": "^20.3.0",
     "@angular/platform-browser": "^20.3.0",
     "@angular/router": "^20.3.0",
+    "chart.js": "^4.5.1",
     "daisyui": "^5.5.19",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.7",

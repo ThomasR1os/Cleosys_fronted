@@ -1,116 +1,350 @@
-<div class="mx-auto max-w-5xl space-y-8">
-  <header class="space-y-2">
-    <h1 class="text-3xl font-bold tracking-tight md:text-4xl">
-      Hola, {{ auth.displayName() || auth.me()?.user?.username }}
-    </h1>
-    <p class="text-base-content/70 text-lg">
-      Elija un módulo para trabajar o use el menú lateral. Aquí tiene un resumen de su sesión.
-    </p>
+<div class="mx-auto max-w-7xl space-y-8">
+  <header class="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+    <div class="space-y-2">
+      <h1 class="text-3xl font-bold tracking-tight md:text-4xl">
+        Hola, {{ auth.displayName() || auth.me()?.user?.username }}
+      </h1>
+      <p class="text-base-content/70 text-lg">
+        Panel de cotizaciones y KPIs de {{ auth.companyName() }}.
+      </p>
+    </div>
+    <div class="flex flex-wrap gap-2">
+      <a routerLink="/ventas/cotizaciones" class="btn btn-primary btn-sm">Ver cotizaciones</a>
+      <a routerLink="/perfil" class="btn btn-outline btn-sm">Mi perfil</a>
+    </div>
   </header>
 
-  <div class="grid gap-4 md:grid-cols-2">
-    <div class="card bg-base-100 shadow-md">
-      <div class="card-body gap-1">
-        <h2 class="card-title text-lg">Empresa</h2>
-        <p class="text-2xl font-semibold">{{ auth.companyName() }}</p>
-        <p class="text-base-content/60 text-sm">
-          Prefijo cotizaciones: <span class="font-medium text-base-content">{{ auth.quotationPrefix() }}</span>
-        </p>
-        <p class="text-base-content/60 text-sm">
-          Rol: <span class="font-medium text-base-content">{{ auth.roleLabel() }}</span>
-        </p>
-        <p class="pt-2">
-          <a routerLink="/perfil" class="btn btn-outline btn-sm">Editar mi perfil</a>
-        </p>
+  <!-- Filtros -->
+  <section class="card bg-base-100 shadow-md">
+    <div class="card-body gap-4">
+      <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <h2 class="card-title text-lg">Filtros del reporte</h2>
+        <button type="button" class="btn btn-ghost btn-sm" (click)="reload()">Actualizar</button>
       </div>
-    </div>
 
-    <div class="card bg-base-100 shadow-md">
-      <div class="card-body gap-2">
-        <h2 class="card-title text-lg">Accesos rápidos</h2>
-        <p class="text-base-content/70 text-sm">Ir directamente a un área frecuente.</p>
-        <div class="flex flex-wrap gap-2 pt-1">
-          <a routerLink="/core" class="btn btn-primary btn-sm md:btn-md">Core</a>
-          <a routerLink="/almacen" class="btn btn-outline btn-sm md:btn-md">Almacén</a>
-          <a routerLink="/logistica" class="btn btn-outline btn-sm md:btn-md">Logística</a>
-          <a routerLink="/ventas" class="btn btn-outline btn-sm md:btn-md">Ventas</a>
-          @if (auth.isAdmin()) {
-            <a routerLink="/admin/usuarios" class="btn btn-outline btn-sm md:btn-md">Usuarios</a>
-          }
+      <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
+        <label class="form-control w-full">
+          <div class="label py-0"><span class="label-text text-xs">Agrupar</span></div>
+          <select
+            class="select select-bordered select-sm w-full"
+            [ngModel]="grouping()"
+            (ngModelChange)="setGrouping($event)"
+          >
+            <option value="day">Por día</option>
+            <option value="month">Por mes</option>
+            <option value="year">Por año</option>
+          </select>
+        </label>
+
+        <label class="form-control w-full">
+          <div class="label py-0"><span class="label-text text-xs">Período</span></div>
+          <select
+            class="select select-bordered select-sm w-full"
+            [ngModel]="datePreset()"
+            (ngModelChange)="setDatePreset($event)"
+          >
+            <option value="last7">Últimos 7 días</option>
+            <option value="last30">Últimos 30 días</option>
+            <option value="thisMonth">Este mes</option>
+            <option value="lastMonth">Mes anterior</option>
+            <option value="thisYear">Este año</option>
+            <option value="lastYear">Año anterior</option>
+            <option value="all">Todo el historial</option>
+            <option value="custom">Rango personalizado</option>
+          </select>
+        </label>
+
+        <label class="form-control w-full">
+          <div class="label py-0"><span class="label-text text-xs">Estado</span></div>
+          <select
+            class="select select-bordered select-sm w-full"
+            [ngModel]="filterStatus()"
+            (ngModelChange)="filterStatus.set($event); onFiltersChange()"
+          >
+            <option value="ALL">Todos</option>
+            <option value="APROBADA">Aprobadas</option>
+            <option value="PENDIENTE">Pendientes</option>
+            <option value="RECHAZADA">Rechazadas</option>
+          </select>
+        </label>
+
+        <label class="form-control w-full">
+          <div class="label py-0"><span class="label-text text-xs">Tipo</span></div>
+          <select
+            class="select select-bordered select-sm w-full"
+            [ngModel]="filterType()"
+            (ngModelChange)="filterType.set($event); onFiltersChange()"
+          >
+            <option value="ALL">Todos</option>
+            <option value="VENTA">Venta</option>
+            <option value="ALQUILER">Alquiler</option>
+            <option value="SERVICIO">Servicio</option>
+          </select>
+        </label>
+
+        <label class="form-control w-full">
+          <div class="label py-0"><span class="label-text text-xs">Moneda</span></div>
+          <select
+            class="select select-bordered select-sm w-full"
+            [ngModel]="filterMoney()"
+            (ngModelChange)="filterMoney.set($event); onFiltersChange()"
+          >
+            <option value="ALL">Todas</option>
+            <option value="PEN">Soles (PEN)</option>
+            <option value="USD">Dólares (USD)</option>
+          </select>
+        </label>
+
+        <label class="form-control w-full">
+          <div class="label py-0"><span class="label-text text-xs">Asesor</span></div>
+          <select
+            class="select select-bordered select-sm w-full"
+            [ngModel]="filterAdvisor()"
+            (ngModelChange)="filterAdvisor.set($event); onFiltersChange()"
+          >
+            <option [ngValue]="'ALL'">Todos</option>
+            @for (a of stats()?.advisors ?? []; track a.id) {
+              <option [ngValue]="a.id">{{ a.label }}</option>
+            }
+          </select>
+        </label>
+      </div>
+
+      @if (datePreset() === 'custom') {
+        <div class="grid gap-3 sm:grid-cols-2 lg:max-w-md">
+          <label class="form-control w-full">
+            <div class="label py-0"><span class="label-text text-xs">Desde</span></div>
+            <input
+              type="date"
+              class="input input-bordered input-sm w-full"
+              [ngModel]="dateFrom()"
+              (ngModelChange)="dateFrom.set($event); onFiltersChange()"
+            />
+          </label>
+          <label class="form-control w-full">
+            <div class="label py-0"><span class="label-text text-xs">Hasta</span></div>
+            <input
+              type="date"
+              class="input input-bordered input-sm w-full"
+              [ngModel]="dateTo()"
+              (ngModelChange)="dateTo.set($event); onFiltersChange()"
+            />
+          </label>
+        </div>
+      }
+    </div>
+  </section>
+
+  @if (loading()) {
+    <div class="flex justify-center py-16">
+      <span class="loading loading-spinner loading-lg text-primary"></span>
+    </div>
+  } @else if (error()) {
+    <div class="alert alert-error">
+      <span>{{ error() }}</span>
+      <button type="button" class="btn btn-sm" (click)="reload()">Reintentar</button>
+    </div>
+  } @else if (kpis(); as k) {
+    <!-- KPIs -->
+    <section class="space-y-3">
+      <h2 class="text-xl font-semibold">Indicadores clave</h2>
+      <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+        <app-kpi-card title="Total cotizaciones" [value]="k.total.toString()" variant="info" />
+        <app-kpi-card
+          title="Aprobadas"
+          [value]="k.approved.toString()"
+          [subtitle]="formatPercent(k.approvalRate) + ' del total'"
+          variant="success"
+        />
+        <app-kpi-card title="Pendientes" [value]="k.pending.toString()" variant="warning" />
+        <app-kpi-card title="Rechazadas" [value]="k.rejected.toString()" variant="error" />
+        <app-kpi-card
+          title="Monto PEN"
+          [value]="formatMoney(k.totalAmountPen, 'PEN')"
+          [subtitle]="'Prom. ' + formatMoney(k.avgAmountPen, 'PEN')"
+        />
+        <app-kpi-card
+          title="Monto USD"
+          [value]="formatMoney(k.totalAmountUsd, 'USD')"
+          [subtitle]="'Prom. ' + formatMoney(k.avgAmountUsd, 'USD')"
+        />
+      </div>
+    </section>
+
+    <!-- Gráficos -->
+    <section class="space-y-3">
+      <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <h2 class="text-xl font-semibold">Reportes {{ groupingLabel() }}</h2>
+        <label class="flex items-center gap-2 text-sm">
+          <span class="text-base-content/60">Monto en gráfico:</span>
+          <select
+            class="select select-bordered select-xs"
+            [ngModel]="amountChartMoney()"
+            (ngModelChange)="amountChartMoney.set($event)"
+          >
+            <option value="PEN">PEN</option>
+            <option value="USD">USD</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="grid gap-4 lg:grid-cols-2">
+        <div class="card bg-base-100 shadow-md">
+          <div class="card-body">
+            <h3 class="card-title text-base">Evolución {{ groupingLabel() }}</h3>
+            <p class="text-base-content/60 text-sm">
+              Cantidad de cotizaciones y monto acumulado en el período filtrado.
+            </p>
+            <div class="h-72 pt-2">
+              <app-dashboard-chart [config]="trendChartConfig()" />
+            </div>
+          </div>
+        </div>
+
+        <div class="card bg-base-100 shadow-md">
+          <div class="card-body">
+            <h3 class="card-title text-base">Distribución por estado</h3>
+            <p class="text-base-content/60 text-sm">Proporción de cotizaciones según su estado.</p>
+            <div class="h-72 pt-2">
+              <app-dashboard-chart [config]="statusChartConfig()" />
+            </div>
+          </div>
+        </div>
+
+        <div class="card bg-base-100 shadow-md">
+          <div class="card-body">
+            <h3 class="card-title text-base">Por tipo de cotización</h3>
+            <p class="text-base-content/60 text-sm">Venta, alquiler y servicio en el período.</p>
+            <div class="h-72 pt-2">
+              <app-dashboard-chart [config]="typeChartConfig()" />
+            </div>
+          </div>
+        </div>
+
+        <div class="card bg-base-100 shadow-md">
+          <div class="card-body">
+            <h3 class="card-title text-base">Top asesores</h3>
+            <p class="text-base-content/60 text-sm">Hasta 8 asesores con más cotizaciones.</p>
+            <div class="h-72 pt-2">
+              @if ((stats()?.byAdvisor?.length ?? 0) > 0) {
+                <app-dashboard-chart [config]="advisorChartConfig()" />
+              } @else {
+                <p class="text-base-content/50 flex h-full items-center justify-center text-sm">
+                  Sin datos de asesores para los filtros actuales.
+                </p>
+              }
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tabla resumen por período -->
+    <section class="card bg-base-100 shadow-md">
+      <div class="card-body gap-3">
+        <h3 class="card-title text-base">Detalle {{ groupingLabel() }}</h3>
+        <div class="overflow-x-auto">
+          <table class="table table-zebra table-sm">
+            <thead>
+              <tr>
+                <th>Período</th>
+                <th class="text-right">Cotizaciones</th>
+                <th class="text-right">Monto PEN</th>
+                <th class="text-right">Monto USD</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (row of stats()?.timeSeries ?? []; track row.key) {
+                @if (row.count > 0) {
+                  <tr>
+                    <td>{{ row.label }}</td>
+                    <td class="text-right font-medium">{{ row.count }}</td>
+                    <td class="text-right">{{ formatMoney(row.amountPen, 'PEN') }}</td>
+                    <td class="text-right">{{ formatMoney(row.amountUsd, 'USD') }}</td>
+                  </tr>
+                }
+              } @empty {
+                <tr>
+                  <td colspan="4" class="text-base-content/50 text-center">
+                    No hay cotizaciones para los filtros seleccionados.
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  }
+
+  <!-- Accesos rápidos -->
+  <section class="space-y-4">
+    <h2 class="text-xl font-semibold">Accesos rápidos</h2>
+    <div class="grid gap-4 md:grid-cols-2">
+      <div class="card bg-base-100 shadow-md">
+        <div class="card-body gap-1">
+          <h3 class="card-title text-lg">Sesión</h3>
+          <p class="text-base-content/60 text-sm">
+            Prefijo cotizaciones:
+            <span class="font-medium text-base-content">{{ auth.quotationPrefix() }}</span>
+            · Rol: <span class="font-medium text-base-content">{{ auth.roleLabel() }}</span>
+          </p>
+        </div>
+      </div>
+      <div class="card bg-base-100 shadow-md">
+        <div class="card-body gap-2">
+          <h3 class="card-title text-lg">Módulos</h3>
+          <div class="flex flex-wrap gap-2">
+            <a routerLink="/core" class="btn btn-outline btn-sm">Core</a>
+            <a routerLink="/almacen" class="btn btn-outline btn-sm">Almacén</a>
+            <a routerLink="/logistica" class="btn btn-outline btn-sm">Logística</a>
+            <a routerLink="/ventas" class="btn btn-outline btn-sm">Ventas</a>
+            @if (auth.isAdmin()) {
+              <a routerLink="/admin/usuarios" class="btn btn-outline btn-sm">Usuarios</a>
+            }
+          </div>
         </div>
       </div>
     </div>
-  </div>
 
-  <section>
-    <h2 class="mb-4 text-xl font-semibold">Módulos</h2>
     <div
       class="grid gap-4 sm:grid-cols-2"
       [ngClass]="auth.isAdmin() ? 'xl:grid-cols-5' : 'xl:grid-cols-4'"
     >
-      <a
-        routerLink="/core"
-        class="card bg-base-100 shadow-md transition hover:shadow-lg"
-      >
+      <a routerLink="/core" class="card bg-base-100 shadow-md transition hover:shadow-lg">
         <div class="card-body">
           <span class="text-primary text-3xl" aria-hidden="true">◎</span>
           <h3 class="card-title text-lg">Core</h3>
-          <p class="text-base-content/70 text-sm">
-            Maestros compartidos, marcas, categorías y catálogo de productos.
-          </p>
+          <p class="text-base-content/70 text-sm">Marcas, categorías y catálogo de productos.</p>
         </div>
       </a>
-
-      <a
-        routerLink="/almacen"
-        class="card bg-base-100 shadow-md transition hover:shadow-lg"
-      >
+      <a routerLink="/almacen" class="card bg-base-100 shadow-md transition hover:shadow-lg">
         <div class="card-body">
           <span class="text-secondary text-3xl" aria-hidden="true">▣</span>
           <h3 class="card-title text-lg">Almacén</h3>
-          <p class="text-base-content/70 text-sm">
-            Almacenes, existencias por ubicación y movimientos de stock.
-          </p>
+          <p class="text-base-content/70 text-sm">Existencias y movimientos de stock.</p>
         </div>
       </a>
-
-      <a
-        routerLink="/logistica"
-        class="card bg-base-100 shadow-md transition hover:shadow-lg"
-      >
+      <a routerLink="/logistica" class="card bg-base-100 shadow-md transition hover:shadow-lg">
         <div class="card-body">
           <span class="text-accent text-3xl" aria-hidden="true">⬡</span>
           <h3 class="card-title text-lg">Logística</h3>
-          <p class="text-base-content/70 text-sm">
-            Tareas, relación producto–proveedor y proveedores.
-          </p>
+          <p class="text-base-content/70 text-sm">Tareas y proveedores.</p>
         </div>
       </a>
-
-      <a
-        routerLink="/ventas"
-        class="card bg-base-100 shadow-md transition hover:shadow-lg"
-      >
+      <a routerLink="/ventas" class="card bg-base-100 shadow-md transition hover:shadow-lg">
         <div class="card-body">
           <span class="text-info text-3xl" aria-hidden="true">◈</span>
           <h3 class="card-title text-lg">Ventas</h3>
-          <p class="text-base-content/70 text-sm">
-            Cotizaciones y clientes con responsable asignado.
-          </p>
+          <p class="text-base-content/70 text-sm">Cotizaciones, clientes y proformas.</p>
         </div>
       </a>
-
       @if (auth.isAdmin()) {
-        <a
-          routerLink="/admin/usuarios"
-          class="card bg-base-100 shadow-md transition hover:shadow-lg"
-        >
+        <a routerLink="/admin/usuarios" class="card bg-base-100 shadow-md transition hover:shadow-lg">
           <div class="card-body">
             <span class="text-neutral text-3xl" aria-hidden="true">⚙</span>
             <h3 class="card-title text-lg">Usuarios</h3>
-            <p class="text-base-content/70 text-sm">
-              Gestión de usuarios, roles y empresa (solo administradores).
-            </p>
+            <p class="text-base-content/70 text-sm">Gestión de usuarios y empresa.</p>
           </div>
         </a>
       }
