@@ -16,7 +16,11 @@
         <label class="btn btn-outline btn-sm cursor-pointer">
           @if (importBusy()) {
             <span class="loading loading-spinner loading-xs"></span>
-            Importando…
+            @if (importProgress(); as prog) {
+              Lote {{ prog.done }}/{{ prog.total }}
+            } @else {
+              Importando…
+            }
           } @else {
             Importar Excel
           }
@@ -28,6 +32,9 @@
             (change)="onExcelFileSelected($event)"
           />
         </label>
+        <button type="button" class="btn btn-outline btn-sm" (click)="openBulkImage()">
+          Imagen masiva
+        </button>
         <button type="button" class="btn btn-primary btn-lg" (click)="openNew()">Nuevo producto</button>
       </div>
     }
@@ -44,17 +51,29 @@
   }
 
   @if (importSummary(); as sum) {
-    <div role="status" class="alert alert-success text-sm">
+    <div
+      role="status"
+      class="alert text-sm"
+      [class.alert-success]="sum.failed === 0"
+      [class.alert-warning]="sum.failed > 0"
+    >
       <span>
-        Importación: <strong>{{ sum.created }}</strong> altas,
-        <strong>{{ sum.updated }}</strong> actualizaciones.
+        Importación:
+        <strong>{{ sum.created }}</strong> altas,
+        <strong>{{ sum.updated }}</strong> actualizaciones
+        @if (sum.failed > 0) {
+          , <strong>{{ sum.failed }}</strong> con error
+        }.
       </span>
       @if (sum.errors.length) {
-        <ul class="mt-2 list-inside list-disc text-left">
-          @for (e of sum.errors; track e.sku + e.message) {
+        <ul class="mt-2 max-h-48 list-inside list-disc overflow-y-auto text-left">
+          @for (e of sum.errors.slice(0, 30); track $index) {
             <li><span class="font-medium">{{ e.sku }}</span>: {{ e.message }}</li>
           }
         </ul>
+        @if (sum.errors.length > 30) {
+          <p class="mt-1 text-xs opacity-70">…y {{ sum.errors.length - 30 }} errores más.</p>
+        }
       }
     </div>
   }
@@ -67,10 +86,75 @@
       <input
         type="search"
         class="input input-bordered input-sm w-full"
-        placeholder="SKU, descripción, ID, estado, precio…"
+        placeholder="SKU, descripción, categoría, marca…"
         [value]="searchQuery()"
         (input)="setSearchQuery($any($event.target).value)"
       />
+    </label>
+    <label class="form-control w-full sm:w-44">
+      <span class="label-text">Categoría</span>
+      <select
+        class="select select-bordered select-sm w-full"
+        [value]="filterCategoryId() ?? ''"
+        (change)="setFilterCategory($any($event.target).value)"
+      >
+        <option value="">Todas</option>
+        @for (c of categories(); track c.id) {
+          <option [value]="c.id">{{ c.name }}</option>
+        }
+      </select>
+    </label>
+    <label class="form-control w-full sm:w-44">
+      <span class="label-text">Subcategoría</span>
+      <select
+        class="select select-bordered select-sm w-full"
+        [value]="filterSubcategoryId() ?? ''"
+        (change)="setFilterSubcategory($any($event.target).value)"
+      >
+        <option value="">Todas</option>
+        @for (s of filterSubcategoryOptions(); track s.id) {
+          <option [value]="s.id">{{ s.name }}</option>
+        }
+      </select>
+    </label>
+    <label class="form-control w-full sm:w-40">
+      <span class="label-text">Marca</span>
+      <select
+        class="select select-bordered select-sm w-full"
+        [value]="filterBrandId() ?? ''"
+        (change)="setFilterBrand($any($event.target).value)"
+      >
+        <option value="">Todas</option>
+        @for (b of brands(); track b.id) {
+          <option [value]="b.id">{{ b.name }}</option>
+        }
+      </select>
+    </label>
+    <label class="form-control w-full sm:w-40">
+      <span class="label-text">Tipo</span>
+      <select
+        class="select select-bordered select-sm w-full"
+        [value]="filterTypeId() ?? ''"
+        (change)="setFilterType($any($event.target).value)"
+      >
+        <option value="">Todos</option>
+        @for (t of types(); track t.id) {
+          <option [value]="t.id">{{ t.name }}</option>
+        }
+      </select>
+    </label>
+    <label class="form-control w-full sm:w-36">
+      <span class="label-text">Estado</span>
+      <select
+        class="select select-bordered select-sm w-full"
+        [value]="filterStatus()"
+        (change)="setFilterStatus($any($event.target).value)"
+      >
+        <option value="ALL">Todos</option>
+        @for (opt of statusOptions; track opt.value) {
+          <option [value]="opt.value">{{ opt.label }}</option>
+        }
+      </select>
     </label>
     <label class="form-control w-full max-w-[10rem]">
       <span class="label-text">Por página</span>
@@ -84,6 +168,11 @@
         }
       </select>
     </label>
+    @if (hasActiveFilters()) {
+      <button type="button" class="btn btn-outline btn-sm w-full sm:w-auto" (click)="clearFilters()">
+        Limpiar filtros
+      </button>
+    }
   </div>
 
   <div class="overflow-x-auto rounded-lg border border-base-300 bg-base-100">
@@ -95,7 +184,7 @@
       <p class="text-base-content/60 p-8 text-center text-sm">No hay productos cargados.</p>
     } @else if (totalFiltered() === 0) {
       <p class="text-base-content/60 p-8 text-center text-sm">
-        Ningún resultado coincide con la búsqueda.
+        Ningún resultado coincide con los filtros.
       </p>
     } @else {
       <table class="table table-zebra text-sm">
@@ -104,6 +193,8 @@
             <th>ID</th>
             <th>SKU</th>
             <th>Descripción</th>
+            <th>Categoría</th>
+            <th>Marca</th>
             <th>Precio</th>
             <th>Estado</th>
             <th class="text-right">Acciones</th>
@@ -117,6 +208,8 @@
               <td class="min-w-[14rem] max-w-2xl whitespace-normal break-words leading-snug">
                 <span [title]="row.description">{{ row.description }}</span>
               </td>
+              <td class="whitespace-nowrap">{{ productCategoryName(row) }}</td>
+              <td class="whitespace-nowrap">{{ productBrandName(row) }}</td>
               <td class="whitespace-nowrap">
                 @if (row.price != null) {
                   {{ row.price | number: '1.2-2' }}
@@ -126,25 +219,153 @@
               </td>
               <td class="whitespace-nowrap">{{ statusLabel(row.status) }}</td>
               <td class="text-right">
-                <div class="flex flex-wrap justify-end gap-1">
+                <div class="flex flex-nowrap justify-end gap-0.5">
                   <button
                     type="button"
-                    class="btn btn-ghost btn-sm"
-                    [disabled]="!hasFichaTecnica(row)"
+                    class="btn btn-ghost btn-sm btn-square"
+                    [disabled]="!hasFichaTecnica(row) || fichaPdfBusyId() === row.id"
                     [attr.title]="
-                      hasFichaTecnica(row) ? 'Ver ficha técnica' : 'Este producto no tiene ficha técnica'
+                      hasFichaTecnica(row)
+                        ? 'Ver ficha técnica (PDF)'
+                        : 'Este producto no tiene ficha técnica'
+                    "
+                    [attr.aria-label]="
+                      hasFichaTecnica(row)
+                        ? 'Ver ficha técnica (PDF)'
+                        : 'Este producto no tiene ficha técnica'
                     "
                     (click)="openFicha(row)"
                   >
-                    Ficha técnica
+                    @if (fichaPdfBusyId() === row.id) {
+                      <span class="loading loading-spinner loading-xs"></span>
+                    } @else {
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke-width="1.5"
+                        class="h-4 w-4 stroke-current"
+                        aria-hidden="true"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"
+                        />
+                      </svg>
+                    }
                   </button>
-                  <a class="btn btn-ghost btn-sm" [routerLink]="['/core/productos', row.id]">Imágenes</a>
+                  <a
+                    class="btn btn-ghost btn-sm btn-square"
+                    [routerLink]="['/core/productos', row.id]"
+                    title="Imágenes"
+                    aria-label="Imágenes"
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke-width="1.5"
+                      class="h-4 w-4 stroke-current"
+                      aria-hidden="true"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        d="M2.25 15.75l5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0 0 22.5 18.75V5.25A2.25 2.25 0 0 0 20.25 3H3.75A2.25 2.25 0 0 0 1.5 5.25v13.5A2.25 2.25 0 0 0 3.75 21Z"
+                      />
+                    </svg>
+                  </a>
                   @if (auth.canWriteAlmacen()) {
-                    <button type="button" class="btn btn-ghost btn-sm" (click)="openEdit(row)">
-                      Editar
+                    <button
+                      type="button"
+                      class="btn btn-sm btn-square"
+                      [class.btn-ghost]="isProductActive(row)"
+                      [class.btn-success]="!isProductActive(row)"
+                      [disabled]="togglingStatusId() === row.id"
+                      [attr.title]="isProductActive(row) ? 'Desactivar producto' : 'Activar producto'"
+                      [attr.aria-label]="
+                        isProductActive(row) ? 'Desactivar producto' : 'Activar producto'
+                      "
+                      (click)="toggleStatus(row)"
+                    >
+                      @if (togglingStatusId() === row.id) {
+                        <span class="loading loading-spinner loading-xs"></span>
+                      } @else if (isProductActive(row)) {
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke-width="1.5"
+                          class="h-4 w-4 stroke-current"
+                          aria-hidden="true"
+                        >
+                          <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9"
+                          />
+                        </svg>
+                      } @else {
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke-width="1.5"
+                          class="h-4 w-4 stroke-current"
+                          aria-hidden="true"
+                        >
+                          <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            d="M5.636 5.636a9 9 0 1 0 12.728 0M12 3v9"
+                          />
+                        </svg>
+                      }
                     </button>
-                    <button type="button" class="btn btn-outline btn-error btn-sm" (click)="remove(row)">
-                      Eliminar
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-sm btn-square"
+                      title="Editar"
+                      aria-label="Editar"
+                      (click)="openEdit(row)"
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke-width="1.5"
+                        class="h-4 w-4 stroke-current"
+                        aria-hidden="true"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10"
+                        />
+                      </svg>
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-error btn-sm btn-square"
+                      title="Eliminar"
+                      aria-label="Eliminar"
+                      (click)="remove(row)"
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke-width="1.5"
+                        class="h-4 w-4 stroke-current"
+                        aria-hidden="true"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
+                        />
+                      </svg>
                     </button>
                   }
                 </div>
@@ -158,7 +379,7 @@
       >
         <p class="text-base-content/70 text-xs sm:text-sm">
           {{ rangeLabel() }}
-          @if (searchQuery().trim()) {
+          @if (hasActiveFilters()) {
             <span class="text-base-content/50"> ({{ items().length }} en catálogo)</span>
           }
         </p>
@@ -224,7 +445,27 @@
               <div class="label">
                 <span class="label-text">SKU</span>
               </div>
-              <input class="input input-bordered w-full min-w-0" formControlName="sku" />
+              <input
+                class="input input-bordered w-full min-w-0"
+                formControlName="sku"
+                [class.input-error]="skuCheckStatus() === 'exists'"
+                [class.input-success]="skuCheckStatus() === 'available'"
+                autocomplete="off"
+              />
+              @switch (skuCheckStatus()) {
+                @case ('checking') {
+                  <span class="text-base-content/60 mt-0.5 flex items-center gap-1.5 text-xs">
+                    <span class="loading loading-spinner loading-xs"></span>
+                    Comprobando SKU…
+                  </span>
+                }
+                @case ('available') {
+                  <span class="text-success mt-0.5 text-xs">SKU disponible</span>
+                }
+                @case ('exists') {
+                  <span class="text-error mt-0.5 text-xs">Este SKU ya existe</span>
+                }
+              }
             </label>
             <label class="flex w-full min-w-0 flex-col gap-1 md:col-span-4">
               <div class="label">
@@ -404,7 +645,11 @@
 
         <div class="modal-action mt-1 flex-wrap gap-2 border-t border-base-300 pt-5">
           <button type="button" class="btn" (click)="closeModal()">Cancelar</button>
-          <button type="submit" class="btn btn-primary" [disabled]="saving() || !auth.canWriteAlmacen()">
+          <button
+            type="submit"
+            class="btn btn-primary"
+            [disabled]="saving() || !auth.canWriteAlmacen() || skuCheckStatus() === 'exists' || skuCheckStatus() === 'checking'"
+          >
             @if (saving()) {
               <span class="loading loading-spinner"></span>
             }
@@ -422,55 +667,179 @@
   </div>
 }
 
-@if (fichaProduct(); as fp) {
+@if (bulkImageOpen()) {
   <div class="modal modal-open">
-    <div class="modal-box max-h-[90vh] max-w-2xl overflow-y-auto">
-      <h2 class="text-lg font-bold">Ficha técnica</h2>
-      <p class="text-base-content/70 mt-1 text-sm">
-        <span class="font-medium">{{ fp.sku }}</span>
-        <span class="mx-1">·</span>
-        {{ fp.description }}
-      </p>
+    <div class="modal-box max-h-[92vh] max-w-3xl overflow-y-auto px-4 py-5 sm:px-8">
+      <header class="mb-5 border-b border-base-300 pb-4">
+        <h2 class="text-lg font-bold">Asignar imagen a varios productos</h2>
+        <p class="text-base-content/60 mt-1 text-sm">
+          Sube una sola imagen y elígela para todos los productos que la compartan. Los filtros de la
+          lista también aplican aquí.
+        </p>
+      </header>
 
-      <dl class="mt-5 flex flex-col gap-4 text-sm">
-        <div>
-          <dt class="text-base-content/60 font-medium">Especificaciones</dt>
-          <dd class="mt-1 whitespace-pre-wrap break-words rounded-lg bg-base-200/60 p-3">
-            @if (fp.datasheet?.trim()) {
-              {{ fp.datasheet }}
+      <div class="flex flex-col gap-5">
+        <div class="rounded-box border border-base-300 bg-base-200/25 p-4 sm:p-5">
+          <h3 class="text-sm font-semibold">Imagen</h3>
+          <div class="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <label class="flex w-full min-w-0 flex-col gap-1 sm:col-span-2">
+              <span class="label-text">Archivo</span>
+              <input
+                type="file"
+                class="file-input file-input-bordered file-input-sm w-full"
+                accept="image/*"
+                [disabled]="bulkImageBusy()"
+                (change)="onBulkFileSelected($event)"
+              />
+              @if (bulkFileName(); as fn) {
+                <span class="text-base-content/60 text-xs">{{ fn }}</span>
+              }
+            </label>
+            <label class="flex w-full min-w-0 flex-col gap-1">
+              <span class="label-text">Nombre (opcional)</span>
+              <input
+                type="text"
+                class="input input-bordered input-sm w-full"
+                [value]="bulkImageName()"
+                [disabled]="bulkImageBusy()"
+                (input)="bulkImageName.set($any($event.target).value)"
+                placeholder="p. ej. foto principal"
+              />
+            </label>
+            <label class="label cursor-pointer justify-start gap-3 pt-7">
+              <input
+                type="checkbox"
+                class="checkbox checkbox-sm"
+                [checked]="bulkImagePrimary()"
+                [disabled]="bulkImageBusy()"
+                (change)="bulkImagePrimary.set($any($event.target).checked)"
+              />
+              <span class="label-text">Marcar como imagen principal</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="rounded-box border border-base-300 bg-base-200/25 p-4 sm:p-5">
+          <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h3 class="text-sm font-semibold">Productos</h3>
+              <p class="text-base-content/50 text-xs">
+                {{ bulkSelectedCount() }} seleccionados
+                @if (bulkPickerItems().length !== filteredItems().length) {
+                  · {{ bulkPickerItems().length }} visibles
+                }
+              </p>
+            </div>
+            <div class="flex flex-wrap gap-2">
+              <button
+                type="button"
+                class="btn btn-ghost btn-xs"
+                [disabled]="bulkImageBusy() || bulkPickerItems().length === 0"
+                (click)="selectAllBulkVisible()"
+              >
+                Seleccionar visibles
+              </button>
+              <button
+                type="button"
+                class="btn btn-ghost btn-xs"
+                [disabled]="bulkImageBusy() || bulkSelectedCount() === 0"
+                (click)="clearBulkSelection()"
+              >
+                Quitar selección
+              </button>
+            </div>
+          </div>
+
+          <label class="form-control mt-3 w-full">
+            <span class="label-text">Filtrar en esta lista</span>
+            <input
+              type="search"
+              class="input input-bordered input-sm w-full"
+              placeholder="SKU o descripción…"
+              [value]="bulkPickerQuery()"
+              [disabled]="bulkImageBusy()"
+              (input)="bulkPickerQuery.set($any($event.target).value)"
+            />
+          </label>
+
+          <div class="mt-3 max-h-72 overflow-y-auto rounded-lg border border-base-300 bg-base-100">
+            @if (bulkPickerItems().length === 0) {
+              <p class="text-base-content/60 p-4 text-center text-sm">
+                No hay productos con los filtros actuales.
+              </p>
             } @else {
-              <span class="text-base-content/50">—</span>
+              <ul class="divide-y divide-base-300 text-sm">
+                @for (p of bulkPickerItems(); track p.id) {
+                  <li>
+                    <label class="flex cursor-pointer items-start gap-3 px-3 py-2.5 hover:bg-base-200/60">
+                      <input
+                        type="checkbox"
+                        class="checkbox checkbox-sm mt-0.5"
+                        [checked]="isBulkSelected(p.id)"
+                        [disabled]="bulkImageBusy()"
+                        (change)="toggleBulkProduct(p.id, $any($event.target).checked)"
+                      />
+                      <span class="min-w-0 flex-1">
+                        <span class="font-medium">{{ p.sku }}</span>
+                        <span class="text-base-content/60 block truncate text-xs" [title]="p.description">
+                          {{ p.description }}
+                        </span>
+                      </span>
+                    </label>
+                  </li>
+                }
+              </ul>
             }
-          </dd>
-        </div>
-        <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <div>
-            <dt class="text-base-content/60 font-medium">Garantía</dt>
-            <dd class="mt-1">{{ fp.warranty?.trim() || '—' }}</dd>
-          </div>
-          <div>
-            <dt class="text-base-content/60 font-medium">Dimensiones</dt>
-            <dd class="mt-1">{{ fp.dimensions?.trim() || '—' }}</dd>
-          </div>
-          <div>
-            <dt class="text-base-content/60 font-medium">Peso bruto</dt>
-            <dd class="mt-1">{{ fp.gross_weight?.trim() || '—' }}</dd>
           </div>
         </div>
-      </dl>
 
-      <div class="modal-action mt-2">
-        <button type="button" class="btn" (click)="closeFicha()">Cerrar</button>
-        @if (auth.canWriteAlmacen()) {
-          <button type="button" class="btn btn-primary" (click)="editFromFicha(fp)">Editar producto</button>
+        @if (bulkProgress(); as prog) {
+          <div role="status" class="alert alert-info text-sm">
+            Subiendo… {{ prog.done }} / {{ prog.total }}
+          </div>
         }
+
+        @if (bulkSummary(); as sum) {
+          <div role="status" class="alert alert-success text-sm">
+            <span>
+              Imagen asignada a <strong>{{ sum.ok }}</strong> producto(s).
+            </span>
+            @if (sum.errors.length) {
+              <ul class="mt-2 list-inside list-disc text-left">
+                @for (e of sum.errors; track e.sku + e.message) {
+                  <li><span class="font-medium">{{ e.sku }}</span>: {{ e.message }}</li>
+                }
+              </ul>
+            }
+          </div>
+        }
+
+        <div class="modal-action mt-1 flex-wrap gap-2 border-t border-base-300 pt-5">
+          <button type="button" class="btn" [disabled]="bulkImageBusy()" (click)="closeBulkImage()">
+            {{ bulkSummary() ? 'Cerrar' : 'Cancelar' }}
+          </button>
+          <button
+            type="button"
+            class="btn btn-primary"
+            [disabled]="bulkImageBusy() || !bulkFileName() || bulkSelectedCount() === 0"
+            (click)="submitBulkImage()"
+          >
+            @if (bulkImageBusy()) {
+              <span class="loading loading-spinner"></span>
+              Asignando…
+            } @else {
+              Asignar imagen ({{ bulkSelectedCount() }})
+            }
+          </button>
+        </div>
       </div>
     </div>
     <button
       type="button"
       class="modal-backdrop bg-black/50"
-      (click)="closeFicha()"
-      aria-label="Cerrar ficha técnica"
+      [disabled]="bulkImageBusy()"
+      (click)="closeBulkImage()"
+      aria-label="Cerrar asignación masiva"
     ></button>
   </div>
 }

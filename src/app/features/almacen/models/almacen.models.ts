@@ -10,6 +10,8 @@ export interface Product {
   sku: string;
   description: string;
   category: number | null;
+  /** Nombre de categoría si el API lo envía anidado (solo lectura / UI). */
+  category_name?: string | null;
   subcategory: number | null;
   /** FK tipo de producto (maestro `types`). */
   type: number | null;

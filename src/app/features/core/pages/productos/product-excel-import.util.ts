@@ -87,9 +87,11 @@ function parseCell(field: keyof ProductExcelRow, raw: unknown): unknown {
     return n;
   }
   if (field === 'price' || field === 'rental_price_without_operator' || field === 'rental_price_with_operator') {
-    return decimalOrNull(raw);
+    const n = decimalOrNull(raw);
+    return n === null ? undefined : n;
   }
-  return String(raw).trim();
+  const s = String(raw).trim();
+  return s === '' ? undefined : s;
 }
 
 export function parseProductExcel(buffer: ArrayBuffer): ExcelParseResult {
@@ -149,6 +151,80 @@ function strOrNull(v: unknown): string | null {
   if (v === null || v === undefined) return null;
   const s = String(v).trim();
   return s === '' ? null : s;
+}
+
+function normalizeBulkStatus(raw: string): string | undefined {
+  const s = raw.trim();
+  if (!s) return undefined;
+  const upper = s.toUpperCase();
+  if (upper === 'ACTIVE' || upper === 'ACTIVO') return 'ACTIVE';
+  if (upper === 'INACTIVE' || upper === 'INACTIVO') return 'INACTIVE';
+  return upper;
+}
+
+/**
+ * Item para POST bulk-upsert con partial_update: solo sku + campos presentes en la fila.
+ * No envía null en CharField sin allow_null (p. ej. description) — eso hace fallar todo el lote en DRF.
+ */
+export function excelRowToBulkItem(partial: ProductExcelRow): Record<string, unknown> {
+  const sku = partial.sku.trim();
+  if (!sku) throw new Error('SKU vacío');
+
+  const item: Record<string, unknown> = { sku };
+
+  if (partial.description !== undefined) {
+    const d = strOrNull(partial.description);
+    if (d != null) item['description'] = d.slice(0, 250);
+  }
+  if (partial.datasheet !== undefined) {
+    const d = strOrNull(partial.datasheet);
+    if (d != null) item['datasheet'] = d;
+  }
+  if (partial.warranty !== undefined) {
+    const w = strOrNull(partial.warranty);
+    if (w != null) item['warranty'] = w.slice(0, 20);
+  }
+  if (partial.status !== undefined) {
+    const st = normalizeBulkStatus(String(partial.status));
+    if (st === 'ACTIVE' || st === 'INACTIVE') item['status'] = st;
+  }
+  if (partial.dimensions !== undefined) {
+    const d = strOrNull(partial.dimensions);
+    if (d != null) item['dimensions'] = d.slice(0, 100);
+  }
+  if (partial.gross_weight !== undefined) {
+    const g = strOrNull(partial.gross_weight);
+    if (g != null) item['gross_weight'] = g.slice(0, 100);
+  }
+
+  const fkFields = [
+    'category',
+    'subcategory',
+    'type',
+    'brand',
+    'unit_measurement',
+  ] as const;
+  for (const key of fkFields) {
+    const v = partial[key];
+    if (v !== undefined && v !== null && !Number.isNaN(Number(v))) {
+      item[key] = Number(v);
+    }
+  }
+
+  const moneyFields = [
+    'price',
+    'rental_price_without_operator',
+    'rental_price_with_operator',
+  ] as const;
+  for (const key of moneyFields) {
+    const v = partial[key];
+    if (v !== undefined && v !== null && !Number.isNaN(Number(v))) {
+      // string evita problemas de float con DecimalField de DRF
+      item[key] = Number(v).toFixed(2);
+    }
+  }
+
+  return item;
 }
 
 /**
