@@ -32,6 +32,10 @@ export interface Product {
   status: string;
   dimensions: string | null;
   gross_weight: string | null;
+  /** Fecha de alta (ISO; solo lectura). */
+  creation_date?: string | null;
+  /** Fecha de última modificación (ISO; solo lectura). */
+  update_date?: string | null;
 }
 
 /** Imagen de producto (`/api/almacen/product-images/`). */

@@ -2,7 +2,7 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable, map, of, switchMap } from 'rxjs';
 import { environment } from '../../../../environments/environment';
-import type { Company, CompanyBranding } from '../models/admin-users.models';
+import type { Company, CompanyBranding, CompanyEmailSettings, CompanyEmailSettingsPatch } from '../models/admin-users.models';
 import { DEFAULT_COMPANY_BRANDING } from '../utils/company-branding.utils';
 
 function unwrapList<T>(res: T[] | { results: T[] }): T[] {
@@ -154,4 +154,58 @@ export class CompanyService {
       map((r) => normalizeCompany(r)),
     );
   }
+
+  /** GET /api/companies/{id}/email-settings/ — SMTP (admin). */
+  getEmailSettings(companyId: number): Observable<CompanyEmailSettings> {
+    return this.http
+      .get<Record<string, unknown>>(`${this.base}/${companyId}/email-settings/`)
+      .pipe(map((r) => normalizeEmailSettings(r)));
+  }
+
+  /** PATCH /api/companies/{id}/email-settings/ — guarda SMTP; password solo si se envía. */
+  patchEmailSettings(
+    companyId: number,
+    body: CompanyEmailSettingsPatch,
+  ): Observable<CompanyEmailSettings> {
+    const payload: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(body)) {
+      if (v === undefined) continue;
+      payload[k] = v;
+    }
+    return this.http
+      .patch<Record<string, unknown>>(`${this.base}/${companyId}/email-settings/`, payload)
+      .pipe(map((r) => normalizeEmailSettings(r)));
+  }
+
+  /** POST /api/companies/{id}/email-settings/test/ — envía correo de prueba. */
+  testEmailSettings(companyId: number, to: string): Observable<unknown> {
+    return this.http.post(`${this.base}/${companyId}/email-settings/test/`, { to });
+  }
+}
+
+function normalizeEmailSettings(row: Record<string, unknown>): CompanyEmailSettings {
+  const ccRaw = row['default_cc'];
+  let default_cc: string[] = [];
+  if (Array.isArray(ccRaw)) {
+    default_cc = ccRaw
+      .map((x) => String(x ?? '').trim())
+      .filter((x) => x.length > 0 && x.includes('@'));
+  } else if (typeof ccRaw === 'string' && ccRaw.trim()) {
+    default_cc = ccRaw
+      .split(/[,;\n]+/)
+      .map((x) => x.trim())
+      .filter((x) => x.length > 0 && x.includes('@'));
+  }
+  return {
+    host: String(row['host'] ?? ''),
+    port: Number(row['port'] ?? 587) || 587,
+    use_tls: Boolean(row['use_tls'] ?? true),
+    use_ssl: Boolean(row['use_ssl'] ?? false),
+    username: String(row['username'] ?? ''),
+    from_email: String(row['from_email'] ?? ''),
+    from_name: String(row['from_name'] ?? ''),
+    default_cc,
+    is_active: Boolean(row['is_active'] ?? false),
+    password_configured: Boolean(row['password_configured'] ?? false),
+  };
 }

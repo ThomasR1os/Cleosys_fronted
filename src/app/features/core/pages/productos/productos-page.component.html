@@ -8,7 +8,7 @@
         Catálogo maestro (SKU, descripción y clasificación). El stock se gestiona en Almacén.
       </p>
     </div>
-    @if (auth.canWriteAlmacen()) {
+    @if (auth.canWriteProducts()) {
       <div class="flex flex-wrap items-center gap-2">
         <button type="button" class="btn btn-outline btn-sm" (click)="downloadProductTemplate()">
           Plantilla Excel
@@ -40,9 +40,10 @@
     }
   </div>
 
-  @if (!auth.canWriteAlmacen()) {
+  @if (!auth.canWriteProducts()) {
     <div role="status" class="alert alert-warning text-sm">
-      Solo consulta. Alta y edición requieren rol <strong>Almacén</strong> o <strong>Administrador</strong>.
+      Solo consulta. Alta y edición requieren rol <strong>Almacén</strong>, <strong>Logística</strong> o
+      <strong>Administrador</strong>.
     </div>
   }
 
@@ -197,6 +198,7 @@
             <th>Marca</th>
             <th>Precio</th>
             <th>Estado</th>
+            <th>Última actualización</th>
             <th class="text-right">Acciones</th>
           </tr>
         </thead>
@@ -218,6 +220,9 @@
                 }
               </td>
               <td class="whitespace-nowrap">{{ statusLabel(row.status) }}</td>
+              <td class="whitespace-nowrap">
+                {{ productLastTouchedAt(row) | shortDateTime }}
+              </td>
               <td class="text-right">
                 <div class="flex flex-nowrap justify-end gap-0.5">
                   <button
@@ -276,7 +281,7 @@
                       />
                     </svg>
                   </a>
-                  @if (auth.canWriteAlmacen()) {
+                  @if (auth.canWriteProducts()) {
                     <button
                       type="button"
                       class="btn btn-sm btn-square"
@@ -648,7 +653,7 @@
           <button
             type="submit"
             class="btn btn-primary"
-            [disabled]="saving() || !auth.canWriteAlmacen() || skuCheckStatus() === 'exists' || skuCheckStatus() === 'checking'"
+            [disabled]="saving() || !auth.canWriteProducts() || skuCheckStatus() === 'exists' || skuCheckStatus() === 'checking'"
           >
             @if (saving()) {
               <span class="loading loading-spinner"></span>

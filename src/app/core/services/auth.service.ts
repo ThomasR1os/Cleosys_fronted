@@ -7,11 +7,13 @@ import {
   firstValueFrom,
   from,
   map,
+  of,
+  switchMap,
   tap,
   throwError,
 } from 'rxjs';
 import { environment } from '../../../environments/environment';
-import type { MeResponse, TokenPair } from '../models/auth.models';
+import type { MePatchRequest, MeResponse, TokenPair } from '../models/auth.models';
 
 const STORAGE_ACCESS = 'cleosystem_access';
 const STORAGE_REFRESH = 'cleosystem_refresh';
@@ -57,6 +59,15 @@ export class AuthService {
   readonly canWriteAlmacen = computed(() => {
     const role = this.me()?.profile?.role;
     return role === 'ALMACEN' || role === 'ADMIN';
+  });
+
+  /**
+   * CRUD del catálogo de productos (Core → Productos).
+   * Almacén y Logística pueden gestionar el maestro; Admin también.
+   */
+  readonly canWriteProducts = computed(() => {
+    const role = this.me()?.profile?.role;
+    return role === 'ALMACEN' || role === 'LOGISTICA' || role === 'ADMIN';
   });
 
   /** POST/PATCH/DELETE en logística (LogisticaWritePermission). */
@@ -105,6 +116,38 @@ export class AuthService {
       catchError((err) => {
         this.me.set(null);
         return throwError(() => err);
+      }),
+    );
+  }
+
+  /**
+   * PATCH /api/auth/me/ — preferencias del asesor (Reply-To, nombre en correo, etc.).
+   */
+  patchMe(body: MePatchRequest): Observable<MeResponse> {
+    const url = `${environment.apiUrl}/auth/me/`;
+    return this.http.patch<MeResponse>(url, body).pipe(
+      tap((data) => this.me.set(data)),
+    );
+  }
+
+  /** POST /api/auth/me/signature/ — multipart `file`; actualiza `profile.signature_url`. */
+  uploadSignature(file: File): Observable<MeResponse> {
+    const fd = new FormData();
+    fd.append('file', file);
+    return this.http
+      .post<MeResponse>(`${environment.apiUrl}/auth/me/signature/`, fd)
+      .pipe(tap((data) => this.me.set(data)));
+  }
+
+  /** DELETE /api/auth/me/signature/ — quita la firma del perfil. */
+  deleteSignature(): Observable<MeResponse> {
+    return this.http.delete<MeResponse | void>(`${environment.apiUrl}/auth/me/signature/`).pipe(
+      switchMap((data) => {
+        if (data && typeof data === 'object' && 'user' in data) {
+          this.me.set(data as MeResponse);
+          return of(data as MeResponse);
+        }
+        return this.loadProfile();
       }),
     );
   }

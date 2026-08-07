@@ -133,16 +133,104 @@
                 <td class="whitespace-nowrap tabular-nums text-base-content/90">
                   {{ row.creation_date | shortDateTime }}
                 </td>
-                <td class="text-right space-x-1">
-                  <button type="button" class="btn btn-ghost btn-sm" (click)="openViewQuotation(row)">Ver</button>
-                  @if (canEditQuotation(row)) {
-                    <button type="button" class="btn btn-ghost btn-sm" (click)="openEditQuotation(row)">
-                      Editar
+                <td class="text-right">
+                  <div class="flex flex-nowrap justify-end gap-0.5">
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-sm btn-square"
+                      title="Ver"
+                      aria-label="Ver"
+                      (click)="openViewQuotation(row)"
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke-width="1.5"
+                        class="h-4 w-4 stroke-current"
+                        aria-hidden="true"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z"
+                        />
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"
+                        />
+                      </svg>
                     </button>
-                    <button type="button" class="btn btn-outline btn-error btn-sm" (click)="removeQuotation(row)">
-                      Eliminar
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-sm btn-square"
+                      title="Enviar por correo"
+                      aria-label="Enviar por correo"
+                      (click)="openSendEmail(row)"
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke-width="1.5"
+                        class="h-4 w-4 stroke-current"
+                        aria-hidden="true"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75"
+                        />
+                      </svg>
                     </button>
-                  }
+                    @if (canEditQuotation(row)) {
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-sm btn-square"
+                        title="Editar"
+                        aria-label="Editar"
+                        (click)="openEditQuotation(row)"
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke-width="1.5"
+                          class="h-4 w-4 stroke-current"
+                          aria-hidden="true"
+                        >
+                          <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10"
+                          />
+                        </svg>
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-error btn-sm btn-square"
+                        title="Eliminar"
+                        aria-label="Eliminar"
+                        (click)="removeQuotation(row)"
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke-width="1.5"
+                          class="h-4 w-4 stroke-current"
+                          aria-hidden="true"
+                        >
+                          <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
+                          />
+                        </svg>
+                      </button>
+                    }
+                  </div>
                 </td>
               </tr>
             } @empty {
@@ -791,6 +879,9 @@
               <button type="button" class="btn btn-outline" (click)="viewQuotationPdfFromModal()">
                 Ver en PDF
               </button>
+              <button type="button" class="btn btn-outline btn-primary" (click)="openSendEmailFromModal()">
+                Enviar por correo
+              </button>
             }
             <button type="button" class="btn btn-primary" (click)="closeQuotationModal()">Cerrar</button>
           </div>
@@ -802,6 +893,195 @@
       class="modal-backdrop bg-black/50"
       (click)="closeQuotationModal()"
       aria-label="Cerrar"
+    ></button>
+  </div>
+}
+
+@if (sendEmailOpen()) {
+  <div class="modal modal-open">
+    <div class="modal-box max-w-lg p-0">
+      <header class="border-b border-base-300 px-5 py-4">
+        <div class="flex items-center gap-3">
+          <span
+            class="bg-primary/10 text-primary flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
+            aria-hidden="true"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke-width="1.5"
+              class="h-5 w-5 stroke-current"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75"
+              />
+            </svg>
+          </span>
+          <div class="min-w-0">
+            <h2 class="text-base font-semibold leading-tight">Enviar cotización</h2>
+            @if (sendEmailQuotation(); as sq) {
+              <p class="text-base-content/55 mt-0.5 truncate text-xs">
+                <span class="font-mono">{{ sq.correlativo }}</span>
+                @if (clientDisplayForRow(sq); as clientName) {
+                  <span> · {{ clientName }}</span>
+                }
+              </p>
+            }
+          </div>
+        </div>
+      </header>
+
+      <!-- Labels arriba + inputs full-width (evita form-control de Daisy que alinea en fila) -->
+      <form
+        class="flex flex-col gap-4 px-5 py-4"
+        [formGroup]="sendEmailForm"
+        (ngSubmit)="submitSendEmail()"
+      >
+        <div class="flex w-full min-w-0 flex-col gap-1.5">
+          <label for="send-email-to" class="text-base-content/55 text-xs font-medium">
+            Destinatario
+          </label>
+          <input
+            id="send-email-to"
+            type="text"
+            class="input input-bordered w-full min-w-0"
+            formControlName="to"
+            placeholder="cliente@empresa.com"
+            autocomplete="email"
+            [class.input-error]="
+              sendEmailForm.controls.to.touched && !sendEmailForm.controls.to.value.trim()
+            "
+          />
+          <p class="text-base-content/45 text-xs">Varios correos: sepáralos con coma.</p>
+        </div>
+
+        <div class="flex w-full min-w-0 flex-col gap-1.5">
+          <label for="send-email-cc" class="text-base-content/55 text-xs font-medium">
+            Copia (CC)
+            <span class="font-normal opacity-70">opcional</span>
+          </label>
+          <input
+            id="send-email-cc"
+            type="text"
+            class="input input-bordered w-full min-w-0"
+            formControlName="cc"
+            placeholder="otro@empresa.com"
+          />
+        </div>
+
+        <div class="flex w-full min-w-0 flex-col gap-1.5">
+          <label for="send-email-subject" class="text-base-content/55 text-xs font-medium">
+            Asunto
+          </label>
+          <input
+            id="send-email-subject"
+            type="text"
+            class="input input-bordered w-full min-w-0"
+            formControlName="subject"
+            placeholder="Asunto del correo"
+          />
+        </div>
+
+        <div class="flex w-full min-w-0 flex-col gap-1.5">
+          <label for="send-email-message" class="text-base-content/55 text-xs font-medium">
+            Mensaje
+          </label>
+          <textarea
+            id="send-email-message"
+            class="textarea textarea-bordered w-full min-h-[9.5rem] min-w-0 text-sm leading-relaxed"
+            formControlName="message"
+            placeholder="Escribe el cuerpo del correo…"
+          ></textarea>
+        </div>
+
+        @if (senderSignatureUrl(); as sigUrl) {
+          <div class="rounded-md border border-dashed border-base-300 bg-base-200/40 px-3 py-2.5">
+            <p class="text-base-content/55 mb-2 text-xs font-medium">
+              Se incluirá debajo del mensaje en el correo:
+            </p>
+            @if (senderEmailDisplayName(); as senderName) {
+              <p class="text-sm font-medium">{{ senderName }}</p>
+            }
+            <img
+              [src]="sigUrl"
+              alt="Tu firma"
+              class="mt-1 max-h-20 max-w-[12rem] object-contain"
+            />
+          </div>
+        } @else {
+          <p class="text-base-content/45 text-xs">
+            Tip: sube tu firma en Mi perfil para que aparezca al pie del correo.
+          </p>
+        }
+
+        <div
+          class="bg-base-200/70 text-base-content/65 flex items-center gap-2 rounded-md px-3 py-2 text-xs"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke-width="1.5"
+            class="h-4 w-4 shrink-0 stroke-current opacity-70"
+            aria-hidden="true"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="m18.375 12.739-7.693 7.693a4.5 4.5 0 0 1-6.364-6.364l10.94-10.94A3 3 0 1 1 19.5 7.372L8.552 18.32m.009-.01-.01.01m5.699-9.941-7.81 7.81a1.5 1.5 0 0 0 2.112 2.13"
+            />
+          </svg>
+          <span>
+            Adjunto:
+            <span class="text-base-content font-medium">
+              @if (sendEmailQuotation(); as sq) {
+                cotizacion-{{ sq.correlativo }}.pdf
+              } @else {
+                PDF de la cotización
+              }
+            </span>
+          </span>
+        </div>
+
+        @if (sendEmailError(); as err) {
+          <div role="alert" class="alert alert-error py-2 text-sm">
+            <span>{{ err }}</span>
+          </div>
+        }
+        @if (sendEmailSuccess(); as ok) {
+          <div role="status" class="alert alert-success py-2 text-sm">
+            <span>{{ ok }}</span>
+          </div>
+        }
+
+        <div class="flex flex-wrap justify-end gap-2 border-t border-base-300 pt-4">
+          <button type="button" class="btn btn-ghost" [disabled]="sendEmailBusy()" (click)="closeSendEmail()">
+            {{ sendEmailSuccess() ? 'Cerrar' : 'Cancelar' }}
+          </button>
+          <button
+            type="submit"
+            class="btn btn-primary min-w-[7rem]"
+            [disabled]="sendEmailBusy() || !!sendEmailSuccess()"
+          >
+            @if (sendEmailBusy()) {
+              <span class="loading loading-spinner loading-sm"></span>
+              Enviando…
+            } @else {
+              Enviar
+            }
+          </button>
+        </div>
+      </form>
+    </div>
+    <button
+      type="button"
+      class="modal-backdrop bg-black/50"
+      [disabled]="sendEmailBusy()"
+      (click)="closeSendEmail()"
+      aria-label="Cerrar envío"
     ></button>
   </div>
 }

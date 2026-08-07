@@ -337,3 +337,28 @@ export interface PaymentMethodRow {
   id: number;
   name: string;
 }
+
+/** POST /api/ventas/quotations/{id}/send-email/ */
+export interface QuotationSendEmailRequest {
+  to?: string[];
+  cc?: string[];
+  subject?: string;
+  /** Versión texto plano del cuerpo. */
+  message?: string;
+  /**
+   * Versión HTML (multipart/alternative). Necesaria para mostrar la firma como imagen.
+   * El backend debe usarla con EmailMultiAlternatives / html_message.
+   */
+  html_message?: string;
+  /** URL de firma del remitente (opcional; el backend puede incrustarla en el HTML). */
+  signature_url?: string | null;
+  pdf_base64: string;
+  pdf_filename: string;
+}
+
+export interface QuotationSendEmailResponse {
+  status: string;
+  to: string[];
+  cc: string[];
+  log_id?: number;
+}

@@ -81,6 +81,8 @@ function normalizeProduct(row: Record<string, unknown>): Product {
     status: optStr(row['status']) ?? 'ACTIVE',
     dimensions: optStr(row['dimensions']),
     gross_weight: optStr(row['gross_weight']),
+    creation_date: optStr(row['creation_date']),
+    update_date: optStr(row['update_date']),
   };
 }
 
@@ -93,6 +95,7 @@ function toApiPayload(body: Partial<Product>, variant: WarrantyFieldVariant): Re
   const w = (b['warranty'] ?? b['warrannty']) as unknown;
   delete payload['warranty'];
   delete payload['warrannty'];
+  delete payload['category_name'];
   payload[variant] = w;
 
   return payload;

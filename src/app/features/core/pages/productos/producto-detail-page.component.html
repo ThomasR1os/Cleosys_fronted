@@ -19,14 +19,14 @@
     <section class="rounded-lg border border-base-300 bg-base-100 p-4">
       <h2 class="font-semibold text-lg mb-3">Imágenes</h2>
 
-      @if (!auth.canWriteAlmacen()) {
+      @if (!auth.canWriteProducts()) {
         <div role="status" class="alert alert-warning text-sm mb-4">
-          Solo consulta. Subir o editar imágenes requiere rol <strong>Almacén</strong> o
-          <strong>Administrador</strong>.
+          Solo consulta. Subir o editar imágenes requiere rol <strong>Almacén</strong>,
+          <strong>Logística</strong> o <strong>Administrador</strong>.
         </div>
       }
 
-      @if (auth.canWriteAlmacen()) {
+      @if (auth.canWriteProducts()) {
         <div class="mb-6 flex flex-col gap-3 rounded-lg bg-base-200/50 p-4 sm:flex-row sm:flex-wrap sm:items-end">
           <label class="form-control w-full max-w-sm">
             <span class="label-text">Archivo</span>
@@ -90,7 +90,7 @@
                   <span class="badge badge-primary badge-sm w-fit">Principal</span>
                 }
                 <div class="card-actions justify-end mt-2">
-                  @if (auth.canWriteAlmacen() && !img.primary) {
+                  @if (auth.canWriteProducts() && !img.primary) {
                     <button
                       type="button"
                       class="btn btn-ghost btn-xs"
@@ -104,7 +104,7 @@
                       }
                     </button>
                   }
-                  @if (auth.canWriteAlmacen()) {
+                  @if (auth.canWriteProducts()) {
                     <button type="button" class="btn btn-outline btn-error btn-xs" (click)="removeImage(img)">
                       Eliminar
                     </button>

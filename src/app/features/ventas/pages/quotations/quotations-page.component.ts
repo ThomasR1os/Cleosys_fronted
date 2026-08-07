@@ -226,6 +226,21 @@ export class QuotationsPageComponent implements OnInit {
   readonly editingLineId = signal<number | null>(null);
   /** Solo lectura (ej. ver líneas sin permiso de edición). */
   readonly quotationModalReadonly = signal(false);
+
+  /** Modal enviar cotización por correo. */
+  readonly sendEmailOpen = signal(false);
+  readonly sendEmailBusy = signal(false);
+  readonly sendEmailError = signal<string | null>(null);
+  readonly sendEmailSuccess = signal<string | null>(null);
+  readonly sendEmailQuotation = signal<QuotationRow | null>(null);
+
+  readonly sendEmailForm = this.fb.nonNullable.group({
+    to: ['', Validators.required],
+    cc: [''],
+    subject: [''],
+    message: [''],
+  });
+
   /** Líneas de una cotización nueva (aún sin `id`). */
   readonly draftLines = signal<DraftQuotationLine[]>([]);
   readonly lineEditorMode = signal<'idle' | 'new' | 'edit'>('idle');
@@ -1370,7 +1385,7 @@ export class QuotationsPageComponent implements OnInit {
    * Prefiere `client_detail` (viene anidado siempre), luego el catálogo local; si no hay nada
    * cae al formato `#id`.
    */
-  private clientDisplayForRow(row: QuotationRow): string {
+  clientDisplayForRow(row: QuotationRow): string {
     if (!row.client) return '';
     const detail = row.client_detail;
     if (detail?.name) {
@@ -2256,55 +2271,283 @@ export class QuotationsPageComponent implements OnInit {
 
   /** Genera un PDF con la cotización guardada (cabecera, líneas y totales). */
   viewQuotationPdf(row: QuotationRow): void {
-    const run = () =>
-      this.ensureProductsCatalog(() => {
-        void (async () => {
-          await this.loadSalesUsersCatalogIfEmpty();
-          const qpLines = this.linesForQuotationId(row.id);
-          const creatorUser = await this.resolveCreatorUserForPdf(row);
-          const companyId = this.resolveQuotationPdfCompanyId(row, creatorUser);
-          const companyPdf = await this.loadCompanyPdfAssets(companyId);
-          const T = brandingToPdfTheme(companyPdf.branding);
-          const isServicePdf = this.isServiceQuotationPdf(row);
-          const [productImages, creatorIconPng] = await Promise.all([
-            isServicePdf
-              ? Promise.resolve(new Map<number, string | null>())
-              : this.loadProductImageDataUrlsForPdf(qpLines.map((l) => l.product)),
-            this.rasterizePdfUserIconSvg(T.primary),
-          ]);
-          if (companyId === COMPRESORES_COMPANY_ID) {
-            const heroLine = qpLines.find((l) => !!productImages.get(l.product)) ?? qpLines[0];
-            const rawHero =
-              isServicePdf || !heroLine ? null : productImages.get(heroLine.product) ?? null;
-            const heroCropped = rawHero ? await this.cropImageDataUrlToSquare(rawHero) : null;
-            await this.generateQuotationPdfCompresores(
-              row,
-              T,
-              companyPdf.logoDataUrl,
-              productImages,
-              heroCropped,
-              companyPdf.bankAccounts,
-              creatorUser,
-              creatorIconPng,
-              companyPdf.companyRazonSocial,
-              companyPdf.companyRuc,
-            );
-          } else {
-            this.generateQuotationPdf(
-              row,
-              T,
-              companyPdf.logoDataUrl,
-              productImages,
-              companyPdf.bankAccounts,
-              creatorUser,
-              creatorIconPng,
-              companyPdf.companyRazonSocial,
-              companyPdf.companyRuc,
-            );
-          }
-        })();
-      });
-    run();
+    this.ensureProductsCatalog(() => {
+      void (async () => {
+        try {
+          const { blob, filename } = await this.buildQuotationPdfBlob(row);
+          this.downloadPdfBlob(blob, filename);
+        } catch (e: unknown) {
+          this.errorMessage.set(
+            e instanceof Error ? e.message : 'No se pudo generar el PDF.',
+          );
+        }
+      })();
+    });
+  }
+
+  /** Abre el modal para enviar la cotización por correo (genera el PDF al confirmar). */
+  openSendEmail(row: QuotationRow): void {
+    const contactEmail = row.client_contact_detail?.email?.trim() ?? '';
+    this.sendEmailQuotation.set(row);
+    this.sendEmailError.set(null);
+    this.sendEmailSuccess.set(null);
+    this.sendEmailForm.reset({
+      to: contactEmail,
+      cc: '',
+      subject: `Cotización ${row.correlativo}`,
+      message: this.defaultQuotationEmailMessage(row.correlativo),
+    });
+    this.sendEmailOpen.set(true);
+  }
+
+  /** Texto por defecto del cuerpo al abrir el modal de envío. */
+  private defaultQuotationEmailMessage(correlativo: string): string {
+    return (
+      `Estimado(a),\n\n` +
+      `Por medio del presente, adjunto remitimos la cotización ${correlativo} para su revisión y consideración.\n\n` +
+      `Quedamos atentos a cualquier consulta, comentario u observación que pudiera surgir.\n\n` +
+      `Agradecemos de antemano su atención.\n\n` +
+      `Saludos cordiales,`
+    );
+  }
+
+  /** URL de firma del usuario en sesión (si tiene). */
+  senderSignatureUrl(): string | null {
+    const url = this.auth.me()?.profile?.signature_url?.trim();
+    return url || null;
+  }
+
+  /** Nombre para el pie del correo (display name o nombre de sesión). */
+  senderEmailDisplayName(): string {
+    const fromProfile = this.auth.me()?.profile?.email_display_name?.trim();
+    if (fromProfile) return fromProfile;
+    return this.auth.displayName() || '';
+  }
+
+  openSendEmailFromModal(): void {
+    const id = this.editingQuotationId();
+    if (id == null) return;
+    const row = this.quotations().find((q) => q.id === id);
+    if (row) this.openSendEmail(row);
+  }
+
+  closeSendEmail(): void {
+    if (this.sendEmailBusy()) return;
+    this.sendEmailOpen.set(false);
+    this.sendEmailQuotation.set(null);
+    this.sendEmailError.set(null);
+    this.sendEmailSuccess.set(null);
+  }
+
+  async submitSendEmail(): Promise<void> {
+    const row = this.sendEmailQuotation();
+    if (!row) return;
+    if (this.sendEmailForm.invalid) {
+      this.sendEmailForm.markAllAsTouched();
+      return;
+    }
+    const v = this.sendEmailForm.getRawValue();
+    const to = this.parseEmailList(v.to);
+    if (to.length === 0) {
+      this.sendEmailError.set('Indica al menos un correo destinatario.');
+      return;
+    }
+    const cc = this.parseEmailList(v.cc);
+    this.sendEmailBusy.set(true);
+    this.sendEmailError.set(null);
+    this.sendEmailSuccess.set(null);
+    try {
+      await this.ensureProductsCatalogAsync();
+      const { blob, filename } = await this.buildQuotationPdfBlob(row);
+      if (blob.size > 10 * 1024 * 1024) {
+        throw new Error('El PDF supera el límite de 10 MB.');
+      }
+      const pdf_base64 = await this.blobToBase64(blob);
+      const bodies = this.buildQuotationEmailBodies(v.message.trim());
+      const signatureUrl = this.senderSignatureUrl();
+      const res = await firstValueFrom(
+        this.quotationsApi.sendEmail(row.id, {
+          to,
+          cc: cc.length ? cc : [],
+          subject: v.subject.trim() || `Cotización ${row.correlativo}`,
+          message: bodies.message,
+          html_message: bodies.html_message,
+          signature_url: signatureUrl,
+          pdf_base64,
+          pdf_filename: filename,
+        }),
+      );
+      this.sendEmailSuccess.set(
+        `Enviado a ${(res.to ?? to).join(', ')}${
+          (res.cc?.length ?? 0) > 0 ? ` (CC: ${res.cc!.join(', ')})` : ''
+        }.`,
+      );
+    } catch (e: unknown) {
+      this.sendEmailError.set(this.formatSendEmailError(e));
+    } finally {
+      this.sendEmailBusy.set(false);
+    }
+  }
+
+  /**
+   * Cuerpo del correo en texto plano + HTML.
+   * La imagen de firma solo va en `html_message` (si se mete en `message` sale como texto).
+   */
+  private buildQuotationEmailBodies(message: string): {
+    message: string;
+    html_message: string;
+  } {
+    const body = message.trim();
+    const name = this.senderEmailDisplayName();
+    const sig = this.senderSignatureUrl();
+
+    let plain = body;
+    if (name) plain += `\n\n${name}`;
+
+    let html =
+      `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:#222">` +
+      this.plainTextToHtml(body);
+    if (name) {
+      html += `<br/><br/><strong>${this.escapeHtml(name)}</strong>`;
+    }
+    if (sig) {
+      html +=
+        `<br/><img src="${this.escapeHtml(sig)}" alt="Firma" ` +
+        `style="max-height:120px;max-width:280px;margin-top:8px;display:block;border:0;" />`;
+    }
+    html += `</div>`;
+
+    return { message: plain, html_message: html };
+  }
+
+  private plainTextToHtml(text: string): string {
+    return this.escapeHtml(text).replace(/\r\n|\r|\n/g, '<br/>');
+  }
+
+  private escapeHtml(s: string): string {
+    return s
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  private ensureProductsCatalogAsync(): Promise<void> {
+    if (this.productsCatalog().length > 0) return Promise.resolve();
+    return firstValueFrom(this.productService.list()).then((rows) => {
+      this.productsCatalog.set(rows);
+      this.productsCatalogLoading.set(false);
+    });
+  }
+
+  private parseEmailList(raw: string): string[] {
+    return raw
+      .split(/[,;\s]+/)
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0 && s.includes('@'));
+  }
+
+  private blobToBase64(blob: Blob): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result;
+        if (typeof result !== 'string') {
+          reject(new Error('No se pudo codificar el PDF.'));
+          return;
+        }
+        const comma = result.indexOf(',');
+        resolve(comma >= 0 ? result.slice(comma + 1) : result);
+      };
+      reader.onerror = () => reject(new Error('No se pudo leer el PDF.'));
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  private formatSendEmailError(err: unknown): string {
+    if (err instanceof HttpErrorResponse) {
+      if (err.status === 502) {
+        return 'Falló el envío SMTP. Revisa la configuración de correo de la empresa.';
+      }
+      if (err.status === 400) {
+        const d = err.error;
+        let detail = '';
+        if (d && typeof d === 'object' && 'detail' in d && typeof d.detail === 'string') {
+          detail = d.detail;
+        } else if (typeof d === 'string') {
+          detail = d;
+        }
+        if (/inactivo/i.test(detail)) {
+          return (
+            detail +
+            ' Un administrador debe marcar «Activo» en Empresas → Correo SMTP (o reenviar la prueba de correo).'
+          );
+        }
+        return detail || 'No se pudo enviar: SMTP no configurado o datos inválidos.';
+      }
+      if (err.status === 403) return 'No tienes permiso para enviar esta cotización.';
+      const d = err.error;
+      if (d && typeof d === 'object' && 'detail' in d && typeof d.detail === 'string') {
+        return d.detail;
+      }
+      return err.message || 'Error al enviar el correo.';
+    }
+    if (err instanceof Error) return err.message;
+    return 'Error desconocido al enviar.';
+  }
+
+  /** Construye el PDF de la cotización como Blob (sin descargar). */
+  private async buildQuotationPdfBlob(
+    row: QuotationRow,
+  ): Promise<{ blob: Blob; filename: string }> {
+    await this.loadSalesUsersCatalogIfEmpty();
+    const qpLines = this.linesForQuotationId(row.id);
+    const creatorUser = await this.resolveCreatorUserForPdf(row);
+    const companyId = this.resolveQuotationPdfCompanyId(row, creatorUser);
+    const companyPdf = await this.loadCompanyPdfAssets(companyId);
+    const T = brandingToPdfTheme(companyPdf.branding);
+    const isServicePdf = this.isServiceQuotationPdf(row);
+    const [productImages, creatorIconPng] = await Promise.all([
+      isServicePdf
+        ? Promise.resolve(new Map<number, string | null>())
+        : this.loadProductImageDataUrlsForPdf(qpLines.map((l) => l.product)),
+      this.rasterizePdfUserIconSvg(T.primary),
+    ]);
+    const safeName = row.correlativo.replace(/[^\w.-]+/g, '_');
+    const filename = `cotizacion-${safeName}.pdf`;
+
+    if (companyId === COMPRESORES_COMPANY_ID) {
+      const heroLine = qpLines.find((l) => !!productImages.get(l.product)) ?? qpLines[0];
+      const rawHero =
+        isServicePdf || !heroLine ? null : productImages.get(heroLine.product) ?? null;
+      const heroCropped = rawHero ? await this.cropImageDataUrlToSquare(rawHero) : null;
+      const blob = await this.generateQuotationPdfCompresores(
+        row,
+        T,
+        companyPdf.logoDataUrl,
+        productImages,
+        heroCropped,
+        companyPdf.bankAccounts,
+        creatorUser,
+        creatorIconPng,
+        companyPdf.companyRazonSocial,
+        companyPdf.companyRuc,
+      );
+      return { blob, filename };
+    }
+
+    const blob = this.generateQuotationPdf(
+      row,
+      T,
+      companyPdf.logoDataUrl,
+      productImages,
+      companyPdf.bankAccounts,
+      creatorUser,
+      creatorIconPng,
+      companyPdf.companyRazonSocial,
+      companyPdf.companyRuc,
+    );
+    return { blob, filename };
   }
 
   /**
@@ -3476,14 +3719,14 @@ export class QuotationsPageComponent implements OnInit {
     });
   }
 
-  /** Descarga PDF generado con jsPDF; en Compresores fusiona condiciones comerciales 2026 al final. */
-  private async saveCompresoresQuotationPdf(doc: jsPDF, filename: string): Promise<void> {
+  /** Genera el PDF Compresores y lo devuelve como Blob (opcionalmente fusiona condiciones). */
+  private async saveCompresoresQuotationPdf(doc: jsPDF): Promise<Blob> {
     const mainBytes = doc.output('arraybuffer') as ArrayBuffer;
     try {
       const merged = await this.mergePdfWithCompresoresConditionsAppend(mainBytes);
-      this.downloadPdfBlob(new Blob([Uint8Array.from(merged)], { type: 'application/pdf' }), filename);
+      return new Blob([Uint8Array.from(merged)], { type: 'application/pdf' });
     } catch {
-      this.downloadPdfBlob(new Blob([mainBytes], { type: 'application/pdf' }), filename);
+      return new Blob([mainBytes], { type: 'application/pdf' });
     }
   }
 
@@ -3519,7 +3762,7 @@ export class QuotationsPageComponent implements OnInit {
     creatorIconPng: string | null = null,
     companyRazonSocial: string = '',
     companyRuc: string = '',
-  ): Promise<void> {
+  ): Promise<Blob> {
     const doc = new jsPDF();
     const margin = 16;
     const pageW = doc.internal.pageSize.getWidth();
@@ -4068,8 +4311,7 @@ export class QuotationsPageComponent implements OnInit {
     doc.setTextColor(...T.muted);
     doc.text('Documento generado por CleoSystem', margin, pageH - 10, { maxWidth: tableInnerW });
 
-    const safeName = row.correlativo.replace(/[^\w.-]+/g, '_');
-    await this.saveCompresoresQuotationPdf(doc, `cotizacion-${safeName}.pdf`);
+    return this.saveCompresoresQuotationPdf(doc);
   }
 
   private generateQuotationPdf(
@@ -4082,7 +4324,7 @@ export class QuotationsPageComponent implements OnInit {
     creatorIconPng: string | null = null,
     companyRazonSocial: string = '',
     companyRuc: string = '',
-  ): void {
+  ): Blob {
     const doc = new jsPDF();
     const margin = 16;
     const pageW = doc.internal.pageSize.getWidth();
@@ -4545,8 +4787,7 @@ export class QuotationsPageComponent implements OnInit {
       { maxWidth: tableInnerW },
     );
 
-    const safeName = row.correlativo.replace(/[^\w.-]+/g, '_');
-    doc.save(`cotizacion-${safeName}.pdf`);
+    return doc.output('blob') as Blob;
   }
 
   /** Importe con símbolo según moneda (resúmenes y textos del PDF). */

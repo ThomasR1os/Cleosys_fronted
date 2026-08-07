@@ -5,7 +5,7 @@
     <div>
       <h1 class="text-3xl font-bold">Empresas</h1>
       <p class="text-base-content/70 mt-1 text-sm">
-        Catálogo de compañías, logo y paleta de colores para documentos (PDF). Solo administradores.
+        Catálogo de compañías, logo, paleta PDF y SMTP para envío de cotizaciones. Solo administradores.
       </p>
     </div>
     <button type="button" class="btn btn-primary btn-lg" (click)="openNew()">Nueva empresa</button>
@@ -209,6 +209,123 @@
           </button>
         </div>
       </form>
+
+      @if (editingId() != null) {
+        <div class="divider my-2"></div>
+        <details class="collapse collapse-arrow bg-base-200 rounded-box" open>
+          <summary class="collapse-title font-medium py-3 min-h-0">
+            Correo SMTP (envío de cotizaciones)
+          </summary>
+          <div class="collapse-content">
+            <p class="text-xs text-base-content/60 mb-3">
+              Guarda la configuración con «Activo» marcado para poder enviar cotizaciones. La prueba de
+              correo activa el SMTP automáticamente si el envío de prueba tiene éxito.
+            </p>
+            @if (emailSettingsLoading()) {
+              <div class="flex justify-center py-4">
+                <span class="loading loading-spinner loading-md text-primary"></span>
+              </div>
+            } @else {
+              <form class="flex flex-col gap-3" [formGroup]="emailForm" (ngSubmit)="saveEmailSettings()">
+                <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <label class="form-control sm:col-span-2">
+                    <span class="label-text">Host SMTP</span>
+                    <input class="input input-bordered" type="text" formControlName="host" placeholder="smtp.ejemplo.com" />
+                  </label>
+                  <label class="form-control">
+                    <span class="label-text">Puerto</span>
+                    <input class="input input-bordered" type="number" formControlName="port" />
+                  </label>
+                  <div class="flex flex-wrap items-end gap-4 pb-2 sm:col-span-2">
+                    <label class="label cursor-pointer gap-2 justify-start">
+                      <input type="checkbox" class="checkbox checkbox-sm" formControlName="use_tls" />
+                      <span class="label-text">TLS</span>
+                    </label>
+                    <label class="label cursor-pointer gap-2 justify-start">
+                      <input type="checkbox" class="checkbox checkbox-sm" formControlName="use_ssl" />
+                      <span class="label-text">SSL</span>
+                    </label>
+                    <label class="label cursor-pointer gap-2 justify-start rounded-lg border border-base-300 bg-base-100 px-3 py-1.5">
+                      <input type="checkbox" class="checkbox checkbox-sm checkbox-success" formControlName="is_active" />
+                      <span class="label-text font-medium">Activo (requerido para cotizaciones)</span>
+                    </label>
+                  </div>
+                  <label class="form-control">
+                    <span class="label-text">Usuario SMTP</span>
+                    <input class="input input-bordered" type="text" formControlName="username" autocomplete="off" />
+                  </label>
+                  <label class="form-control">
+                    <span class="label-text">Contraseña</span>
+                    <input
+                      class="input input-bordered"
+                      type="password"
+                      formControlName="password"
+                      autocomplete="new-password"
+                      [placeholder]="
+                        emailPasswordConfigured() ? 'Dejar vacío para no cambiar' : 'Contraseña SMTP'
+                      "
+                    />
+                    @if (emailPasswordConfigured()) {
+                      <span class="label-text-alt text-success">Contraseña ya configurada</span>
+                    }
+                  </label>
+                  <label class="form-control">
+                    <span class="label-text">From (email)</span>
+                    <input class="input input-bordered" type="email" formControlName="from_email" />
+                  </label>
+                  <label class="form-control">
+                    <span class="label-text">From (nombre)</span>
+                    <input class="input input-bordered" type="text" formControlName="from_name" placeholder="Cotizaciones" />
+                  </label>
+                  <label class="form-control sm:col-span-2">
+                    <span class="label-text">Correos en copia por defecto (CC)</span>
+                    <textarea
+                      class="textarea textarea-bordered min-h-[4.5rem] text-sm"
+                      formControlName="default_cc"
+                      placeholder="gerencia@empresa.com, archivo@empresa.com"
+                    ></textarea>
+                    <span class="label-text-alt text-base-content/60">
+                      Se añaden automáticamente al enviar cotizaciones. Sepáralos por coma o salto de línea.
+                    </span>
+                  </label>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                  <button type="submit" class="btn btn-primary btn-sm" [disabled]="emailSettingsSaving()">
+                    @if (emailSettingsSaving()) {
+                      <span class="loading loading-spinner loading-xs"></span>
+                    }
+                    Guardar SMTP
+                  </button>
+                </div>
+                <div class="divider text-xs my-1">Probar envío</div>
+                <div class="flex flex-col gap-2 sm:flex-row sm:items-end">
+                  <label class="form-control min-w-0 flex-1">
+                    <span class="label-text">Enviar prueba a</span>
+                    <input class="input input-bordered input-sm" type="email" formControlName="test_to" />
+                  </label>
+                  <button
+                    type="button"
+                    class="btn btn-outline btn-sm"
+                    [disabled]="emailTestBusy()"
+                    (click)="testEmailSettings()"
+                  >
+                    @if (emailTestBusy()) {
+                      <span class="loading loading-spinner loading-xs"></span>
+                    }
+                    Enviar prueba
+                  </button>
+                </div>
+                @if (emailSettingsError(); as eErr) {
+                  <div role="alert" class="alert alert-error text-sm">{{ eErr }}</div>
+                }
+                @if (emailSettingsMessage(); as eOk) {
+                  <div role="status" class="alert alert-success text-sm">{{ eOk }}</div>
+                }
+              </form>
+            }
+          </div>
+        </details>
+      }
     </div>
     <button type="button" class="modal-backdrop bg-black/50" (click)="closeModal()" aria-label="Cerrar"></button>
   </div>

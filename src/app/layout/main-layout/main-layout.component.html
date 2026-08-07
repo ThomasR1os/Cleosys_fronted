@@ -1,19 +1,54 @@
-<div class="drawer lg:drawer-open">
-  <input id="main-drawer" type="checkbox" class="drawer-toggle" />
+<div class="drawer" [class.drawer-open]="sidebarOpen()">
+  <input
+    id="main-drawer"
+    type="checkbox"
+    class="drawer-toggle"
+    [checked]="sidebarOpen()"
+    (change)="onDrawerToggle($event)"
+  />
 
   <div class="drawer-content flex min-h-screen flex-col">
     <header class="navbar border-b border-base-300 bg-base-100 px-2 lg:px-4">
-      <div class="flex-none lg:hidden">
-        <label for="main-drawer" class="btn btn-square btn-ghost" aria-label="Abrir menú">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            fill="none"
-            viewBox="0 0 24 24"
-            class="inline-block h-6 w-6 stroke-current"
-          >
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
-          </svg>
-        </label>
+      <div class="flex-none">
+        <button
+          type="button"
+          class="btn btn-square btn-ghost"
+          [attr.aria-label]="sidebarOpen() ? 'Ocultar menú' : 'Mostrar menú'"
+          [attr.aria-expanded]="sidebarOpen()"
+          (click)="toggleSidebar()"
+        >
+          @if (sidebarOpen()) {
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 24 24"
+              class="inline-block h-6 w-6 stroke-current"
+              aria-hidden="true"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M6 18L18 6M6 6l12 12"
+              />
+            </svg>
+          } @else {
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 24 24"
+              class="inline-block h-6 w-6 stroke-current"
+              aria-hidden="true"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M4 6h16M4 12h16M4 18h16"
+              />
+            </svg>
+          }
+        </button>
       </div>
       <div class="flex-1">
         <span class="text-lg font-semibold">CleoSystem</span>
@@ -36,12 +71,39 @@
 
   <div class="drawer-side z-40">
     <label for="main-drawer" aria-label="Cerrar menú" class="drawer-overlay"></label>
-    <aside class="flex min-h-full w-64 flex-col bg-base-200">
-      <div class="border-b border-base-300 p-4">
-        <p class="text-xs uppercase tracking-wide text-base-content/60">Menú</p>
-        <p class="mt-1 truncate text-sm font-medium" [title]="authService.companyName()">
-          {{ authService.companyName() }}
-        </p>
+    <aside
+      class="sidebar-branded flex min-h-full w-64 flex-col"
+      [style.--sidebar-primary]="primaryColor()"
+      [style.--sidebar-fg]="sidebarFg()"
+    >
+      <div class="sidebar-divider flex items-start justify-between gap-2 border-b p-4">
+        <div class="min-w-0 flex-1">
+          <p class="sidebar-muted text-xs uppercase tracking-wide">Menú</p>
+          <p class="mt-1 truncate text-sm font-medium" [title]="authService.companyName()">
+            {{ authService.companyName() }}
+          </p>
+        </div>
+        <button
+          type="button"
+          class="btn btn-ghost btn-square btn-sm shrink-0"
+          aria-label="Ocultar menú"
+          (click)="toggleSidebar()"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+            class="h-5 w-5 stroke-current"
+            aria-hidden="true"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M11 19l-7-7 7-7m8 14l-7-7 7-7"
+            />
+          </svg>
+        </button>
       </div>
       <ul class="menu w-full flex-1 gap-1 p-2 text-base">
         <li>

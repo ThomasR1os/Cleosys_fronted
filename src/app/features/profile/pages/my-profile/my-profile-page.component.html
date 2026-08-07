@@ -124,6 +124,108 @@
             }
           </span>
         </label>
+
+        <div class="divider text-xs">Correo al enviar cotizaciones</div>
+
+        <label
+          class="flex w-full flex-col gap-1 sm:flex-row sm:items-start sm:gap-4"
+        >
+          <span class="label-text shrink-0 pt-1 sm:w-56 sm:pt-2">Nombre en el correo</span>
+          <span class="flex min-w-0 flex-1 flex-col gap-1">
+            <input
+              type="text"
+              class="input input-bordered w-full"
+              formControlName="email_display_name"
+              placeholder="Ej. María Pérez"
+            />
+            <span class="label-text-alt text-base-content/60">
+              Cómo aparece tu nombre al cliente (Reply-To / firma).
+            </span>
+          </span>
+        </label>
+
+        <label
+          class="flex w-full flex-col gap-1 sm:flex-row sm:items-start sm:gap-4"
+        >
+          <span class="label-text shrink-0 pt-1 sm:w-56 sm:pt-2">Reply-To</span>
+          <span class="flex min-w-0 flex-1 flex-col gap-1">
+            <input
+              type="email"
+              class="input input-bordered w-full"
+              formControlName="reply_to_email"
+              [placeholder]="auth.me()?.user?.email || 'tu@empresa.com'"
+            />
+            @if (form.controls.reply_to_email.touched && form.controls.reply_to_email.errors?.['email']) {
+              <span class="label-text-alt text-error">Correo no válido</span>
+            } @else {
+              <span class="label-text-alt text-base-content/60">
+                Si lo dejas vacío, se usa tu correo de cuenta.
+              </span>
+            }
+          </span>
+        </label>
+
+        <div class="divider text-xs">Firma (imagen)</div>
+
+        <div class="flex w-full flex-col gap-2 sm:flex-row sm:items-start sm:gap-4">
+          <span class="label-text shrink-0 pt-1 sm:w-56 sm:pt-2">Firma digital</span>
+          <div class="flex min-w-0 flex-1 flex-col gap-2">
+            <p class="text-base-content/60 text-xs">
+              Sube una imagen de tu firma (PNG o JPG). Se usa en documentos y correos cuando aplique.
+            </p>
+            <input
+              type="file"
+              class="file-input file-input-bordered file-input-sm w-full max-w-full"
+              accept="image/*"
+              [disabled]="signatureBusy()"
+              (change)="onSignatureFile($event)"
+            />
+            @if (signatureDisplaySrc(); as src) {
+              <div class="rounded-lg border border-base-300 bg-base-200/40 p-3">
+                <img
+                  [src]="src"
+                  alt="Vista previa de la firma"
+                  class="max-h-24 max-w-full object-contain"
+                />
+              </div>
+            } @else {
+              <p class="text-base-content/50 text-xs">Aún no tienes firma cargada.</p>
+            }
+            <div class="flex flex-wrap gap-2">
+              @if (signaturePreviewUrl()) {
+                <button
+                  type="button"
+                  class="btn btn-primary btn-sm"
+                  [disabled]="signatureBusy()"
+                  (click)="uploadSignature()"
+                >
+                  @if (signatureBusy()) {
+                    <span class="loading loading-spinner loading-xs"></span>
+                  }
+                  Subir firma
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-sm"
+                  [disabled]="signatureBusy()"
+                  (click)="clearPendingSignature()"
+                >
+                  Cancelar selección
+                </button>
+              }
+              @if (auth.me()?.profile?.signature_url) {
+                <button
+                  type="button"
+                  class="btn btn-outline btn-error btn-sm"
+                  [disabled]="signatureBusy()"
+                  (click)="removeSignature()"
+                >
+                  Eliminar firma
+                </button>
+              }
+            </div>
+          </div>
+        </div>
       }
 
       <div class="divider text-xs">Cambiar contraseña (opcional)</div>

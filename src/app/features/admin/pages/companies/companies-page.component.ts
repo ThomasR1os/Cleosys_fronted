@@ -40,6 +40,13 @@ export class CompaniesPageComponent implements OnInit, OnDestroy {
   /** Meta para pintar controles de color con etiquetas (documentos PDF). */
   readonly brandingFields = COMPANY_BRANDING_FIELD_META;
 
+  readonly emailSettingsLoading = signal(false);
+  readonly emailSettingsSaving = signal(false);
+  readonly emailTestBusy = signal(false);
+  readonly emailSettingsMessage = signal<string | null>(null);
+  readonly emailSettingsError = signal<string | null>(null);
+  readonly emailPasswordConfigured = signal(false);
+
   readonly form = this.fb.nonNullable.group({
     ruc: [''],
     name: ['', Validators.required],
@@ -56,6 +63,22 @@ export class CompaniesPageComponent implements OnInit, OnDestroy {
     text_body: [DEFAULT_COMPANY_BRANDING.text_body, Validators.required],
     text_label: [DEFAULT_COMPANY_BRANDING.text_label, Validators.required],
     text_caption: [DEFAULT_COMPANY_BRANDING.text_caption, Validators.required],
+  });
+
+  readonly emailForm = this.fb.nonNullable.group({
+    host: [''],
+    port: [587, [Validators.required, Validators.min(1), Validators.max(65535)]],
+    use_tls: [true],
+    use_ssl: [false],
+    username: [''],
+    password: [''],
+    from_email: ['', [Validators.email]],
+    from_name: [''],
+    /** Texto editable: correos separados por coma o salto de línea → `default_cc[]`. */
+    default_cc: [''],
+    /** Por defecto activo: sin esto el envío de cotizaciones falla aunque el test funcione. */
+    is_active: [true],
+    test_to: ['', [Validators.email]],
   });
 
   ngOnInit(): void {
@@ -86,6 +109,7 @@ export class CompaniesPageComponent implements OnInit, OnDestroy {
     this.editingRow.set(null);
     this.form.reset({ ruc: '', name: '', bank_accounts: '' });
     this.brandingForm.reset({ ...DEFAULT_COMPANY_BRANDING });
+    this.resetEmailForm();
     this.clearLogoPick();
     this.modalOpen.set(true);
   }
@@ -101,13 +125,16 @@ export class CompaniesPageComponent implements OnInit, OnDestroy {
     this.brandingForm.patchValue({
       ...(row.branding ?? DEFAULT_COMPANY_BRANDING),
     });
+    this.resetEmailForm();
     this.clearLogoPick();
     this.modalOpen.set(true);
+    this.loadEmailSettings(row.id);
   }
 
   closeModal(): void {
     this.modalOpen.set(false);
     this.clearLogoPick();
+    this.resetEmailForm();
   }
 
   onLogoFile(ev: Event): void {
@@ -179,6 +206,104 @@ export class CompaniesPageComponent implements OnInit, OnDestroy {
     });
   }
 
+  saveEmailSettings(): void {
+    const companyId = this.editingId();
+    if (companyId == null) return;
+    if (this.emailForm.controls.host.invalid || this.emailForm.controls.port.invalid) {
+      this.emailForm.markAllAsTouched();
+      return;
+    }
+    const patch = this.buildEmailSettingsPatch();
+    this.emailSettingsSaving.set(true);
+    this.emailSettingsError.set(null);
+    this.emailSettingsMessage.set(null);
+    this.api.patchEmailSettings(companyId, patch).subscribe({
+      next: (s) => {
+        this.emailSettingsSaving.set(false);
+        this.emailPasswordConfigured.set(!!s.password_configured);
+        this.emailForm.patchValue({ password: '', is_active: s.is_active });
+        this.emailSettingsMessage.set(
+          s.is_active
+            ? 'Configuración SMTP guardada y activa.'
+            : 'SMTP guardado, pero está inactivo. Actívalo para enviar cotizaciones.',
+        );
+      },
+      error: (err) => {
+        this.emailSettingsSaving.set(false);
+        this.emailSettingsError.set(this.fmt(err));
+      },
+    });
+  }
+
+  /** POST /email-settings/test/ — `{ "to" }`. Si el test OK, activa el SMTP (is_active). */
+  testEmailSettings(): void {
+    const companyId = this.editingId();
+    if (companyId == null) return;
+    const to = this.emailForm.controls.test_to.value.trim();
+    if (!to || this.emailForm.controls.test_to.invalid) {
+      this.emailForm.controls.test_to.markAsTouched();
+      this.emailSettingsError.set('Indica un correo válido para la prueba.');
+      return;
+    }
+    this.emailTestBusy.set(true);
+    this.emailSettingsError.set(null);
+    this.emailSettingsMessage.set(null);
+    this.api.testEmailSettings(companyId, to).subscribe({
+      next: () => {
+        // El test no exige is_active; el envío de cotizaciones sí. Activar tras prueba OK.
+        this.api.patchEmailSettings(companyId, { is_active: true }).subscribe({
+          next: () => {
+            this.emailForm.patchValue({ is_active: true });
+            this.emailTestBusy.set(false);
+            this.emailSettingsMessage.set(
+              `Correo de prueba enviado a ${to}. SMTP activado para cotizaciones.`,
+            );
+          },
+          error: () => {
+            this.emailTestBusy.set(false);
+            this.emailSettingsMessage.set(
+              `Correo de prueba enviado a ${to}. Marca «Activo» y guarda para poder enviar cotizaciones.`,
+            );
+          },
+        });
+      },
+      error: (err) => {
+        this.emailTestBusy.set(false);
+        this.emailSettingsError.set(this.fmt(err));
+      },
+    });
+  }
+
+  /** Body completo de PATCH — siempre host/port/tls/usuario/from/default_cc/is_active. */
+  private buildEmailSettingsPatch(): Parameters<CompanyService['patchEmailSettings']>[1] {
+    const v = this.emailForm.getRawValue();
+    const patch: Parameters<CompanyService['patchEmailSettings']>[1] = {
+      host: v.host.trim(),
+      port: Number(v.port) || 587,
+      use_tls: !!v.use_tls,
+      use_ssl: !!v.use_ssl,
+      username: v.username.trim(),
+      from_email: v.from_email.trim(),
+      from_name: v.from_name.trim(),
+      default_cc: this.parseDefaultCc(v.default_cc),
+      is_active: !!v.is_active,
+    };
+    const pwd = v.password.trim();
+    if (pwd) patch.password = pwd;
+    return patch;
+  }
+
+  private parseDefaultCc(raw: string): string[] {
+    return raw
+      .split(/[,;\n]+/)
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0 && s.includes('@'));
+  }
+
+  private formatDefaultCc(list: string[] | undefined): string {
+    return (list ?? []).join(', ');
+  }
+
   remove(row: Company): void {
     if (!window.confirm(`¿Eliminar la empresa «${row.name}»?`)) return;
     this.errorMessage.set(null);
@@ -186,6 +311,62 @@ export class CompaniesPageComponent implements OnInit, OnDestroy {
       next: () => this.reload(),
       error: (err) => this.errorMessage.set(this.fmt(err)),
     });
+  }
+
+  private loadEmailSettings(companyId: number): void {
+    this.emailSettingsLoading.set(true);
+    this.emailSettingsError.set(null);
+    this.emailSettingsMessage.set(null);
+    this.api.getEmailSettings(companyId).subscribe({
+      next: (s) => {
+        this.emailSettingsLoading.set(false);
+        this.emailPasswordConfigured.set(!!s.password_configured);
+        this.emailForm.patchValue({
+          host: s.host,
+          port: s.port || 587,
+          use_tls: s.use_tls,
+          use_ssl: s.use_ssl,
+          username: s.username,
+          password: '',
+          from_email: s.from_email,
+          from_name: s.from_name,
+          default_cc: this.formatDefaultCc(s.default_cc),
+          is_active: s.is_active,
+          test_to: '',
+        });
+      },
+      error: (err) => {
+        this.emailSettingsLoading.set(false);
+        // 404 = aún no configurado: dejar formulario vacío
+        if (err instanceof HttpErrorResponse && err.status === 404) {
+          this.emailPasswordConfigured.set(false);
+          return;
+        }
+        this.emailSettingsError.set(this.fmt(err));
+      },
+    });
+  }
+
+  private resetEmailForm(): void {
+    this.emailForm.reset({
+      host: '',
+      port: 587,
+      use_tls: true,
+      use_ssl: false,
+      username: '',
+      password: '',
+      from_email: '',
+      from_name: '',
+      default_cc: '',
+      is_active: true,
+      test_to: '',
+    });
+    this.emailPasswordConfigured.set(false);
+    this.emailSettingsLoading.set(false);
+    this.emailSettingsSaving.set(false);
+    this.emailTestBusy.set(false);
+    this.emailSettingsMessage.set(null);
+    this.emailSettingsError.set(null);
   }
 
   private fmt(err: unknown): string {

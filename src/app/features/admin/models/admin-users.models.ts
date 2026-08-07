@@ -14,6 +14,31 @@ export interface CompanyBranding {
   extensions?: Record<string, unknown>;
 }
 
+/**
+ * SMTP de la empresa — GET/PATCH `/api/companies/{id}/email-settings/` (solo ADMIN).
+ * GET no devuelve `password`; sí `password_configured`.
+ */
+export interface CompanyEmailSettings {
+  host: string;
+  port: number;
+  use_tls: boolean;
+  use_ssl: boolean;
+  username: string;
+  from_email: string;
+  from_name: string;
+  /** Correos en copia por defecto al enviar cotizaciones. */
+  default_cc: string[];
+  is_active: boolean;
+  password_configured?: boolean;
+}
+
+/** Body PATCH email-settings; `password` solo si se cambia. */
+export type CompanyEmailSettingsPatch = Partial<
+  Omit<CompanyEmailSettings, 'password_configured'>
+> & {
+  password?: string;
+};
+
 export interface Company {
   id: number;
   /** Campo `ruc` en tabla/API company (antes de `name` en el modelo Django). */

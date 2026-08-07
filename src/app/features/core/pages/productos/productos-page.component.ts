@@ -11,6 +11,7 @@ import { DecimalPipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { debounceTime, distinctUntilChanged, firstValueFrom, lastValueFrom, tap } from 'rxjs';
 import { environment } from '../../../../../environments/environment';
+import { ShortDateTimePipe } from '../../../../core/pipes/short-datetime.pipe';
 import { AuthService } from '../../../../core/services/auth.service';
 import { textMatchesLooseQuery } from '../../../../core/utils/text-search.utils';
 import type { Product } from '../../../almacen/models/almacen.models';
@@ -41,7 +42,7 @@ type StatusFilter = 'ALL' | 'ACTIVE' | 'INACTIVE';
 
 @Component({
   selector: 'app-productos-page',
-  imports: [ReactiveFormsModule, RouterLink, DecimalPipe],
+  imports: [ReactiveFormsModule, RouterLink, DecimalPipe, ShortDateTimePipe],
   templateUrl: './productos-page.component.html',
 })
 export class ProductosPageComponent implements OnInit {
@@ -396,16 +397,30 @@ export class ProductosPageComponent implements OnInit {
     return (row.status || 'ACTIVE') === 'ACTIVE';
   }
 
+  /** Preferir fecha de modificación; si no hay, la de creación. */
+  productLastTouchedAt(row: Product): string | null {
+    return row.update_date || row.creation_date || null;
+  }
+
   toggleStatus(row: Product): void {
-    if (!this.auth.canWriteAlmacen()) return;
+    if (!this.auth.canWriteProducts()) return;
     const next = this.isProductActive(row) ? 'INACTIVE' : 'ACTIVE';
     this.togglingStatusId.set(row.id);
     this.errorMessage.set(null);
-    this.api.update(row.id, { status: next }).subscribe({
+    this.api.update(row.id, { status: next, update_date: new Date().toISOString() }).subscribe({
       next: (updated) => {
         this.togglingStatusId.set(null);
         this.items.update((list) =>
-          list.map((p) => (p.id === row.id ? { ...p, status: updated.status || next } : p)),
+          list.map((p) =>
+            p.id === row.id
+              ? {
+                  ...p,
+                  status: updated.status || next,
+                  creation_date: updated.creation_date ?? p.creation_date,
+                  update_date: updated.update_date ?? p.update_date,
+                }
+              : p,
+          ),
         );
       },
       error: (err) => {
@@ -635,6 +650,13 @@ export class ProductosPageComponent implements OnInit {
     const v = this.form.getRawValue();
     const id = this.editingId();
     const payload: Partial<Product> = this.buildPayload(v);
+    const nowIso = new Date().toISOString();
+    if (id == null) {
+      payload.creation_date = nowIso;
+      payload.update_date = nowIso;
+    } else {
+      payload.update_date = nowIso;
+    }
     this.saving.set(true);
     this.errorMessage.set(null);
     const req =

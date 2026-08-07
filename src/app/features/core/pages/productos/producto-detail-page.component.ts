@@ -109,7 +109,7 @@ export class ProductoDetailPageComponent {
   }
 
   setPrimary(img: ProductImage): void {
-    if (!this.auth.canWriteAlmacen()) return;
+    if (!this.auth.canWriteProducts()) return;
     this.savingPrimaryId.set(img.id);
     this.errorMessage.set(null);
     this.imagesApi.update(img.id, { primary: true }).subscribe({
@@ -126,7 +126,7 @@ export class ProductoDetailPageComponent {
   }
 
   removeImage(img: ProductImage): void {
-    if (!this.auth.canWriteAlmacen()) return;
+    if (!this.auth.canWriteProducts()) return;
     if (!window.confirm('¿Eliminar esta imagen?')) return;
     this.errorMessage.set(null);
     this.imagesApi.delete(img.id).subscribe({
