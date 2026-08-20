@@ -76,6 +76,20 @@ export class AuthService {
     return role === 'LOGISTICA' || role === 'ADMIN';
   });
 
+  /**
+   * CRUD de maquinarias y demás recursos de Servicios.
+   * Ventas/Almacén/Logística pueden gestionar; Admin también.
+   */
+  readonly canWriteServicios = computed(() => {
+    const role = this.me()?.profile?.role;
+    return (
+      role === 'VENTAS' ||
+      role === 'ALMACEN' ||
+      role === 'LOGISTICA' ||
+      role === 'ADMIN'
+    );
+  });
+
   readonly isAdmin = computed(() => this.me()?.profile?.role === 'ADMIN');
 
   constructor() {

@@ -28,6 +28,14 @@ import {
       background-color: color-mix(in srgb, var(--sidebar-fg) 22%, transparent);
       font-weight: 600;
     }
+    .sidebar-branded .menu .menu-title {
+      color: color-mix(in srgb, var(--sidebar-fg) 72%, transparent);
+    }
+    .sidebar-branded .menu :where(li ul) {
+      margin-inline-start: 0.5rem;
+      padding-inline-start: 0.5rem;
+      border-inline-start: 1px solid color-mix(in srgb, var(--sidebar-fg) 22%, transparent);
+    }
     .sidebar-branded .sidebar-muted {
       color: color-mix(in srgb, var(--sidebar-fg) 72%, transparent);
     }

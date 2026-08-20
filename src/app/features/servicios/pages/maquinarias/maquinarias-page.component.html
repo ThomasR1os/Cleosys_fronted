@@ -1,0 +1,507 @@
+<div class="space-y-4">
+  <a routerLink="/servicios" class="link link-hover text-sm">← Volver a Servicios</a>
+
+  <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div>
+      <h1 class="text-3xl font-bold">Maquinarias</h1>
+      <p class="text-base-content/70 mt-1 text-sm">
+        Equipos de la empresa
+        <span class="font-medium text-base-content">{{ auth.companyName() }}</span>
+        (cliente, marca, modelo, serie y estado operativo).
+      </p>
+    </div>
+    @if (auth.canWriteServicios()) {
+      <div class="flex flex-wrap items-center gap-2">
+        <button type="button" class="btn btn-primary btn-lg" (click)="openNew()">
+          Nueva maquinaria
+        </button>
+      </div>
+    }
+  </div>
+
+  @if (!auth.canWriteServicios()) {
+    <div role="status" class="alert alert-warning text-sm">
+      Solo consulta. Alta y edición requieren rol <strong>Ventas</strong>, <strong>Almacén</strong>,
+      <strong>Logística</strong> o <strong>Administrador</strong>.
+    </div>
+  }
+
+  @if (errorMessage(); as err) {
+    <div role="alert" class="alert alert-error text-sm">{{ err }}</div>
+  }
+
+  <div
+    class="flex flex-col gap-3 rounded-lg border border-base-300 bg-base-100 p-4 sm:flex-row sm:flex-wrap sm:items-end"
+  >
+    <label class="form-control w-full min-w-[14rem] flex-1">
+      <span class="label-text">Buscar</span>
+      <input
+        type="search"
+        class="input input-bordered input-sm w-full"
+        placeholder="Modelo, serie, cliente, marca, ubicación…"
+        [value]="searchQuery()"
+        (input)="setSearchQuery($any($event.target).value)"
+      />
+    </label>
+    <label class="form-control w-full sm:w-48">
+      <span class="label-text">Cliente</span>
+      <select
+        class="select select-bordered select-sm w-full"
+        [value]="filterClientId() ?? ''"
+        (change)="setFilterClient($any($event.target).value)"
+      >
+        <option value="">Todos</option>
+        @for (c of clients(); track c.id) {
+          <option [value]="c.id">{{ c.name }}</option>
+        }
+      </select>
+    </label>
+    <label class="form-control w-full sm:w-40">
+      <span class="label-text">Marca</span>
+      <select
+        class="select select-bordered select-sm w-full"
+        [value]="filterBrandId() ?? ''"
+        (change)="setFilterBrand($any($event.target).value)"
+      >
+        <option value="">Todas</option>
+        @for (b of brands(); track b.id) {
+          <option [value]="b.id">{{ b.name }}</option>
+        }
+      </select>
+    </label>
+    <label class="form-control w-full sm:w-44">
+      <span class="label-text">Estado</span>
+      <select
+        class="select select-bordered select-sm w-full"
+        [value]="filterStatus()"
+        (change)="setFilterStatus($any($event.target).value)"
+      >
+        <option value="ALL">Todos</option>
+        @for (opt of statusOptions; track opt.value) {
+          <option [value]="opt.value">{{ opt.label }}</option>
+        }
+      </select>
+    </label>
+    <label class="form-control w-full max-w-[10rem]">
+      <span class="label-text">Por página</span>
+      <select
+        class="select select-bordered select-sm w-full"
+        [value]="pageSize()"
+        (change)="setPageSize(+$any($event.target).value)"
+      >
+        @for (n of pageSizeOptions; track n) {
+          <option [value]="n">{{ n }}</option>
+        }
+      </select>
+    </label>
+    @if (hasActiveFilters()) {
+      <button type="button" class="btn btn-outline btn-sm w-full sm:w-auto" (click)="clearFilters()">
+        Limpiar filtros
+      </button>
+    }
+  </div>
+
+  <div class="overflow-x-auto rounded-lg border border-base-300 bg-base-100">
+    @if (loading()) {
+      <div class="flex justify-center p-12">
+        <span class="loading loading-spinner loading-lg text-primary"></span>
+      </div>
+    } @else if (items().length === 0) {
+      <p class="text-base-content/60 p-8 text-center text-sm">No hay maquinarias cargadas.</p>
+    } @else if (totalFiltered() === 0) {
+      <p class="text-base-content/60 p-8 text-center text-sm">
+        Ningún resultado coincide con los filtros.
+      </p>
+    } @else {
+      <table class="table table-zebra text-sm">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Cliente</th>
+            <th>Marca</th>
+            <th>Modelo</th>
+            <th>Serie</th>
+            <th>Ubicación</th>
+            <th>Horas/día</th>
+            <th>Horómetro</th>
+            <th>Estado</th>
+            <th>Última actualización</th>
+            <th class="text-right">Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of pagedItems(); track row.id) {
+            <tr class="align-top">
+              <td class="whitespace-nowrap">{{ row.id }}</td>
+              <td class="min-w-[10rem] max-w-xs whitespace-normal break-words leading-snug">
+                {{ clientName(row) }}
+              </td>
+              <td class="whitespace-nowrap">{{ brandName(row) }}</td>
+              <td class="font-medium whitespace-nowrap">{{ row.model }}</td>
+              <td class="whitespace-nowrap">{{ row.serial_number }}</td>
+              <td class="min-w-[8rem] max-w-xs whitespace-normal break-words leading-snug">
+                {{ row.location || '—' }}
+              </td>
+              <td class="whitespace-nowrap">{{ row.daily_working_hours | number: '1.0-2' }}</td>
+              <td class="whitespace-nowrap">
+                @if (row.current_hour_meter != null) {
+                  {{ row.current_hour_meter | number: '1.0-2' }}
+                } @else {
+                  —
+                }
+              </td>
+              <td class="whitespace-nowrap">{{ statusLabel(row.status) }}</td>
+              <td class="whitespace-nowrap">
+                {{ lastTouchedAt(row) | shortDateTime }}
+              </td>
+              <td class="text-right">
+                <div class="flex flex-nowrap justify-end gap-0.5">
+                  @if (row.plate_image_url) {
+                    <a
+                      class="btn btn-ghost btn-sm btn-square"
+                      [href]="row.plate_image_url"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title="Ver placa"
+                      aria-label="Ver placa"
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke-width="1.5"
+                        class="h-4 w-4 stroke-current"
+                        aria-hidden="true"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          d="M2.25 15.75l5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0 0 22.5 18.75V5.25A2.25 2.25 0 0 0 20.25 3H3.75A2.25 2.25 0 0 0 1.5 5.25v13.5A2.25 2.25 0 0 0 3.75 21Z"
+                        />
+                      </svg>
+                    </a>
+                  }
+                  @if (auth.canWriteServicios()) {
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-sm btn-square"
+                      title="Editar"
+                      aria-label="Editar"
+                      (click)="openEdit(row)"
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke-width="1.5"
+                        class="h-4 w-4 stroke-current"
+                        aria-hidden="true"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10"
+                        />
+                      </svg>
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-error btn-sm btn-square"
+                      title="Eliminar"
+                      aria-label="Eliminar"
+                      (click)="remove(row)"
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke-width="1.5"
+                        class="h-4 w-4 stroke-current"
+                        aria-hidden="true"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
+                        />
+                      </svg>
+                    </button>
+                  }
+                </div>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+      <div
+        class="flex flex-col gap-3 border-t border-base-300 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+      >
+        <p class="text-base-content/70 text-xs sm:text-sm">
+          {{ rangeLabel() }}
+          @if (hasActiveFilters()) {
+            <span class="text-base-content/50"> ({{ items().length }} en catálogo)</span>
+          }
+        </p>
+        <div class="join justify-center sm:justify-end">
+          <button
+            type="button"
+            class="btn btn-sm join-item"
+            [disabled]="currentPage() <= 1"
+            (click)="goPage(-1)"
+            aria-label="Página anterior"
+          >
+            «
+          </button>
+          <span class="btn btn-sm join-item btn-ghost pointer-events-none no-animation">
+            {{ currentPage() }} / {{ totalPages() }}
+          </span>
+          <button
+            type="button"
+            class="btn btn-sm join-item"
+            [disabled]="currentPage() >= totalPages()"
+            (click)="goPage(1)"
+            aria-label="Página siguiente"
+          >
+            »
+          </button>
+        </div>
+      </div>
+    }
+  </div>
+</div>
+
+@if (modalOpen()) {
+  <div class="modal modal-open">
+    <div class="modal-box max-h-[92vh] max-w-3xl overflow-y-auto px-4 py-5 sm:px-8">
+      <header class="mb-5 border-b border-base-300 pb-4">
+        <h2 class="text-lg font-bold">
+          {{ editingId() == null ? 'Nueva maquinaria' : 'Editar maquinaria' }}
+        </h2>
+        <p class="text-base-content/60 mt-1 text-sm">
+          La empresa se asigna automáticamente desde tu perfil. La placa se sube a Cloudinary; el
+          horómetro es opcional.
+        </p>
+      </header>
+
+      <form [formGroup]="form" (ngSubmit)="save()" class="flex flex-col gap-5">
+        <div class="rounded-box border border-base-300 bg-base-200/25 p-4 sm:p-5">
+          <h3 class="text-sm font-semibold text-base-content">1 · Identificación</h3>
+          <p class="text-base-content/50 mb-4 text-xs">Cliente, marca, modelo y serie.</p>
+          <div class="grid grid-cols-1 gap-4 md:grid-cols-12 md:gap-x-4 md:gap-y-4">
+            @if (editingId() != null) {
+              <label class="flex w-full min-w-0 flex-col gap-1 md:col-span-3">
+                <div class="label">
+                  <span class="label-text">ID</span>
+                </div>
+                <input class="input input-bordered input-sm w-full" type="number" formControlName="id" readonly />
+              </label>
+            }
+            <label
+              class="flex w-full min-w-0 flex-col gap-1"
+              [class.md:col-span-5]="editingId() != null"
+              [class.md:col-span-6]="editingId() == null"
+            >
+              <div class="label">
+                <span class="label-text">Cliente</span>
+              </div>
+              <div class="relative w-full min-w-0">
+                <input
+                  class="input input-bordered w-full min-w-0"
+                  type="text"
+                  [value]="clientSearchQuery()"
+                  (input)="onClientSearchInput($event)"
+                  (focus)="openClientPicker()"
+                  (blur)="closeClientPickerSoon()"
+                  placeholder="Buscar por nombre, RUC o ID…"
+                  autocomplete="off"
+                />
+                @if (clientPickerOpen() && filteredClientOptions().length) {
+                  <ul
+                    class="border-base-300 bg-base-100 absolute z-30 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border shadow-lg"
+                    role="listbox"
+                  >
+                    @for (c of filteredClientOptions(); track c.id) {
+                      <li>
+                        <button
+                          type="button"
+                          class="hover:bg-base-200 flex w-full flex-col items-start px-3 py-2 text-left text-sm"
+                          (mousedown)="$event.preventDefault(); selectClient(c)"
+                        >
+                          <span class="font-medium">{{ c.name }}</span>
+                          <span class="text-base-content/60 text-xs">
+                            @if (c.ruc) {
+                              {{ c.ruc }} ·
+                            }
+                            id {{ c.id }}
+                          </span>
+                        </button>
+                      </li>
+                    }
+                  </ul>
+                }
+              </div>
+              @if (form.controls.client.invalid && form.controls.client.touched) {
+                <span class="text-error mt-0.5 text-xs">Selecciona un cliente de la lista.</span>
+              }
+            </label>
+            <label
+              class="flex w-full min-w-0 flex-col gap-1"
+              [class.md:col-span-4]="editingId() != null"
+              [class.md:col-span-6]="editingId() == null"
+            >
+              <div class="label">
+                <span class="label-text">Marca</span>
+              </div>
+              <div class="relative w-full min-w-0">
+                <input
+                  class="input input-bordered w-full min-w-0"
+                  type="text"
+                  [value]="brandSearchQuery()"
+                  (input)="onBrandSearchInput($event)"
+                  (focus)="openBrandPicker()"
+                  (blur)="closeBrandPickerSoon()"
+                  placeholder="Buscar marca…"
+                  autocomplete="off"
+                />
+                @if (brandPickerOpen() && filteredBrandOptions().length) {
+                  <ul
+                    class="border-base-300 bg-base-100 absolute z-30 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border shadow-lg"
+                    role="listbox"
+                  >
+                    @for (b of filteredBrandOptions(); track b.id) {
+                      <li>
+                        <button
+                          type="button"
+                          class="hover:bg-base-200 flex w-full flex-col items-start px-3 py-2 text-left text-sm"
+                          (mousedown)="$event.preventDefault(); selectBrand(b)"
+                        >
+                          <span class="font-medium">{{ b.name }}</span>
+                          <span class="text-base-content/60 text-xs">id {{ b.id }}</span>
+                        </button>
+                      </li>
+                    }
+                  </ul>
+                }
+              </div>
+              @if (form.controls.brand.invalid && form.controls.brand.touched) {
+                <span class="text-error mt-0.5 text-xs">Selecciona una marca de la lista.</span>
+              }
+            </label>
+            <label class="flex w-full min-w-0 flex-col gap-1 md:col-span-6">
+              <div class="label">
+                <span class="label-text">Modelo</span>
+              </div>
+              <input class="input input-bordered w-full min-w-0" formControlName="model" autocomplete="off" />
+            </label>
+            <label class="flex w-full min-w-0 flex-col gap-1 md:col-span-6">
+              <div class="label">
+                <span class="label-text">Número de serie</span>
+              </div>
+              <input
+                class="input input-bordered w-full min-w-0"
+                formControlName="serial_number"
+                autocomplete="off"
+              />
+            </label>
+            <div class="flex w-full min-w-0 flex-col gap-1 md:col-span-8">
+              <div class="label">
+                <span class="label-text">Imagen de placa</span>
+              </div>
+              <p class="text-base-content/60 mb-2 text-xs">
+                Se sube a Cloudinary al guardar. Si eliges otra imagen, sustituye la anterior.
+              </p>
+              <input
+                type="file"
+                class="file-input file-input-bordered w-full max-w-full"
+                accept="image/*"
+                (change)="onPlateFile($event)"
+              />
+              @if (plateFileName(); as name) {
+                <p class="text-base-content/70 mt-1 text-xs">Seleccionado: {{ name }}</p>
+              }
+              <div class="mt-3 flex flex-wrap items-center gap-3">
+                @if (plateDisplaySrc(); as src) {
+                  <img
+                    [src]="src"
+                    alt="Vista previa de la placa"
+                    class="border-base-300 bg-base-200 h-20 w-28 rounded border object-contain"
+                  />
+                }
+                @if (plateFileName()) {
+                  <button type="button" class="btn btn-ghost btn-sm" (click)="clearPlatePick()">
+                    Quitar imagen nueva
+                  </button>
+                }
+              </div>
+            </div>
+            <label class="flex w-full min-w-0 flex-col gap-1 md:col-span-4">
+              <div class="label">
+                <span class="label-text">Estado</span>
+              </div>
+              <select class="select select-bordered w-full min-w-0" formControlName="status">
+                @for (opt of statusOptions; track opt.value) {
+                  <option [value]="opt.value">{{ opt.label }}</option>
+                }
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <div class="rounded-box border border-base-300 bg-base-200/25 p-4 sm:p-5">
+          <h3 class="text-sm font-semibold text-base-content">2 · Operación</h3>
+          <p class="text-base-content/50 mb-4 text-xs">Ubicación y lecturas de uso.</p>
+          <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
+            <label class="flex w-full min-w-0 flex-col gap-1 sm:col-span-2 md:col-span-3">
+              <div class="label">
+                <span class="label-text">Ubicación</span>
+              </div>
+              <input class="input input-bordered w-full min-w-0" formControlName="location" autocomplete="off" />
+            </label>
+            <label class="flex w-full min-w-0 flex-col gap-1">
+              <div class="label">
+                <span class="label-text">Horas de trabajo / día</span>
+              </div>
+              <input
+                class="input input-bordered w-full min-w-0"
+                type="number"
+                min="0"
+                step="0.5"
+                formControlName="daily_working_hours"
+              />
+            </label>
+            <label class="flex w-full min-w-0 flex-col gap-1">
+              <div class="label">
+                <span class="label-text">Horómetro actual</span>
+              </div>
+              <input
+                class="input input-bordered w-full min-w-0"
+                type="number"
+                min="0"
+                step="1"
+                formControlName="current_hour_meter"
+                placeholder="Opcional"
+              />
+            </label>
+          </div>
+        </div>
+
+        <div class="modal-action mt-1">
+          <button type="button" class="btn btn-ghost" (click)="closeModal()" [disabled]="saving()">
+            Cancelar
+          </button>
+          <button
+            type="submit"
+            class="btn btn-primary"
+            [disabled]="saving() || !auth.canWriteServicios()"
+          >
+            @if (saving()) {
+              <span class="loading loading-spinner loading-sm"></span>
+            }
+            Guardar
+          </button>
+        </div>
+      </form>
+    </div>
+    <button type="button" class="modal-backdrop" (click)="closeModal()" aria-label="Cerrar"></button>
+  </div>
+}

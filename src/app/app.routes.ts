@@ -49,6 +49,11 @@ export const routes: Routes = [
           import('./features/ventas/ventas.routes').then((m) => m.VENTAS_ROUTES),
       },
       {
+        path: 'servicios',
+        loadChildren: () =>
+          import('./features/servicios/servicios.routes').then((m) => m.SERVICIOS_ROUTES),
+      },
+      {
         path: 'admin/usuarios',
         canActivate: [adminGuard],
         loadComponent: () =>

@@ -299,6 +299,7 @@
             <a routerLink="/almacen" class="btn btn-outline btn-sm">Almacén</a>
             <a routerLink="/logistica" class="btn btn-outline btn-sm">Logística</a>
             <a routerLink="/ventas" class="btn btn-outline btn-sm">Ventas</a>
+            <a routerLink="/servicios" class="btn btn-outline btn-sm">Servicios</a>
             @if (auth.isAdmin()) {
               <a routerLink="/admin/usuarios" class="btn btn-outline btn-sm">Usuarios</a>
             }
@@ -309,7 +310,7 @@
 
     <div
       class="grid gap-4 sm:grid-cols-2"
-      [ngClass]="auth.isAdmin() ? 'xl:grid-cols-5' : 'xl:grid-cols-4'"
+      [ngClass]="auth.isAdmin() ? 'xl:grid-cols-6' : 'xl:grid-cols-5'"
     >
       <a routerLink="/core" class="card bg-base-100 shadow-md transition hover:shadow-lg">
         <div class="card-body">
@@ -337,6 +338,13 @@
           <span class="text-info text-3xl" aria-hidden="true">◈</span>
           <h3 class="card-title text-lg">Ventas</h3>
           <p class="text-base-content/70 text-sm">Cotizaciones, clientes y proformas.</p>
+        </div>
+      </a>
+      <a routerLink="/servicios" class="card bg-base-100 shadow-md transition hover:shadow-lg">
+        <div class="card-body">
+          <span class="text-warning text-3xl" aria-hidden="true">⚒</span>
+          <h3 class="card-title text-lg">Servicios</h3>
+          <p class="text-base-content/70 text-sm">Maquinarias y operaciones de servicio.</p>
         </div>
       </a>
       @if (auth.isAdmin()) {

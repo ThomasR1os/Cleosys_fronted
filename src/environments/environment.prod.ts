@@ -1,4 +1,5 @@
 export const environment = {
   production: true,
-  apiUrl: 'https://cleosys-backend-1.onrender.com/api',
+  /** API de producción (Coolify). */
+  apiUrl: 'https://api.compresoresdelperu.com.pe/api',
 };
