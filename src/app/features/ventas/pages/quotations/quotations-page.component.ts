@@ -2372,9 +2372,9 @@ export class QuotationsPageComponent implements OnInit {
           subject: v.subject.trim() || `Cotización ${row.correlativo}`,
           message: bodies.message,
           html_message: bodies.html_message,
-          signature_url: signatureUrl,
           pdf_base64,
           pdf_filename: filename,
+          ...(signatureUrl ? { signature_url: signatureUrl } : {}),
         }),
       );
       this.sendEmailSuccess.set(
@@ -2383,7 +2383,7 @@ export class QuotationsPageComponent implements OnInit {
         }.`,
       );
     } catch (e: unknown) {
-      this.sendEmailError.set(this.formatSendEmailError(e));
+      this.sendEmailError.set(this.formatSendEmailError(e, row.id));
     } finally {
       this.sendEmailBusy.set(false);
     }
@@ -2464,36 +2464,108 @@ export class QuotationsPageComponent implements OnInit {
     });
   }
 
-  private formatSendEmailError(err: unknown): string {
+  private formatSendEmailError(err: unknown, quotationId?: number): string {
     if (err instanceof HttpErrorResponse) {
+      const parsed = this.parseSendEmailHttpError(err);
+      const lines = [
+        `[Enviar cotización] HTTP ${err.status} ${err.statusText || ''}`.trim(),
+        quotationId != null ? `Cotización: ${quotationId}` : null,
+        err.url ? `URL: ${err.url}` : null,
+        `Motivo: ${parsed.message}`,
+        parsed.fields.length ? `Campos:\n  - ${parsed.fields.join('\n  - ')}` : null,
+      ].filter((line): line is string => !!line);
+      console.error(lines.join('\n'), err.error);
+
       if (err.status === 502) {
         return 'Falló el envío SMTP. Revisa la configuración de correo de la empresa.';
       }
-      if (err.status === 400) {
-        const d = err.error;
-        let detail = '';
-        if (d && typeof d === 'object' && 'detail' in d && typeof d.detail === 'string') {
-          detail = d.detail;
-        } else if (typeof d === 'string') {
-          detail = d;
-        }
-        if (/inactivo/i.test(detail)) {
-          return (
-            detail +
-            ' Un administrador debe marcar «Activo» en Empresas → Correo SMTP (o reenviar la prueba de correo).'
-          );
-        }
-        return detail || 'No se pudo enviar: SMTP no configurado o datos inválidos.';
-      }
       if (err.status === 403) return 'No tienes permiso para enviar esta cotización.';
-      const d = err.error;
-      if (d && typeof d === 'object' && 'detail' in d && typeof d.detail === 'string') {
-        return d.detail;
+      if (err.status === 413 || /too big|RequestDataTooBig|exced/i.test(parsed.message)) {
+        return 'El PDF es demasiado grande para el servidor. Prueba una cotización más liviana o pide subir el límite de subida en Django.';
       }
-      return err.message || 'Error al enviar el correo.';
+      if (/inactivo/i.test(parsed.message)) {
+        return (
+          parsed.message +
+          ' Un administrador debe marcar «Activo» en Empresas → Correo SMTP (o reenviar la prueba de correo).'
+        );
+      }
+      return parsed.message;
     }
-    if (err instanceof Error) return err.message;
+    if (err instanceof Error) {
+      console.error('[Enviar cotización] Error local (antes de llamar al API):', err.message, err);
+      return err.message;
+    }
+    console.error('[Enviar cotización] Error desconocido:', err);
     return 'Error desconocido al enviar.';
+  }
+
+  /** Extrae `detail` y errores por campo típicos de DRF para UI y consola. */
+  private parseSendEmailHttpError(err: HttpErrorResponse): { message: string; fields: string[] } {
+    const fallback =
+      err.status === 400
+        ? 'No se pudo enviar: SMTP no configurado o datos inválidos.'
+        : err.message || `Error HTTP ${err.status} al enviar el correo.`;
+    const body = err.error;
+    if (body == null || body === '') {
+      return { message: fallback, fields: [] };
+    }
+    if (typeof body === 'string') {
+      const text = this.stripHtmlErrorText(body);
+      return { message: text || fallback, fields: [] };
+    }
+    if (typeof body !== 'object') {
+      return { message: fallback, fields: [] };
+    }
+    const fields = this.flattenApiErrorFields(body);
+    const detail = this.extractApiDetail(body);
+    const message = detail || (fields.length ? fields.join(' · ') : fallback);
+    return { message, fields };
+  }
+
+  private extractApiDetail(body: object): string {
+    if (!('detail' in body)) return '';
+    const detail = (body as { detail: unknown }).detail;
+    if (typeof detail === 'string') return detail.trim();
+    if (Array.isArray(detail)) {
+      return detail
+        .map((item) => (typeof item === 'string' ? item : JSON.stringify(item)))
+        .filter((s) => s.length > 0)
+        .join(' · ');
+    }
+    if (detail && typeof detail === 'object') {
+      return this.flattenApiErrorFields(detail).join(' · ');
+    }
+    return '';
+  }
+
+  private flattenApiErrorFields(value: unknown, prefix = ''): string[] {
+    if (value == null) return [];
+    if (typeof value === 'string') {
+      const text = value.trim();
+      if (!text) return [];
+      return [prefix ? `${prefix}: ${text}` : text];
+    }
+    if (typeof value === 'number' || typeof value === 'boolean') {
+      return [prefix ? `${prefix}: ${String(value)}` : String(value)];
+    }
+    if (Array.isArray(value)) {
+      return value.flatMap((item) => this.flattenApiErrorFields(item, prefix));
+    }
+    if (typeof value === 'object') {
+      return Object.entries(value as Record<string, unknown>).flatMap(([key, nested]) => {
+        if (key === 'detail') return [];
+        const next = prefix ? `${prefix}.${key}` : key;
+        return this.flattenApiErrorFields(nested, next);
+      });
+    }
+    return [];
+  }
+
+  private stripHtmlErrorText(raw: string): string {
+    const trimmed = raw.trim();
+    if (!trimmed) return '';
+    const withoutTags = trimmed.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    return withoutTags.slice(0, 400);
   }
 
   /** Construye el PDF de la cotización como Blob (sin descargar). */
