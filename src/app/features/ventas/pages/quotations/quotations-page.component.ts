@@ -2303,11 +2303,10 @@ export class QuotationsPageComponent implements OnInit {
   /** Texto por defecto del cuerpo al abrir el modal de envío. */
   private defaultQuotationEmailMessage(correlativo: string): string {
     return (
-      `Estimado(a),\n\n` +
-      `Por medio del presente, adjunto remitimos la cotización ${correlativo} para su revisión y consideración.\n\n` +
-      `Quedamos atentos a cualquier consulta, comentario u observación que pudiera surgir.\n\n` +
-      `Agradecemos de antemano su atención.\n\n` +
-      `Saludos cordiales,`
+      `Estimado cliente,\n\n` +
+      `Adjunto nuestra propuesta comercial ${correlativo}, preparada de acuerdo con su requerimiento.\n\n` +
+      `Compresores del Perú le brinda el abastecimiento de compresores desde 1 HP hasta 500 HP, repuestos, servicio técnico, alquiler de equipos y asesoría especializada.\n\n` +
+      `Si nuestra propuesta es de su conformidad, agradeceremos nos pueda hacer llegar su Orden de Compra, a fin de coordinar de inmediato la atención y entrega de su requerimiento. Asimismo, si necesita asesoría o una visita técnica de cortesía, estamos a su disposición para apoyarlo.`
     );
   }
 
