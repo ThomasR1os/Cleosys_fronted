@@ -2316,11 +2316,6 @@ export class QuotationsPageComponent implements OnInit {
     return url || null;
   }
 
-  senderCompanyLogoUrl(): string | null {
-    const url = this.auth.me()?.profile?.company?.logo_url?.trim();
-    return url || null;
-  }
-
   /** Nombre para el pie del correo (display name o nombre de sesión). */
   senderEmailDisplayName(): string {
     const fromProfile = this.auth.me()?.profile?.email_display_name?.trim();
@@ -2404,44 +2399,22 @@ export class QuotationsPageComponent implements OnInit {
     const body = message.trim();
     const name = this.senderEmailDisplayName();
     const sig = this.senderSignatureUrl();
-    const logo = this.senderCompanyLogoUrl();
-    const companyName = this.auth.me()?.profile?.company?.name?.trim() || 'Compresores del Perú';
 
     let plain = body;
     if (name) plain += `\n\n${name}`;
 
     const bodyHtml = this.plainTextToHtml(body);
-    let signatureCells = '';
-    if (logo) {
-      signatureCells +=
-        `<td style="padding-right:12px;vertical-align:top;">` +
-        `<img src="cid:logo_empresa" alt="${this.escapeHtml(companyName)}" width="120" border="0" ` +
-        `style="display:block;border:0;outline:none;text-decoration:none;max-width:120px;height:auto;" />` +
-        `</td>`;
-    }
-    let nameAndSig = '';
-    if (name) {
-      nameAndSig += `<strong style="font-family:Arial,sans-serif;font-size:12px;color:#222222;">${this.escapeHtml(name)}</strong>`;
-    }
-    if (sig) {
-      nameAndSig +=
-        (nameAndSig ? `<br/>` : '') +
-        `<img src="cid:firma_vendedor" alt="Firma" width="220" border="0" ` +
-        `style="display:block;border:0;outline:none;text-decoration:none;max-width:220px;height:auto;margin-top:8px;" />`;
-    }
-    if (nameAndSig) {
-      signatureCells +=
-        `<td style="font-family:Arial,sans-serif;font-size:12px;color:#222222;vertical-align:top;">` +
-        nameAndSig +
-        `</td>`;
-    }
+    const signatureHtml = sig
+      ? `<tr><td style="padding-top:16px;">` +
+        `<img src="cid:firma_vendedor" alt="Firma" width="420" border="0" ` +
+        `style="display:block;border:0;outline:none;text-decoration:none;width:420px;max-width:100%;height:auto;" />` +
+        `</td></tr>`
+      : '';
 
     const html =
       `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;">` +
       `<tr><td style="font-family:Arial,sans-serif;font-size:14px;line-height:1.5;color:#222222;">${bodyHtml}</td></tr>` +
-      (signatureCells
-        ? `<tr><td style="padding-top:16px;"><table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;"><tr>${signatureCells}</tr></table></td></tr>`
-        : '') +
+      signatureHtml +
       `</table>`;
 
     return { message: plain, html_message: html };
