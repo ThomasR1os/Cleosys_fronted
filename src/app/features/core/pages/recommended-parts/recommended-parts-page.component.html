@@ -1,0 +1,226 @@
+<div class="space-y-4">
+  <a routerLink="/core" class="link link-hover text-sm">← Volver a Core</a>
+
+  <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div>
+      <h1 class="text-3xl font-bold">Partes recomendadas</h1>
+      <p class="text-base-content/70 mt-1 text-sm">
+        Checklist por subcategoría para evaluaciones de maquinaria. Se pueden importar por Excel.
+      </p>
+    </div>
+    @if (auth.canWriteRecommendedParts()) {
+      <div class="flex flex-wrap items-center gap-2">
+        <button type="button" class="btn btn-outline btn-sm" (click)="downloadTemplate()">
+          Plantilla Excel
+        </button>
+        <label class="btn btn-outline btn-sm cursor-pointer">
+          @if (importBusy()) {
+            <span class="loading loading-spinner loading-xs"></span>
+            Importando…
+          } @else {
+            Importar Excel
+          }
+          <input
+            type="file"
+            class="hidden"
+            accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            [disabled]="importBusy()"
+            (change)="onExcelSelected($event)"
+          />
+        </label>
+        <button type="button" class="btn btn-primary btn-lg" (click)="openNew()">Nueva parte</button>
+      </div>
+    }
+  </div>
+
+  @if (!auth.canWriteRecommendedParts()) {
+    <div role="status" class="alert alert-warning text-sm">
+      Solo consulta. Alta, edición e importación requieren rol <strong>Servicios</strong>,
+      <strong>Almacén</strong> o <strong>Administrador</strong>.
+    </div>
+  }
+
+  @if (errorMessage(); as err) {
+    <div role="alert" class="alert alert-error text-sm">
+      <span class="whitespace-pre-line">{{ err }}</span>
+    </div>
+  }
+  @if (importSummary(); as sum) {
+    <div role="status" class="alert alert-success text-sm">{{ sum }}</div>
+  }
+
+  <div
+    class="flex flex-col gap-3 rounded-lg border border-base-300 bg-base-100 p-4 sm:flex-row sm:flex-wrap sm:items-end"
+  >
+    <label class="form-control w-full min-w-[14rem] flex-1">
+      <span class="label-text">Buscar</span>
+      <input
+        type="search"
+        class="input input-bordered input-sm w-full"
+        placeholder="Nombre, descripción, subcategoría…"
+        [value]="searchQuery()"
+        (input)="setSearchQuery($any($event.target).value)"
+      />
+    </label>
+    <label class="form-control w-full sm:w-44">
+      <span class="label-text">Categoría</span>
+      <select
+        class="select select-bordered select-sm w-full"
+        [value]="filterCategoryId() ?? ''"
+        (change)="setFilterCategory($any($event.target).value)"
+      >
+        <option value="">Todas</option>
+        @for (c of categories(); track c.id) {
+          <option [value]="c.id">{{ c.name }}</option>
+        }
+      </select>
+    </label>
+    <label class="form-control w-full sm:w-48">
+      <span class="label-text">Subcategoría</span>
+      <select
+        class="select select-bordered select-sm w-full"
+        [value]="filterSubcategoryId() ?? ''"
+        (change)="setFilterSubcategory($any($event.target).value); reload()"
+      >
+        <option value="">Todas</option>
+        @for (s of filterSubcategoryOptions(); track s.id) {
+          <option [value]="s.id">{{ s.name }}</option>
+        }
+      </select>
+    </label>
+    <label class="label cursor-pointer gap-2">
+      <input
+        type="checkbox"
+        class="checkbox checkbox-sm"
+        [checked]="filterActiveOnly()"
+        (change)="setFilterActiveOnly($any($event.target).checked); reload()"
+      />
+      <span class="label-text">Solo activas</span>
+    </label>
+    <button type="button" class="btn btn-outline btn-sm" (click)="reload()">Actualizar</button>
+  </div>
+
+  <p class="text-base-content/50 text-xs">
+    Excel (.xlsx) headers:
+    <code>subcategory_id</code>, <code>name</code>, <code>description</code>,
+    <code>sort_order</code>, <code>is_active</code> (si/no). Upsert por (subcategory_id, name).
+  </p>
+
+  <div class="overflow-x-auto rounded-lg border border-base-300 bg-base-100">
+    @if (loading()) {
+      <div class="flex justify-center p-12">
+        <span class="loading loading-spinner loading-lg text-primary"></span>
+      </div>
+    } @else if (filteredItems().length === 0) {
+      <p class="text-base-content/60 p-8 text-center text-sm">No hay partes recomendadas.</p>
+    } @else {
+      <table class="table table-zebra text-sm">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Subcategoría</th>
+            <th>Nombre</th>
+            <th>Descripción</th>
+            <th>Orden</th>
+            <th>Activa</th>
+            <th class="text-right">Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of filteredItems(); track row.id) {
+            <tr class="align-top">
+              <td>{{ row.id }}</td>
+              <td class="whitespace-nowrap">
+                {{ row.subcategory_name || subcategoryLabel(row.subcategory) }}
+              </td>
+              <td class="font-medium">{{ row.name }}</td>
+              <td class="max-w-md whitespace-normal break-words text-xs">
+                {{ row.description || '—' }}
+              </td>
+              <td>{{ row.sort_order }}</td>
+              <td>{{ row.is_active ? 'Sí' : 'No' }}</td>
+              <td class="text-right">
+                @if (auth.canWriteRecommendedParts()) {
+                  <div class="flex justify-end gap-0.5">
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-sm btn-square"
+                      title="Editar"
+                      (click)="openEdit(row)"
+                    >
+                      ✎
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-error btn-sm btn-square"
+                      title="Eliminar"
+                      (click)="remove(row)"
+                    >
+                      ⌫
+                    </button>
+                  </div>
+                }
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    }
+  </div>
+</div>
+
+@if (modalOpen()) {
+  <div class="modal modal-open">
+    <div class="modal-box max-w-lg">
+      <h2 class="mb-4 text-lg font-bold">
+        {{ editingId() == null ? 'Nueva parte recomendada' : 'Editar parte' }}
+      </h2>
+      @if (modalErrorMessage(); as modalErr) {
+        <div role="alert" class="alert alert-error mb-3 text-sm">
+          <span class="whitespace-pre-line">{{ modalErr }}</span>
+        </div>
+      }
+      <form [formGroup]="form" (ngSubmit)="save()" class="flex flex-col gap-3">
+        <label class="form-control w-full">
+          <span class="label-text">Subcategoría</span>
+          <select class="select select-bordered w-full" formControlName="subcategory">
+            <option [ngValue]="null">—</option>
+            @for (s of subcategories(); track s.id) {
+              <option [ngValue]="s.id">{{ s.name }}</option>
+            }
+          </select>
+        </label>
+        <label class="form-control w-full">
+          <span class="label-text">Nombre</span>
+          <input class="input input-bordered w-full" formControlName="name" autocomplete="off" />
+        </label>
+        <label class="form-control w-full">
+          <span class="label-text">Descripción</span>
+          <textarea class="textarea textarea-bordered w-full" rows="3" formControlName="description"></textarea>
+        </label>
+        <div class="grid grid-cols-2 gap-3">
+          <label class="form-control w-full">
+            <span class="label-text">Orden</span>
+            <input class="input input-bordered w-full" type="number" formControlName="sort_order" />
+          </label>
+          <label class="label cursor-pointer justify-start gap-2 pt-8">
+            <input type="checkbox" class="checkbox" formControlName="is_active" />
+            <span class="label-text">Activa</span>
+          </label>
+        </div>
+        <div class="modal-action">
+          <button type="button" class="btn btn-ghost" (click)="closeModal()" [disabled]="saving()">
+            Cancelar
+          </button>
+          <button type="submit" class="btn btn-primary" [disabled]="saving()">
+            @if (saving()) {
+              <span class="loading loading-spinner loading-sm"></span>
+            }
+            Guardar
+          </button>
+        </div>
+      </form>
+    </div>
+    <button type="button" class="modal-backdrop" (click)="closeModal()" aria-label="Cerrar"></button>
+  </div>
+}

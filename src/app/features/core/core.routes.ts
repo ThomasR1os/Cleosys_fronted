@@ -36,6 +36,13 @@ export const CORE_ROUTES: Routes = [
     data: { catalogKey: 'subcategories' },
   },
   {
+    path: 'partes-recomendadas',
+    loadComponent: () =>
+      import('./pages/recommended-parts/recommended-parts-page.component').then(
+        (m) => m.RecommendedPartsPageComponent,
+      ),
+  },
+  {
     path: 'tipos-producto',
     loadComponent: () =>
       import('./pages/simple-catalog/simple-catalog-page.component').then(

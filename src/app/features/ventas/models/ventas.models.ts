@@ -346,11 +346,10 @@ export interface QuotationSendEmailRequest {
   /** Versión texto plano del cuerpo. */
   message?: string;
   /**
-   * Versión HTML (multipart/alternative). Necesaria para mostrar la firma como imagen.
-   * El backend debe usarla con EmailMultiAlternatives / html_message.
+   * Versión HTML. Las imágenes de firma deben usar src="cid:…" (el backend las adjunta inline).
    */
   html_message?: string;
-  /** URL de firma del remitente (opcional; el backend puede incrustarla en el HTML). */
+  /** URL de firma del remitente; el backend la descarga y la incrusta con CID, no como URL en el HTML. */
   signature_url?: string | null;
   pdf_base64: string;
   pdf_filename: string;

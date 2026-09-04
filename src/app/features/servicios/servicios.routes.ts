@@ -13,4 +13,11 @@ export const SERVICIOS_ROUTES: Routes = [
         (m) => m.MaquinariasPageComponent,
       ),
   },
+  {
+    path: 'maquinarias/:id/informes',
+    loadComponent: () =>
+      import('./pages/maquinarias/maquinaria-informes-page.component').then(
+        (m) => m.MaquinariaInformesPageComponent,
+      ),
+  },
 ];

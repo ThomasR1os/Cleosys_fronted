@@ -21,13 +21,15 @@
 
   @if (!auth.canWriteServicios()) {
     <div role="status" class="alert alert-warning text-sm">
-      Solo consulta. Alta y edición requieren rol <strong>Ventas</strong>, <strong>Almacén</strong>,
-      <strong>Logística</strong> o <strong>Administrador</strong>.
+      Solo consulta. Alta y edición requieren rol <strong>Servicios</strong>, <strong>Ventas</strong>,
+      <strong>Almacén</strong>, <strong>Logística</strong> o <strong>Administrador</strong>.
     </div>
   }
 
   @if (errorMessage(); as err) {
-    <div role="alert" class="alert alert-error text-sm">{{ err }}</div>
+    <div role="alert" class="alert alert-error text-sm">
+      <span class="whitespace-pre-line">{{ err }}</span>
+    </div>
   }
 
   <div
@@ -121,6 +123,8 @@
             <th>Marca</th>
             <th>Modelo</th>
             <th>Serie</th>
+            <th>Categoría</th>
+            <th>V. nominal</th>
             <th>Ubicación</th>
             <th>Horas/día</th>
             <th>Horómetro</th>
@@ -139,6 +143,15 @@
               <td class="whitespace-nowrap">{{ brandName(row) }}</td>
               <td class="font-medium whitespace-nowrap">{{ row.model }}</td>
               <td class="whitespace-nowrap">{{ row.serial_number }}</td>
+              <td class="min-w-[8rem] whitespace-normal break-words text-xs leading-snug">
+                {{ row.category_name || '—' }}
+                @if (row.subcategory_name) {
+                  <span class="text-base-content/50 block">{{ row.subcategory_name }}</span>
+                }
+              </td>
+              <td class="whitespace-nowrap">
+                {{ nominalVoltageLabel(row.electrical_evaluation?.nominal_voltage) }}
+              </td>
               <td class="min-w-[8rem] max-w-xs whitespace-normal break-words leading-snug">
                 {{ row.location || '—' }}
               </td>
@@ -156,6 +169,27 @@
               </td>
               <td class="text-right">
                 <div class="flex flex-nowrap justify-end gap-0.5">
+                  <a
+                    class="btn btn-ghost btn-sm btn-square"
+                    [routerLink]="['/servicios/maquinarias', row.id, 'informes']"
+                    title="Ver informes"
+                    aria-label="Ver informes"
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke-width="1.5"
+                      class="h-4 w-4 stroke-current"
+                      aria-hidden="true"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"
+                      />
+                    </svg>
+                  </a>
                   @if (row.plate_image_url) {
                     <a
                       class="btn btn-ghost btn-sm btn-square"
@@ -272,16 +306,22 @@
 
 @if (modalOpen()) {
   <div class="modal modal-open">
-    <div class="modal-box max-h-[92vh] max-w-3xl overflow-y-auto px-4 py-5 sm:px-8">
+    <div class="modal-box max-h-[92vh] max-w-4xl overflow-y-auto px-4 py-5 sm:px-8">
       <header class="mb-5 border-b border-base-300 pb-4">
         <h2 class="text-lg font-bold">
           {{ editingId() == null ? 'Nueva maquinaria' : 'Editar maquinaria' }}
         </h2>
         <p class="text-base-content/60 mt-1 text-sm">
-          La empresa se asigna automáticamente desde tu perfil. La placa se sube a Cloudinary; el
-          horómetro es opcional.
+          La empresa se asigna desde tu perfil. La evaluación eléctrica es opcional y puede
+          completarse después.
         </p>
       </header>
+
+      @if (modalErrorMessage(); as modalErr) {
+        <div role="alert" class="alert alert-error mb-4 text-sm">
+          <span class="whitespace-pre-line">{{ modalErr }}</span>
+        </div>
+      }
 
       <form [formGroup]="form" (ngSubmit)="save()" class="flex flex-col gap-5">
         <div class="rounded-box border border-base-300 bg-base-200/25 p-4 sm:p-5">
@@ -403,6 +443,42 @@
                 autocomplete="off"
               />
             </label>
+            <label class="flex w-full min-w-0 flex-col gap-1 md:col-span-6">
+              <div class="label">
+                <span class="label-text">Categoría</span>
+              </div>
+              <select
+                class="select select-bordered w-full min-w-0"
+                formControlName="category"
+                (change)="onCategoryChange()"
+              >
+                <option [ngValue]="null">—</option>
+                @for (c of categories(); track c.id) {
+                  <option [ngValue]="c.id">{{ c.name }}</option>
+                }
+              </select>
+            </label>
+            <label class="flex w-full min-w-0 flex-col gap-1 md:col-span-6">
+              <div class="label">
+                <span class="label-text">Subcategoría</span>
+              </div>
+              <select class="select select-bordered w-full min-w-0" formControlName="subcategory">
+                <option [ngValue]="null">—</option>
+                @for (s of formSubcategoryOptions(); track s.id) {
+                  <option [ngValue]="s.id">{{ s.name }}</option>
+                }
+              </select>
+            </label>
+            <label class="flex w-full min-w-0 flex-col gap-1 md:col-span-4">
+              <div class="label">
+                <span class="label-text">Estado</span>
+              </div>
+              <select class="select select-bordered w-full min-w-0" formControlName="status">
+                @for (opt of statusOptions; track opt.value) {
+                  <option [value]="opt.value">{{ opt.label }}</option>
+                }
+              </select>
+            </label>
             <div class="flex w-full min-w-0 flex-col gap-1 md:col-span-8">
               <div class="label">
                 <span class="label-text">Imagen de placa</span>
@@ -434,16 +510,6 @@
                 }
               </div>
             </div>
-            <label class="flex w-full min-w-0 flex-col gap-1 md:col-span-4">
-              <div class="label">
-                <span class="label-text">Estado</span>
-              </div>
-              <select class="select select-bordered w-full min-w-0" formControlName="status">
-                @for (opt of statusOptions; track opt.value) {
-                  <option [value]="opt.value">{{ opt.label }}</option>
-                }
-              </select>
-            </label>
           </div>
         </div>
 
@@ -479,9 +545,227 @@
                 min="0"
                 step="1"
                 formControlName="current_hour_meter"
-                placeholder="Opcional"
+                placeholder=""
               />
             </label>
+          </div>
+        </div>
+
+        <div formGroupName="eval" class="overflow-hidden rounded-box border border-base-300">
+          <div class="bg-error px-4 py-2.5 text-center">
+            <h3 class="text-sm font-bold tracking-wide text-error-content uppercase">
+              Evaluación eléctrica
+            </h3>
+          </div>
+          <p class="text-base-content/50 border-b border-base-300 bg-base-100 px-4 py-2 text-xs">
+            Todos los campos son opcionales. Puedes guardar la máquina sin completar esta sección.
+          </p>
+          <div class="divide-y divide-base-300 bg-base-100 text-sm">
+            <!-- 28 Voltaje nominal -->
+            <div class="grid grid-cols-1 gap-2 px-3 py-3 sm:grid-cols-[2.25rem_11rem_1fr] sm:items-center sm:gap-3">
+              <span class="text-base-content/50 font-mono text-xs">28</span>
+              <span class="font-semibold uppercase tracking-wide">Voltaje nominal</span>
+              <div class="flex flex-wrap gap-x-5 gap-y-2">
+                @for (opt of nominalVoltageOptions; track opt.value) {
+                  <label class="flex cursor-pointer items-center gap-2">
+                    <input
+                      type="radio"
+                      class="radio radio-sm radio-primary"
+                      [value]="opt.value"
+                      formControlName="nominal_voltage"
+                    />
+                    <span>{{ opt.label }}</span>
+                  </label>
+                }
+                <label class="flex cursor-pointer items-center gap-2 text-base-content/60">
+                  <input
+                    type="radio"
+                    class="radio radio-sm"
+                    value=""
+                    formControlName="nominal_voltage"
+                  />
+                  <span>Sin definir</span>
+                </label>
+              </div>
+            </div>
+
+            <!-- 29 Voltaje real -->
+            <div class="grid grid-cols-1 gap-2 px-3 py-3 sm:grid-cols-[2.25rem_11rem_1fr] sm:items-start sm:gap-3">
+              <span class="text-base-content/50 font-mono text-xs">29</span>
+              <span class="pt-2 font-semibold uppercase tracking-wide">Voltaje real</span>
+              <div class="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <label class="flex items-center gap-2">
+                  <span class="shrink-0 text-xs font-medium">L1-L2:</span>
+                  <input
+                    class="input input-bordered input-sm w-full min-w-0"
+                    type="number"
+                    step="0.01"
+                    formControlName="actual_l1_l2"
+                  />
+                </label>
+                <label class="flex items-center gap-2">
+                  <span class="shrink-0 text-xs font-medium">L2-L3:</span>
+                  <input
+                    class="input input-bordered input-sm w-full min-w-0"
+                    type="number"
+                    step="0.01"
+                    formControlName="actual_l2_l3"
+                  />
+                </label>
+                <label class="flex items-center gap-2">
+                  <span class="shrink-0 text-xs font-medium">L3-L1:</span>
+                  <input
+                    class="input input-bordered input-sm w-full min-w-0"
+                    type="number"
+                    step="0.01"
+                    formControlName="actual_l3_l1"
+                  />
+                </label>
+              </div>
+            </div>
+
+            <!-- 30 Corriente motor principal -->
+            <div class="grid grid-cols-1 gap-2 px-3 py-3 sm:grid-cols-[2.25rem_11rem_1fr] sm:items-start sm:gap-3">
+              <span class="text-base-content/50 font-mono text-xs">30</span>
+              <span class="pt-2 font-semibold uppercase tracking-wide">Corriente motor principal</span>
+              <div class="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <label class="flex items-center gap-2">
+                  <span class="shrink-0 text-xs font-medium">L1:</span>
+                  <input
+                    class="input input-bordered input-sm w-full min-w-0"
+                    type="number"
+                    step="0.01"
+                    formControlName="main_l1"
+                  />
+                </label>
+                <label class="flex items-center gap-2">
+                  <span class="shrink-0 text-xs font-medium">L2:</span>
+                  <input
+                    class="input input-bordered input-sm w-full min-w-0"
+                    type="number"
+                    step="0.01"
+                    formControlName="main_l2"
+                  />
+                </label>
+                <label class="flex items-center gap-2">
+                  <span class="shrink-0 text-xs font-medium">L3:</span>
+                  <input
+                    class="input input-bordered input-sm w-full min-w-0"
+                    type="number"
+                    step="0.01"
+                    formControlName="main_l3"
+                  />
+                </label>
+              </div>
+            </div>
+
+            <!-- 31 Corriente motor ventilador -->
+            <div class="grid grid-cols-1 gap-2 px-3 py-3 sm:grid-cols-[2.25rem_11rem_1fr] sm:items-start sm:gap-3">
+              <span class="text-base-content/50 font-mono text-xs">31</span>
+              <span class="pt-2 font-semibold uppercase tracking-wide">Corriente motor ventilador</span>
+              <div class="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <label class="flex items-center gap-2">
+                  <span class="shrink-0 text-xs font-medium">L1:</span>
+                  <input
+                    class="input input-bordered input-sm w-full min-w-0"
+                    type="number"
+                    step="0.01"
+                    formControlName="fan_l1"
+                  />
+                </label>
+                <label class="flex items-center gap-2">
+                  <span class="shrink-0 text-xs font-medium">L2:</span>
+                  <input
+                    class="input input-bordered input-sm w-full min-w-0"
+                    type="number"
+                    step="0.01"
+                    formControlName="fan_l2"
+                  />
+                </label>
+                <label class="flex items-center gap-2">
+                  <span class="shrink-0 text-xs font-medium">L3:</span>
+                  <input
+                    class="input input-bordered input-sm w-full min-w-0"
+                    type="number"
+                    step="0.01"
+                    formControlName="fan_l3"
+                  />
+                </label>
+              </div>
+            </div>
+
+            <!-- 32 Arrancador tipo -->
+            <div class="grid grid-cols-1 gap-2 px-3 py-3 sm:grid-cols-[2.25rem_11rem_1fr] sm:items-center sm:gap-3">
+              <span class="text-base-content/50 font-mono text-xs">32</span>
+              <span class="font-semibold uppercase tracking-wide">Arrancador tipo</span>
+              <div class="flex flex-wrap gap-x-5 gap-y-2">
+                @for (opt of starterTypeOptions; track opt.value) {
+                  <label class="flex cursor-pointer items-center gap-2">
+                    <input
+                      type="radio"
+                      class="radio radio-sm radio-primary"
+                      [value]="opt.value"
+                      formControlName="starter_type"
+                    />
+                    <span>{{ opt.label }}</span>
+                  </label>
+                }
+                <label class="flex cursor-pointer items-center gap-2 text-base-content/60">
+                  <input type="radio" class="radio radio-sm" value="" formControlName="starter_type" />
+                  <span>Sin definir</span>
+                </label>
+              </div>
+            </div>
+
+            <!-- 33 Marca de arrancador -->
+            <div class="grid grid-cols-1 gap-2 px-3 py-3 sm:grid-cols-[2.25rem_11rem_1fr] sm:items-center sm:gap-3">
+              <span class="text-base-content/50 font-mono text-xs">33</span>
+              <span class="font-semibold uppercase tracking-wide">Marca de arrancador</span>
+              <input
+                class="input input-bordered input-sm w-full min-w-0"
+                formControlName="starter_brand"
+                autocomplete="off"
+              />
+            </div>
+
+            <!-- 34 Tensión de control -->
+            <div class="grid grid-cols-1 gap-2 px-3 py-3 sm:grid-cols-[2.25rem_11rem_1fr] sm:items-center sm:gap-3">
+              <span class="text-base-content/50 font-mono text-xs">34</span>
+              <span class="font-semibold uppercase tracking-wide">Tensión de control</span>
+              <div class="flex flex-wrap gap-x-5 gap-y-2">
+                @for (opt of controlVoltageOptions; track opt.value) {
+                  <label class="flex cursor-pointer items-center gap-2">
+                    <input
+                      type="radio"
+                      class="radio radio-sm radio-primary"
+                      [value]="opt.value"
+                      formControlName="control_voltage"
+                    />
+                    <span>{{ opt.label }}</span>
+                  </label>
+                }
+                <label class="flex cursor-pointer items-center gap-2 text-base-content/60">
+                  <input
+                    type="radio"
+                    class="radio radio-sm"
+                    value=""
+                    formControlName="control_voltage"
+                  />
+                  <span>Sin definir</span>
+                </label>
+              </div>
+            </div>
+
+            <!-- 35 Puesta a tierra -->
+            <div class="grid grid-cols-1 gap-2 px-3 py-3 sm:grid-cols-[2.25rem_11rem_1fr] sm:items-center sm:gap-3">
+              <span class="text-base-content/50 font-mono text-xs">35</span>
+              <span class="font-semibold uppercase tracking-wide">Puesta a tierra</span>
+              <input
+                class="input input-bordered input-sm w-full min-w-0"
+                formControlName="grounding"
+                autocomplete="off"
+              />
+            </div>
           </div>
         </div>
 

@@ -1,0 +1,935 @@
+<div class="space-y-6">
+  <a routerLink="/servicios/maquinarias" class="link link-hover text-sm">← Volver a maquinarias</a>
+
+  @if (errorMessage(); as err) {
+    <div role="alert" class="alert alert-error text-sm">
+      <span class="whitespace-pre-line">{{ err }}</span>
+    </div>
+  }
+
+  @if (loading()) {
+    <div class="flex justify-center p-12">
+      <span class="loading loading-spinner loading-lg text-primary"></span>
+    </div>
+  } @else if (machine(); as m) {
+    <header class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <div class="space-y-1">
+        <h1 class="text-3xl font-bold">Informes</h1>
+        <p class="text-base-content/70 text-sm">
+          {{ m.model }}
+          <span class="text-base-content/50">·</span>
+          Serie {{ m.serial_number }}
+          <span class="text-base-content/50">·</span>
+          ID {{ m.id }}
+        </p>
+      </div>
+      <span class="badge badge-outline badge-lg">{{ statusLabel(m.status) }}</span>
+    </header>
+
+    <section class="rounded-lg border border-base-300 bg-base-100 p-4">
+      <h2 class="mb-3 text-lg font-semibold">Datos de la máquina</h2>
+      <dl class="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
+        <div>
+          <dt class="text-base-content/50 text-xs uppercase tracking-wide">Cliente</dt>
+          <dd class="mt-0.5 font-medium">{{ m.client_name || '—' }}</dd>
+        </div>
+        <div>
+          <dt class="text-base-content/50 text-xs uppercase tracking-wide">Marca</dt>
+          <dd class="mt-0.5 font-medium">{{ m.brand_name || '—' }}</dd>
+        </div>
+        <div>
+          <dt class="text-base-content/50 text-xs uppercase tracking-wide">Ubicación</dt>
+          <dd class="mt-0.5 font-medium">{{ m.location || '—' }}</dd>
+        </div>
+        <div>
+          <dt class="text-base-content/50 text-xs uppercase tracking-wide">Categoría</dt>
+          <dd class="mt-0.5 font-medium">
+            {{ m.category_name || '—' }}
+            @if (m.subcategory_name) {
+              <span class="text-base-content/50 block text-xs">{{ m.subcategory_name }}</span>
+            }
+          </dd>
+        </div>
+        <div>
+          <dt class="text-base-content/50 text-xs uppercase tracking-wide">V. nominal</dt>
+          <dd class="mt-0.5 font-medium">
+            {{ m.electrical_evaluation?.nominal_voltage || '—' }}
+          </dd>
+        </div>
+        <div>
+          <dt class="text-base-content/50 text-xs uppercase tracking-wide">Horómetro actual</dt>
+          <dd class="mt-0.5 font-medium">
+            @if (m.current_hour_meter != null) {
+              {{ m.current_hour_meter | number: '1.0-2' }}
+            } @else {
+              —
+            }
+          </dd>
+        </div>
+        <div>
+          <dt class="text-base-content/50 text-xs uppercase tracking-wide">Empresa</dt>
+          <dd class="mt-0.5 font-medium">{{ auth.companyName() }}</dd>
+        </div>
+      </dl>
+    </section>
+
+    <section class="rounded-lg border border-base-300 bg-base-100 p-4">
+      <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+        <h2 class="text-lg font-semibold">Informes de servicio</h2>
+        <div class="flex flex-wrap items-center gap-2">
+          <label class="form-control w-full sm:w-40">
+            <select
+              class="select select-bordered select-sm w-full"
+              [value]="filterType()"
+              (change)="setFilterType($any($event.target).value)"
+            >
+              <option value="ALL">Todos</option>
+              @for (opt of typeOptions; track opt.value) {
+                <option [value]="opt.value">{{ opt.label }}</option>
+              }
+            </select>
+          </label>
+          @if (auth.canWriteReports()) {
+            <button type="button" class="btn btn-outline btn-sm" (click)="openNewEvaluation()">
+              Nueva evaluación
+            </button>
+            <button type="button" class="btn btn-primary btn-sm" (click)="openNewService()">
+              Nuevo servicio
+            </button>
+          }
+        </div>
+      </div>
+
+      @if (!auth.canWriteReports()) {
+        <div role="status" class="alert alert-warning mb-4 text-sm">
+          Solo consulta. Alta y edición de informes requieren rol <strong>Servicios</strong> o
+          <strong>Administrador</strong>.
+        </div>
+      }
+
+      @if (reportsLoading()) {
+        <div class="flex justify-center p-10">
+          <span class="loading loading-spinner loading-md text-primary"></span>
+        </div>
+      } @else if (reports().length === 0) {
+        <p class="text-base-content/60 py-10 text-center text-sm">
+          Aún no hay informes registrados para esta máquina.
+        </p>
+      } @else if (filteredReports().length === 0) {
+        <p class="text-base-content/60 py-10 text-center text-sm">
+          Ningún informe coincide con el filtro.
+        </p>
+      } @else {
+        <div class="overflow-x-auto">
+          <table class="table table-zebra text-sm">
+            <thead>
+              <tr>
+                <th>Correlativo</th>
+                <th>Tipo</th>
+                <th>Fecha</th>
+                <th>Horómetro</th>
+                <th>Condición</th>
+                <th>Origen</th>
+                <th>Fotos</th>
+                <th>Creado</th>
+                <th class="text-right">Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (row of filteredReports(); track row.id) {
+                <tr class="align-top">
+                  <td class="whitespace-nowrap font-mono text-xs sm:text-sm">
+                    {{ correlativoLabel(row) }}
+                  </td>
+                  <td class="whitespace-nowrap">
+                    <span
+                      class="badge badge-sm"
+                      [class.badge-info]="row.type === 'EVALUATION'"
+                      [class.badge-success]="row.type === 'SERVICE'"
+                    >
+                      {{ typeLabel(row.type) }}
+                    </span>
+                  </td>
+                  <td class="whitespace-nowrap">{{ row.intervention_date | shortDateTime }}</td>
+                  <td class="whitespace-nowrap">
+                    @if (row.hour_meter != null) {
+                      {{ row.hour_meter | number: '1.0-2' }}
+                    } @else {
+                      —
+                    }
+                  </td>
+                  <td class="whitespace-nowrap">{{ conditionLabel(row.current_condition) }}</td>
+                  <td class="whitespace-nowrap">
+                    @if (row.type === 'SERVICE' && row.origin_report != null) {
+                      <button
+                        type="button"
+                        class="link link-primary text-sm"
+                        (click)="openOriginReport(row.origin_report)"
+                      >
+                        Eval. {{ reportRefLabel(row.origin_report) }}
+                      </button>
+                    } @else {
+                      —
+                    }
+                  </td>
+                  <td class="whitespace-nowrap tabular-nums">
+                    {{ row.photos.length || 0 }}
+                  </td>
+                  <td class="whitespace-nowrap text-xs">
+                    {{ row.created_at | shortDateTime }}
+                    @if (row.created_by_name) {
+                      <span class="text-base-content/50 block">{{ row.created_by_name }}</span>
+                    }
+                  </td>
+                  <td class="text-right">
+                    <div class="flex flex-nowrap justify-end gap-0.5">
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-sm btn-square"
+                        title="PDF"
+                        aria-label="Generar PDF"
+                        (click)="generatePdf(row)"
+                        [disabled]="pdfGeneratingId() != null"
+                      >
+                        @if (pdfGeneratingId() === row.id) {
+                          <span class="loading loading-spinner loading-xs"></span>
+                        } @else {
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke-width="1.5"
+                            class="h-4 w-4 stroke-current"
+                            aria-hidden="true"
+                          >
+                            <path
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                              d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"
+                            />
+                          </svg>
+                        }
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-sm btn-square"
+                        title="Ver"
+                        aria-label="Ver"
+                        (click)="openView(row)"
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke-width="1.5"
+                          class="h-4 w-4 stroke-current"
+                          aria-hidden="true"
+                        >
+                          <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z"
+                          />
+                          <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"
+                          />
+                        </svg>
+                      </button>
+                      @if (auth.canWriteReports()) {
+                        <button
+                          type="button"
+                          class="btn btn-ghost btn-sm btn-square"
+                          title="Editar"
+                          aria-label="Editar"
+                          (click)="openEdit(row)"
+                        >
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke-width="1.5"
+                            class="h-4 w-4 stroke-current"
+                            aria-hidden="true"
+                          >
+                            <path
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                              d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10"
+                            />
+                          </svg>
+                        </button>
+                        <button
+                          type="button"
+                          class="btn btn-ghost btn-error btn-sm btn-square"
+                          title="Eliminar"
+                          aria-label="Eliminar"
+                          (click)="remove(row)"
+                        >
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke-width="1.5"
+                            class="h-4 w-4 stroke-current"
+                            aria-hidden="true"
+                          >
+                            <path
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                              d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
+                            />
+                          </svg>
+                        </button>
+                      }
+                    </div>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      }
+    </section>
+  }
+</div>
+
+@if (modalOpen()) {
+  <div class="modal modal-open">
+    <div class="modal-box max-h-[92vh] max-w-4xl overflow-y-auto px-4 py-5 sm:px-8">
+      <header class="mb-5 border-b border-base-300 pb-4">
+        <h2 class="text-lg font-bold">
+          @if (modalMode() === 'view') {
+            Ver {{ typeLabel(formType()).toLowerCase() }}
+          } @else if (modalMode() === 'edit') {
+            Editar {{ typeLabel(formType()).toLowerCase() }}
+          } @else if (formType() === 'SERVICE') {
+            Nuevo servicio
+          } @else {
+            Nueva evaluación
+          }
+          @if (modalCorrelativo(); as corr) {
+            <span class="text-base-content/50 font-mono text-base font-normal">{{ corr }}</span>
+          } @else if (editingId(); as eid) {
+            <span class="text-base-content/50 font-normal">#{{ eid }}</span>
+          }
+        </h2>
+        <p class="text-base-content/60 mt-1 text-sm">
+          Horómetro actual de la máquina:
+          <strong>
+            @if (machineHourMeter(); as hm) {
+              {{ hm | number: '1.0-2' }}
+            } @else {
+              sin registrar
+            }
+          </strong>
+          @if (machineHourMeter() != null) {
+            <span class="text-base-content/50"> (el valor del informe no puede ser menor)</span>
+          }
+        </p>
+        @if (editingId(); as eid) {
+          <button
+            type="button"
+            class="btn btn-outline btn-sm mt-2"
+            (click)="generatePdfFromModal()"
+            [disabled]="pdfGeneratingId() != null"
+          >
+            @if (pdfGeneratingId() === eid) {
+              <span class="loading loading-spinner loading-xs"></span>
+            }
+            Generar PDF
+          </button>
+        }
+      </header>
+
+      @if (modalErrorMessage(); as modalErr) {
+        <div role="alert" class="alert alert-error mb-4 text-sm">
+          <span class="whitespace-pre-line">{{ modalErr }}</span>
+        </div>
+      }
+
+      <form [formGroup]="form" (ngSubmit)="save()" class="flex flex-col gap-4">
+        @if (formType() === 'SERVICE') {
+          <label class="flex w-full min-w-0 flex-col gap-1">
+            <div class="label">
+              <span class="label-text">Evaluación de origen (opcional)</span>
+            </div>
+            <select class="select select-bordered w-full min-w-0" formControlName="origin_report">
+              <option [ngValue]="null">— Sin origen —</option>
+              @for (ev of evaluationOptions(); track ev.id) {
+                <option [ngValue]="ev.id">
+                  {{ correlativoLabel(ev) }} · {{ ev.intervention_date | shortDateTime }}
+                  @if (ev.hour_meter != null) {
+                    · {{ ev.hour_meter }} h
+                  }
+                </option>
+              }
+            </select>
+          </label>
+          @if (form.controls.origin_report.value; as oid) {
+            <p class="text-sm">
+              <button
+                type="button"
+                class="link link-primary"
+                (click)="openOriginReport(oid)"
+              >
+                Ver evaluación {{ reportRefLabel(oid) }}
+              </button>
+            </p>
+          }
+        }
+
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <label class="flex w-full min-w-0 flex-col gap-1">
+            <div class="label">
+              <span class="label-text">Fecha de intervención</span>
+            </div>
+            <input
+              class="input input-bordered w-full min-w-0"
+              type="date"
+              formControlName="intervention_date"
+            />
+          </label>
+          <label class="flex w-full min-w-0 flex-col gap-1">
+            <div class="label">
+              <span class="label-text">Horómetro</span>
+            </div>
+            <input
+              class="input input-bordered w-full min-w-0"
+              type="number"
+              step="1"
+              [attr.min]="machineHourMeter() ?? null"
+              formControlName="hour_meter"
+              placeholder="Opcional"
+            />
+            @if (form.controls.hour_meter.hasError('minMachine')) {
+              <span class="text-error text-xs">
+                No puede ser menor que el horómetro actual de la máquina.
+              </span>
+            }
+          </label>
+          <label class="flex w-full min-w-0 flex-col gap-1 sm:col-span-2">
+            <div class="label">
+              <span class="label-text">Condición actual</span>
+            </div>
+            <div class="flex flex-wrap gap-x-5 gap-y-2">
+              @for (opt of conditionOptions; track opt.value) {
+                <label class="flex cursor-pointer items-center gap-2">
+                  <input
+                    type="radio"
+                    class="radio radio-sm radio-primary"
+                    [value]="opt.value"
+                    formControlName="current_condition"
+                  />
+                  <span>{{ opt.label }}</span>
+                </label>
+              }
+            </div>
+          </label>
+        </div>
+
+        @if (showElectricalEval()) {
+          <div formGroupName="eval" class="overflow-hidden rounded-box border border-base-300">
+            <div class="bg-error px-4 py-2.5 text-center">
+              <h3 class="text-sm font-bold tracking-wide text-error-content uppercase">
+                Evaluación eléctrica
+              </h3>
+            </div>
+            <p class="text-base-content/50 border-b border-base-300 bg-base-100 px-4 py-2 text-xs">
+              Opcional. Al crear se precarga desde la máquina. Si se guarda, actualiza también la
+              ficha eléctrica. Con condición Inoperativo no se envía.
+            </p>
+            <div class="divide-y divide-base-300 bg-base-100 text-sm">
+              <div
+                class="grid grid-cols-1 gap-2 px-3 py-3 sm:grid-cols-[2.25rem_11rem_1fr] sm:items-center sm:gap-3"
+              >
+                <span class="text-base-content/50 font-mono text-xs">28</span>
+                <span class="font-semibold uppercase tracking-wide">Voltaje nominal</span>
+                <div class="flex flex-wrap gap-x-5 gap-y-2">
+                  @for (opt of nominalVoltageOptions; track opt.value) {
+                    <label class="flex cursor-pointer items-center gap-2">
+                      <input
+                        type="radio"
+                        class="radio radio-sm radio-primary"
+                        [value]="opt.value"
+                        formControlName="nominal_voltage"
+                      />
+                      <span>{{ opt.label }}</span>
+                    </label>
+                  }
+                  <label class="flex cursor-pointer items-center gap-2 text-base-content/60">
+                    <input
+                      type="radio"
+                      class="radio radio-sm"
+                      value=""
+                      formControlName="nominal_voltage"
+                    />
+                    <span>Sin definir</span>
+                  </label>
+                </div>
+              </div>
+
+              <div
+                class="grid grid-cols-1 gap-2 px-3 py-3 sm:grid-cols-[2.25rem_11rem_1fr] sm:items-start sm:gap-3"
+              >
+                <span class="text-base-content/50 font-mono text-xs">29</span>
+                <span class="pt-2 font-semibold uppercase tracking-wide">Voltaje real</span>
+                <div class="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  <label class="flex items-center gap-2">
+                    <span class="shrink-0 text-xs font-medium">L1-L2:</span>
+                    <input
+                      class="input input-bordered input-sm w-full min-w-0"
+                      type="number"
+                      step="0.01"
+                      formControlName="actual_l1_l2"
+                    />
+                  </label>
+                  <label class="flex items-center gap-2">
+                    <span class="shrink-0 text-xs font-medium">L2-L3:</span>
+                    <input
+                      class="input input-bordered input-sm w-full min-w-0"
+                      type="number"
+                      step="0.01"
+                      formControlName="actual_l2_l3"
+                    />
+                  </label>
+                  <label class="flex items-center gap-2">
+                    <span class="shrink-0 text-xs font-medium">L3-L1:</span>
+                    <input
+                      class="input input-bordered input-sm w-full min-w-0"
+                      type="number"
+                      step="0.01"
+                      formControlName="actual_l3_l1"
+                    />
+                  </label>
+                </div>
+              </div>
+
+              <div
+                class="grid grid-cols-1 gap-2 px-3 py-3 sm:grid-cols-[2.25rem_11rem_1fr] sm:items-start sm:gap-3"
+              >
+                <span class="text-base-content/50 font-mono text-xs">30</span>
+                <span class="pt-2 font-semibold uppercase tracking-wide"
+                  >Corriente motor principal</span
+                >
+                <div class="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  <label class="flex items-center gap-2">
+                    <span class="shrink-0 text-xs font-medium">L1:</span>
+                    <input
+                      class="input input-bordered input-sm w-full min-w-0"
+                      type="number"
+                      step="0.01"
+                      formControlName="main_l1"
+                    />
+                  </label>
+                  <label class="flex items-center gap-2">
+                    <span class="shrink-0 text-xs font-medium">L2:</span>
+                    <input
+                      class="input input-bordered input-sm w-full min-w-0"
+                      type="number"
+                      step="0.01"
+                      formControlName="main_l2"
+                    />
+                  </label>
+                  <label class="flex items-center gap-2">
+                    <span class="shrink-0 text-xs font-medium">L3:</span>
+                    <input
+                      class="input input-bordered input-sm w-full min-w-0"
+                      type="number"
+                      step="0.01"
+                      formControlName="main_l3"
+                    />
+                  </label>
+                </div>
+              </div>
+
+              <div
+                class="grid grid-cols-1 gap-2 px-3 py-3 sm:grid-cols-[2.25rem_11rem_1fr] sm:items-start sm:gap-3"
+              >
+                <span class="text-base-content/50 font-mono text-xs">31</span>
+                <span class="pt-2 font-semibold uppercase tracking-wide"
+                  >Corriente motor ventilador</span
+                >
+                <div class="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  <label class="flex items-center gap-2">
+                    <span class="shrink-0 text-xs font-medium">L1:</span>
+                    <input
+                      class="input input-bordered input-sm w-full min-w-0"
+                      type="number"
+                      step="0.01"
+                      formControlName="fan_l1"
+                    />
+                  </label>
+                  <label class="flex items-center gap-2">
+                    <span class="shrink-0 text-xs font-medium">L2:</span>
+                    <input
+                      class="input input-bordered input-sm w-full min-w-0"
+                      type="number"
+                      step="0.01"
+                      formControlName="fan_l2"
+                    />
+                  </label>
+                  <label class="flex items-center gap-2">
+                    <span class="shrink-0 text-xs font-medium">L3:</span>
+                    <input
+                      class="input input-bordered input-sm w-full min-w-0"
+                      type="number"
+                      step="0.01"
+                      formControlName="fan_l3"
+                    />
+                  </label>
+                </div>
+              </div>
+
+              <div
+                class="grid grid-cols-1 gap-2 px-3 py-3 sm:grid-cols-[2.25rem_11rem_1fr] sm:items-center sm:gap-3"
+              >
+                <span class="text-base-content/50 font-mono text-xs">32</span>
+                <span class="font-semibold uppercase tracking-wide">Arrancador tipo</span>
+                <div class="flex flex-wrap gap-x-5 gap-y-2">
+                  @for (opt of starterTypeOptions; track opt.value) {
+                    <label class="flex cursor-pointer items-center gap-2">
+                      <input
+                        type="radio"
+                        class="radio radio-sm radio-primary"
+                        [value]="opt.value"
+                        formControlName="starter_type"
+                      />
+                      <span>{{ opt.label }}</span>
+                    </label>
+                  }
+                  <label class="flex cursor-pointer items-center gap-2 text-base-content/60">
+                    <input
+                      type="radio"
+                      class="radio radio-sm"
+                      value=""
+                      formControlName="starter_type"
+                    />
+                    <span>Sin definir</span>
+                  </label>
+                </div>
+              </div>
+
+              <div
+                class="grid grid-cols-1 gap-2 px-3 py-3 sm:grid-cols-[2.25rem_11rem_1fr] sm:items-center sm:gap-3"
+              >
+                <span class="text-base-content/50 font-mono text-xs">33</span>
+                <span class="font-semibold uppercase tracking-wide">Marca de arrancador</span>
+                <input
+                  class="input input-bordered input-sm w-full min-w-0"
+                  formControlName="starter_brand"
+                  autocomplete="off"
+                />
+              </div>
+
+              <div
+                class="grid grid-cols-1 gap-2 px-3 py-3 sm:grid-cols-[2.25rem_11rem_1fr] sm:items-center sm:gap-3"
+              >
+                <span class="text-base-content/50 font-mono text-xs">34</span>
+                <span class="font-semibold uppercase tracking-wide">Tensión de control</span>
+                <div class="flex flex-wrap gap-x-5 gap-y-2">
+                  @for (opt of controlVoltageOptions; track opt.value) {
+                    <label class="flex cursor-pointer items-center gap-2">
+                      <input
+                        type="radio"
+                        class="radio radio-sm radio-primary"
+                        [value]="opt.value"
+                        formControlName="control_voltage"
+                      />
+                      <span>{{ opt.label }}</span>
+                    </label>
+                  }
+                  <label class="flex cursor-pointer items-center gap-2 text-base-content/60">
+                    <input
+                      type="radio"
+                      class="radio radio-sm"
+                      value=""
+                      formControlName="control_voltage"
+                    />
+                    <span>Sin definir</span>
+                  </label>
+                </div>
+              </div>
+
+              <div
+                class="grid grid-cols-1 gap-2 px-3 py-3 sm:grid-cols-[2.25rem_11rem_1fr] sm:items-center sm:gap-3"
+              >
+                <span class="text-base-content/50 font-mono text-xs">35</span>
+                <span class="font-semibold uppercase tracking-wide">Puesta a tierra</span>
+                <input
+                  class="input input-bordered input-sm w-full min-w-0"
+                  formControlName="grounding"
+                  autocomplete="off"
+                />
+              </div>
+            </div>
+          </div>
+        }
+
+        <label class="flex w-full min-w-0 flex-col gap-1">
+          <div class="label">
+            <span class="label-text">Antecedentes</span>
+          </div>
+          <textarea
+            class="textarea textarea-bordered min-h-[4.5rem] w-full min-w-0"
+            formControlName="background"
+          ></textarea>
+        </label>
+
+        <label class="flex w-full min-w-0 flex-col gap-1">
+          <div class="label">
+            <span class="label-text">{{ workPerformedLabel() }}</span>
+          </div>
+          <textarea
+            class="textarea textarea-bordered min-h-[4.5rem] w-full min-w-0"
+            formControlName="work_performed"
+          ></textarea>
+        </label>
+
+        @if (formType() === 'EVALUATION') {
+          <div class="rounded-box border border-base-300">
+            <div class="border-b border-base-300 bg-base-200/40 px-3 py-2">
+              <h3 class="text-sm font-semibold">Checklist de partes</h3>
+              <p class="text-base-content/50 text-xs">
+                Según la subcategoría de la máquina. Reemplazar exige número de parte.
+              </p>
+            </div>
+            @if (partsLoading()) {
+              <div class="flex justify-center p-6">
+                <span class="loading loading-spinner loading-md text-primary"></span>
+              </div>
+            } @else if (partChecks().length === 0) {
+              <p class="text-base-content/60 p-4 text-sm">
+                @if (machine()?.subcategory == null) {
+                  La máquina no tiene subcategoría; no hay checklist.
+                } @else {
+                  No hay partes recomendadas activas para esta subcategoría.
+                }
+              </p>
+            } @else {
+              <div class="divide-y divide-base-300">
+                @for (row of partChecks(); track row.recommended_part; let i = $index) {
+                  <div class="space-y-2 px-3 py-3">
+                    <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <span class="text-sm font-medium">{{ row.name }}</span>
+                      <div class="flex flex-wrap gap-x-4 gap-y-1">
+                        @for (opt of partConditionOptions; track opt.value) {
+                          <label class="flex cursor-pointer items-center gap-1.5 text-sm">
+                            <input
+                              type="radio"
+                              class="radio radio-xs radio-primary"
+                              name="part-cond-{{ row.recommended_part }}"
+                              [checked]="row.condition === opt.value"
+                              [disabled]="modalReadonly()"
+                              (change)="setPartCondition(i, opt.value)"
+                            />
+                            <span>{{ opt.label }}</span>
+                          </label>
+                        }
+                      </div>
+                    </div>
+                    @if (row.condition === 'REPLACE') {
+                      <label class="flex w-full min-w-0 flex-col gap-1">
+                        <span class="text-xs font-medium">Nº de parte (obligatorio)</span>
+                        <input
+                          class="input input-bordered input-sm w-full"
+                          [value]="row.part_number"
+                          [disabled]="modalReadonly()"
+                          maxlength="250"
+                          (input)="setPartNumber(i, $any($event.target).value)"
+                        />
+                      </label>
+                    }
+                    <label class="flex w-full min-w-0 flex-col gap-1">
+                      <span class="text-xs font-medium">Notas</span>
+                      <input
+                        class="input input-bordered input-sm w-full"
+                        [value]="row.notes"
+                        [disabled]="modalReadonly()"
+                        (input)="setPartNotes(i, $any($event.target).value)"
+                      />
+                    </label>
+                  </div>
+                }
+              </div>
+            }
+          </div>
+        }
+
+        <label class="flex w-full min-w-0 flex-col gap-1">
+          <div class="label">
+            <span class="label-text">Conclusiones</span>
+          </div>
+          <textarea
+            class="textarea textarea-bordered min-h-[4.5rem] w-full min-w-0"
+            formControlName="conclusions"
+          ></textarea>
+        </label>
+        <label class="flex w-full min-w-0 flex-col gap-1">
+          <div class="label">
+            <span class="label-text">Recomendaciones</span>
+          </div>
+          <textarea
+            class="textarea textarea-bordered min-h-[4.5rem] w-full min-w-0"
+            formControlName="recommendations"
+          ></textarea>
+        </label>
+
+        <div class="border-base-300 flex w-full min-w-0 flex-col gap-3 border-t pt-4">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <h3 class="text-sm font-semibold">Panel fotográfico</h3>
+            @if (photosLoading()) {
+              <span class="loading loading-spinner loading-sm text-primary"></span>
+            }
+          </div>
+          <p class="text-base-content/60 text-xs">
+            Etiquetas: Antes, Durante y Después. Sin fotos es válido.
+            @if (modalMode() === 'create') {
+              Las imágenes se suben al guardar el informe.
+            }
+          </p>
+
+          @for (group of photosByLabel(); track group.value) {
+            @if (group.items.length) {
+              <div class="flex flex-col gap-2">
+                <p class="text-xs font-medium">{{ group.label }}</p>
+                <div class="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  @for (photo of group.items; track photo.id) {
+                    <figure class="border-base-300 bg-base-200 overflow-hidden rounded border">
+                      <a [href]="photo.photo_url" target="_blank" rel="noopener noreferrer">
+                        <img
+                          [src]="photo.photo_url"
+                          [alt]="photoLabelUi(photo.label)"
+                          class="h-28 w-full object-cover"
+                        />
+                      </a>
+                      @if (photo.note) {
+                        <figcaption class="text-base-content/70 px-2 py-1 text-xs">
+                          {{ photo.note }}
+                        </figcaption>
+                      }
+                    </figure>
+                  }
+                </div>
+              </div>
+            }
+          }
+
+          @if (
+            !photosLoading() &&
+            photos().length === 0 &&
+            pendingPhotos().length === 0 &&
+            modalReadonly()
+          ) {
+            <p class="text-base-content/50 text-sm">Sin fotos en este informe.</p>
+          }
+
+          @if (pendingPhotos().length) {
+            <div class="flex flex-col gap-2">
+              <p class="text-xs font-medium">Pendientes de subir</p>
+              <div class="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                @for (p of pendingPhotos(); track p.key) {
+                  <figure class="border-base-300 bg-base-200 relative overflow-hidden rounded border">
+                    <img
+                      [src]="p.previewUrl"
+                      [alt]="photoLabelUi(p.label)"
+                      class="h-28 w-full object-cover"
+                    />
+                    <figcaption class="flex items-start justify-between gap-1 px-2 py-1 text-xs">
+                      <span>
+                        <span class="font-medium">{{ photoLabelUi(p.label) }}</span>
+                        @if (p.note) {
+                          <span class="text-base-content/60 block">{{ p.note }}</span>
+                        }
+                      </span>
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-xs btn-square shrink-0"
+                        title="Quitar"
+                        aria-label="Quitar foto pendiente"
+                        (click)="removePendingPhoto(p.key)"
+                      >
+                        ×
+                      </button>
+                    </figcaption>
+                  </figure>
+                }
+              </div>
+            </div>
+          }
+
+          @if (!modalReadonly() && auth.canWriteReports()) {
+            <div class="bg-base-200/60 flex flex-col gap-2 rounded-lg p-3">
+              <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <label class="flex w-full min-w-0 flex-col gap-1">
+                  <span class="text-xs font-medium">Etiqueta</span>
+                  <select
+                    class="select select-bordered select-sm w-full"
+                    [value]="newPhotoLabel()"
+                    (change)="setNewPhotoLabel($any($event.target).value)"
+                    [disabled]="photoUploadBusy() || saving()"
+                  >
+                    @for (opt of photoLabelOptions; track opt.value) {
+                      <option [value]="opt.value">{{ opt.label }}</option>
+                    }
+                  </select>
+                </label>
+                <label class="flex w-full min-w-0 flex-col gap-1">
+                  <span class="text-xs font-medium">Nota (opcional)</span>
+                  <input
+                    class="input input-bordered input-sm w-full"
+                    [value]="newPhotoNote()"
+                    (input)="setNewPhotoNote($any($event.target).value)"
+                    [disabled]="photoUploadBusy() || saving()"
+                    placeholder="Ej. Vista general"
+                  />
+                </label>
+              </div>
+              <label class="flex w-full min-w-0 flex-col gap-1">
+                <span class="text-xs font-medium">Imagen</span>
+                <input
+                  type="file"
+                  class="file-input file-input-bordered file-input-sm w-full max-w-full"
+                  accept="image/*"
+                  (change)="onPhotoFileSelected($event)"
+                  [disabled]="photoUploadBusy() || saving()"
+                />
+              </label>
+              @if (photoUploadBusy()) {
+                <p class="text-base-content/60 flex items-center gap-2 text-xs">
+                  <span class="loading loading-spinner loading-xs"></span>
+                  Subiendo a Cloudinary…
+                </p>
+              }
+            </div>
+          }
+        </div>
+
+        <div class="modal-action mt-1">
+          <button
+            type="button"
+            class="btn btn-ghost"
+            (click)="closeModal()"
+            [disabled]="saving() || photoUploadBusy()"
+          >
+            {{ modalReadonly() ? 'Cerrar' : 'Cancelar' }}
+          </button>
+          @if (!modalReadonly()) {
+            <button
+              type="submit"
+              class="btn btn-primary"
+              [disabled]="saving() || photoUploadBusy() || !auth.canWriteReports()"
+            >
+              @if (saving()) {
+                <span class="loading loading-spinner loading-sm"></span>
+              }
+              Guardar
+            </button>
+          }
+        </div>
+      </form>
+    </div>
+    <button type="button" class="modal-backdrop" (click)="closeModal()" aria-label="Cerrar"></button>
+  </div>
+}

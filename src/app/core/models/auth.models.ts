@@ -13,6 +13,7 @@ export interface MeUser {
 export interface MeCompany {
   id: number;
   name: string;
+  logo_url?: string | null;
 }
 
 export interface MeProfile {

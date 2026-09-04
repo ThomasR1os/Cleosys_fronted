@@ -83,11 +83,24 @@ export class AuthService {
   readonly canWriteServicios = computed(() => {
     const role = this.me()?.profile?.role;
     return (
+      role === 'SERVICIOS' ||
       role === 'VENTAS' ||
       role === 'ALMACEN' ||
       role === 'LOGISTICA' ||
       role === 'ADMIN'
     );
+  });
+
+  /** Informes de máquina: escritura solo SERVICIOS o ADMIN. */
+  readonly canWriteReports = computed(() => {
+    const role = this.me()?.profile?.role;
+    return role === 'SERVICIOS' || role === 'ADMIN';
+  });
+
+  /** Partes recomendadas (Core): SERVICIOS, ALMACEN o ADMIN. */
+  readonly canWriteRecommendedParts = computed(() => {
+    const role = this.me()?.profile?.role;
+    return role === 'SERVICIOS' || role === 'ALMACEN' || role === 'ADMIN';
   });
 
   readonly isAdmin = computed(() => this.me()?.profile?.role === 'ADMIN');
