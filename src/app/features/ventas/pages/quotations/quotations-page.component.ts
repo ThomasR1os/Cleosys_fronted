@@ -70,6 +70,14 @@ const DEFAULT_QUOTATION_CONDITIONS = `• La instalación es por cuenta del clie
 const COMPRESORES_COMPANY_ID = 1;
 const COMPRESORES_APPEND_CONDITIONS_PDF_URL = '/branding/condiciones-comerciales-2026.pdf';
 
+/** Plazo de entrega destacado bajo el ítem (negrita) en el PDF de Compresores del Perú. */
+const PDF_DELIVERY_EMPHASIS_FONT_SIZE = 7.6;
+const PDF_DELIVERY_EMPHASIS_LINE_H = 3.6;
+
+/** Espacio libre mínimo (mm) para abrir una sección sin dejar el título huérfano al pie. */
+const COMPRESORES_SECTION_MIN_TECH_MM = 72;
+const COMPRESORES_SECTION_MIN_CONDICIONES_MM = 60;
+
 /** Línea pendiente antes de existir la cotización (POST cotización → POST líneas). */
 interface DraftQuotationLine {
   tempId: string;
@@ -219,6 +227,8 @@ export class QuotationsPageComponent implements OnInit {
   readonly loading = signal(false);
   readonly saving = signal(false);
   readonly savingLine = signal(false);
+  /** Generación/descarga del PDF de cotización en curso. */
+  readonly pdfBusy = signal(false);
   readonly errorMessage = signal<string | null>(null);
   readonly modalOpen = signal(false);
   readonly editingQuotationId = signal<number | null>(null);
@@ -1344,12 +1354,16 @@ export class QuotationsPageComponent implements OnInit {
     this.sellerPickerOpen.set(false);
   }
 
-  ensureProductsCatalog(cb?: () => void): void {
+  /** `onUnavailable` se invoca si el catálogo no llega (error o carga ya en curso). */
+  ensureProductsCatalog(cb?: () => void, onUnavailable?: () => void): void {
     if (this.productsCatalog().length > 0) {
       cb?.();
       return;
     }
-    if (this.productsCatalogLoading()) return;
+    if (this.productsCatalogLoading()) {
+      onUnavailable?.();
+      return;
+    }
     this.productsCatalogLoading.set(true);
     this.errorMessage.set(null);
     this.productService.list().subscribe({
@@ -1361,6 +1375,7 @@ export class QuotationsPageComponent implements OnInit {
       error: (err) => {
         this.productsCatalogLoading.set(false);
         this.errorMessage.set(this.fmt(err));
+        onUnavailable?.();
       },
     });
   }
@@ -2271,18 +2286,27 @@ export class QuotationsPageComponent implements OnInit {
 
   /** Genera un PDF con la cotización guardada (cabecera, líneas y totales). */
   viewQuotationPdf(row: QuotationRow): void {
-    this.ensureProductsCatalog(() => {
-      void (async () => {
-        try {
-          const { blob, filename } = await this.buildQuotationPdfBlob(row);
-          this.downloadPdfBlob(blob, filename);
-        } catch (e: unknown) {
-          this.errorMessage.set(
-            e instanceof Error ? e.message : 'No se pudo generar el PDF.',
-          );
-        }
-      })();
-    });
+    if (this.pdfBusy()) return;
+    this.pdfBusy.set(true);
+    this.ensureProductsCatalog(
+      () => {
+        void (async () => {
+          try {
+            // Cede un frame para que el spinner se pinte antes del armado del PDF.
+            await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+            const { blob, filename } = await this.buildQuotationPdfBlob(row);
+            this.downloadPdfBlob(blob, filename);
+          } catch (e: unknown) {
+            this.errorMessage.set(
+              e instanceof Error ? e.message : 'No se pudo generar el PDF.',
+            );
+          } finally {
+            this.pdfBusy.set(false);
+          }
+        })();
+      },
+      () => this.pdfBusy.set(false),
+    );
   }
 
   /** Abre el modal para enviar la cotización por correo (genera el PDF al confirmar). */
@@ -2294,10 +2318,23 @@ export class QuotationsPageComponent implements OnInit {
     this.sendEmailForm.reset({
       to: contactEmail,
       cc: '',
-      subject: `Cotización ${row.correlativo}`,
+      subject: this.defaultQuotationEmailSubject(row.correlativo),
       message: this.defaultQuotationEmailMessage(row.correlativo),
     });
     this.sendEmailOpen.set(true);
+  }
+
+  private defaultQuotationEmailSubject(correlativo: string): string {
+    return `Cotización ${correlativo} ${this.senderCompanyName()}`;
+  }
+
+  sendEmailSubjectPlaceholder(): string {
+    const correlativo = this.sendEmailQuotation()?.correlativo?.trim() || '{correlativo}';
+    return `Cotizacion ${correlativo} ${this.senderCompanyName() || '{empresa}'}`;
+  }
+
+  private senderCompanyName(): string {
+    return this.auth.me()?.profile?.company?.name?.trim() || 'Compresores del Perú';
   }
 
   /** Texto por defecto del cuerpo al abrir el modal de envío. */
@@ -2368,7 +2405,7 @@ export class QuotationsPageComponent implements OnInit {
         this.quotationsApi.sendEmail(row.id, {
           to,
           cc: cc.length ? cc : [],
-          subject: v.subject.trim() || `Cotización ${row.correlativo}`,
+          subject: v.subject.trim() || this.defaultQuotationEmailSubject(row.correlativo),
           message: bodies.message,
           html_message: bodies.html_message,
           pdf_base64,
@@ -2980,7 +3017,10 @@ export class QuotationsPageComponent implements OnInit {
     return `TIEMPO DE ENTREGA: ${s.toUpperCase()}`;
   }
 
-  /** Dibuja descripción + plazo de entrega (tipografía reducida y color secundario). */
+  /**
+   * Dibuja descripción + plazo de entrega.
+   * Con `emphasizeDelivery` el plazo va en negrita y color de énfasis (Compresores del Perú).
+   */
   private drawPdfItemDescriptionWithDeliveryTime(
     doc: jsPDF,
     left: number,
@@ -2990,6 +3030,7 @@ export class QuotationsPageComponent implements OnInit {
     main: string,
     deliveryLabel: string,
     T: PdfQuotationTheme,
+    emphasizeDelivery = false,
   ): number {
     let cy = startY;
     doc.setFont('helvetica', 'normal');
@@ -3001,15 +3042,15 @@ export class QuotationsPageComponent implements OnInit {
       cy += 4.1;
     }
     if (deliveryLabel) {
-      cy +=0.5;
+      cy += emphasizeDelivery ? 1.4 : 0.5;
       if (cy <= maxY) {
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(6.5);
-        doc.setTextColor(...T.textCaption);
+        doc.setFont('helvetica', emphasizeDelivery ? 'bold' : 'normal');
+        doc.setFontSize(emphasizeDelivery ? PDF_DELIVERY_EMPHASIS_FONT_SIZE : 6.5);
+        doc.setTextColor(...(emphasizeDelivery ? T.totalBar : T.textCaption));
         for (const dl of doc.splitTextToSize(deliveryLabel, textW)) {
           if (cy > maxY) break;
           doc.text(dl, left, cy);
-          cy += 3.2;
+          cy += emphasizeDelivery ? PDF_DELIVERY_EMPHASIS_LINE_H : 3.2;
         }
       }
     }
@@ -3023,7 +3064,7 @@ export class QuotationsPageComponent implements OnInit {
     row: QuotationRow,
     descColWidthMm: number,
   ): number {
-    const padV = 3.5;
+    const padV = 3;
     const innerW = Math.max(18, descColWidthMm - 4);
     const main = this.displayLineDescription(line, row);
     const dtLabel = this.lineDeliveryTimeLabelUnderItemPdf(line, row);
@@ -3032,9 +3073,10 @@ export class QuotationsPageComponent implements OnInit {
     const mainLines = doc.splitTextToSize(main, innerW).length;
     let h = padV + 3.3 + mainLines * 4.1 + padV;
     if (dtLabel) {
-      doc.setFontSize(6.5);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(PDF_DELIVERY_EMPHASIS_FONT_SIZE);
       const dtLines = doc.splitTextToSize(dtLabel, innerW).length;
-      h += dtLines * 2.5;
+      h += 1.4 + dtLines * PDF_DELIVERY_EMPHASIS_LINE_H;
     }
     return h;
   }
@@ -3876,7 +3918,7 @@ export class QuotationsPageComponent implements OnInit {
       doc.setLineWidth(0.9);
       doc.line(cx - accentW / 2, yy + 1.2, cx + accentW / 2, yy + 1.2);
 
-      return yy + 10;
+      return yy + 8;
     };
 
     const drawCompresoresSectionTitle = (title: string, yy: number): number => {
@@ -3884,7 +3926,7 @@ export class QuotationsPageComponent implements OnInit {
       doc.setFontSize(11);
       doc.setTextColor(...T.primary);
       doc.text(title, margin, yy);
-      return yy + 10;
+      return yy + 7.5;
     };
 
     const drawCompresoresPageHeaderContent = (title: string, yyStart: number): number => {
@@ -3893,6 +3935,18 @@ export class QuotationsPageComponent implements OnInit {
       yy = drawCompresoresSeparators(yy - 2);
       yy = drawCompresoresSectionTitle(title, yy);
       return yy;
+    };
+
+    /**
+     * Abre una sección aprovechando el espacio libre de la página actual.
+     * Solo salta de página (repitiendo cliente/comercializador) si no cabe `needMm`.
+     */
+    const startCompresoresSection = (title: string, needMm: number, yy: number): number => {
+      if (yy + needMm <= pageH - reserveBottom) {
+        return drawCompresoresSectionTitle(title, drawCompresoresSeparators(yy - 2));
+      }
+      doc.addPage();
+      return drawCompresoresPageHeaderContent(title, headerBottomY);
     };
 
     // ===== Página 1: Precios =====
@@ -3927,12 +3981,12 @@ export class QuotationsPageComponent implements OnInit {
         const fmt: 'PNG' | 'JPEG' = heroImg.includes('image/jpeg') ? 'JPEG' : 'PNG';
         // Evita que imágenes panorámicas "dominen" el ancho y parezcan estiradas:
         // se limita el ancho máximo del bloque hero.image.png
-        const heroMaxW = Math.min(tableInnerW, 120);
-        const { w, h } = this.pdfHeroImageDisplayMm(doc, heroImg, heroMaxW, 78);
-        y = ensureSpace(h + 10, y);
+        const heroMaxW = Math.min(tableInnerW, 112);
+        const { w, h } = this.pdfHeroImageDisplayMm(doc, heroImg, heroMaxW, 66);
+        y = ensureSpace(h + 8, y);
         const cx = margin + (tableInnerW - w) / 2;
         doc.addImage(heroImg, fmt, cx, y, w, h);
-        y += h + 8;
+        y += h + 6;
       } catch {
         /* imagen opcional */
       }
@@ -4018,7 +4072,7 @@ export class QuotationsPageComponent implements OnInit {
       theme: 'plain',
       styles: {
         fontSize: 8.5,
-        cellPadding: { top: 3.5, bottom: 3.5, left: 2, right: 2 },
+        cellPadding: { top: 3, bottom: 3, left: 2, right: 2 },
         valign: 'middle',
         lineColor: T.border,
         lineWidth: 0.15,
@@ -4100,6 +4154,7 @@ export class QuotationsPageComponent implements OnInit {
           main,
           dtLabel,
           T,
+          true,
         );
         doc.setFont('helvetica', 'normal');
         doc.setTextColor(...T.totalBar);
@@ -4107,7 +4162,7 @@ export class QuotationsPageComponent implements OnInit {
     });
 
     const lastY = (doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY;
-    y = (lastY ?? y + 24) + 10;
+    y = (lastY ?? y + 24) + 8;
 
     if (isServicePdf) {
       y = this.drawPdfQuotationWorksSection(
@@ -4129,8 +4184,7 @@ export class QuotationsPageComponent implements OnInit {
       ? []
       : lines.filter((l) => this.hasLineDatasheetForPdf(l));
     if (linesWithDatasheet.length > 0) {
-    doc.addPage();
-    y = drawCompresoresPageHeaderContent('DATOS TÉCNICOS', headerBottomY);
+    y = startCompresoresSection('DATOS TÉCNICOS', COMPRESORES_SECTION_MIN_TECH_MM, y);
 
     const colGap = 6;
     const colW = (tableInnerW - colGap) / 2;
@@ -4233,9 +4287,8 @@ export class QuotationsPageComponent implements OnInit {
       return drawCompresoresPageHeaderContent('CONDICIONES COMERCIALES', headerBottomY);
     };
 
-    // ===== Condiciones comerciales (misma cabecera que datos técnicos: cliente + línea sutil + título) =====
-    doc.addPage();
-    y = drawCompresoresPageHeaderContent('CONDICIONES COMERCIALES', headerBottomY);
+    // ===== Condiciones comerciales (aprovecha la página actual; si no cabe, repite cabecera) =====
+    y = startCompresoresSection('CONDICIONES COMERCIALES', COMPRESORES_SECTION_MIN_CONDICIONES_MM, y);
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
@@ -4300,24 +4353,66 @@ export class QuotationsPageComponent implements OnInit {
       y += 4;
     }
 
-    // Elaborado por (mismo contenido, pero controlando salto de página con header)
+    // ===== Elaborado por: bloque atómico, se mide antes de dibujar.
+    // Si no entra completo se prueba una variante compacta; solo si tampoco cabe pasa a una
+    // página nueva, donde va la firma sola (sin repetir el título de la sección).
     {
-      const minBlock = 52;
-      y = ensureCondicionesY(minBlock, y);
       const cx = pageW / 2;
+      const displayName =
+        creatorUser != null
+          ? this.sellerDisplay(creatorUser)
+          : row.user > 0
+            ? this.asesorDisplayFromRow(row)
+            : '—';
+      const emailStr = creatorUser?.email?.trim() || row.user_detail?.email?.trim() || '—';
+      const phoneStr = creatorUser?.cellphone?.trim() || row.user_detail?.cellphone?.trim() || '—';
+      const role = creatorUser?.profile?.role;
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      const nameLines: string[] = doc.splitTextToSize(displayName, tableInnerW - 8);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      const emailLines: string[] = doc.splitTextToSize(emailStr, tableInnerW - 8);
+      const phoneLines: string[] = doc.splitTextToSize(phoneStr, tableInnerW - 8);
+
+      const full = { rule: 8, icon: 11, iconGap: 5, tail: 2 };
+      const compact = { rule: 4.5, icon: 7, iconGap: 3, tail: 1 };
+      const layoutHeight = (l: typeof full): number =>
+        l.rule +
+        (creatorIconPng ? l.icon + l.iconGap : 2) +
+        5 +
+        nameLines.length * 5 +
+        1 +
+        emailLines.length * 4.2 +
+        l.tail +
+        phoneLines.length * 4.2 +
+        l.tail +
+        (role ? 4.5 : 0);
+      const fits = (l: typeof full): boolean => y + layoutHeight(l) <= pageH - reserveBottom;
+
+      let lay = full;
+      if (!fits(full)) {
+        if (fits(compact)) {
+          lay = compact;
+        } else {
+          doc.addPage();
+          y = headerBottomY;
+        }
+      }
+
       doc.setDrawColor(...T.border);
       doc.setLineWidth(0.2);
       doc.line(margin + 28, y, pageW - margin - 28, y);
-      y += 9;
+      y += lay.rule;
 
-      const iconMm = 11;
       if (creatorIconPng) {
         try {
-          doc.addImage(creatorIconPng, 'PNG', cx - iconMm / 2, y, iconMm, iconMm);
-          y += iconMm + 5;
+          doc.addImage(creatorIconPng, 'PNG', cx - lay.icon / 2, y, lay.icon, lay.icon);
         } catch {
-          y += 2;
+          /* icono opcional */
         }
+        y += lay.icon + lay.iconGap;
       } else {
         y += 2;
       }
@@ -4328,45 +4423,30 @@ export class QuotationsPageComponent implements OnInit {
       doc.text('Elaborado por', cx, y, { align: 'center' });
       y += 5;
 
-      const displayName =
-        creatorUser != null
-          ? this.sellerDisplay(creatorUser)
-          : row.user > 0
-            ? this.asesorDisplayFromRow(row)
-            : '—';
-
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(11);
       doc.setTextColor(0, 0, 0);
-      for (const line of doc.splitTextToSize(displayName, tableInnerW - 8)) {
-        y = ensureCondicionesY(6, y);
+      for (const line of nameLines) {
         doc.text(line, cx, y, { align: 'center' });
         y += 5;
       }
       y += 1;
 
-      const emailStr = creatorUser?.email?.trim() || row.user_detail?.email?.trim() || '—';
-      const phoneStr = creatorUser?.cellphone?.trim() || row.user_detail?.cellphone?.trim() || '—';
-
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(8);
       doc.setTextColor(...T.muted);
-      for (const line of doc.splitTextToSize(emailStr, tableInnerW - 8)) {
-        y = ensureCondicionesY(5, y);
+      for (const line of emailLines) {
         doc.text(line, cx, y, { align: 'center' });
         y += 4.2;
       }
-      y += 2;
-      for (const line of doc.splitTextToSize(phoneStr, tableInnerW - 8)) {
-        y = ensureCondicionesY(5, y);
+      y += lay.tail;
+      for (const line of phoneLines) {
         doc.text(line, cx, y, { align: 'center' });
         y += 4.2;
       }
-      y += 2;
+      y += lay.tail;
 
-      const role = creatorUser?.profile?.role;
       if (role) {
-        y = ensureCondicionesY(5, y);
         doc.text(this.roleLabelPdf(role), cx, y, { align: 'center' });
         y += 4.5;
       }

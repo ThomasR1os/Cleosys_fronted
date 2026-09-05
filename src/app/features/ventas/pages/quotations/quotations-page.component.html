@@ -876,10 +876,25 @@
         } @else {
           <div class="modal-action sm:col-span-2 mt-2 flex flex-wrap justify-end gap-2 border-t border-base-300/80 pt-4">
             @if (editingQuotationId() != null) {
-              <button type="button" class="btn btn-outline" (click)="viewQuotationPdfFromModal()">
-                Ver en PDF
+              <button
+                type="button"
+                class="btn btn-outline min-w-[9rem]"
+                [disabled]="pdfBusy()"
+                (click)="viewQuotationPdfFromModal()"
+              >
+                @if (pdfBusy()) {
+                  <span class="loading loading-spinner loading-sm"></span>
+                  Generando PDF…
+                } @else {
+                  Ver en PDF
+                }
               </button>
-              <button type="button" class="btn btn-outline btn-primary" (click)="openSendEmailFromModal()">
+              <button
+                type="button"
+                class="btn btn-outline btn-primary"
+                [disabled]="pdfBusy()"
+                (click)="openSendEmailFromModal()"
+              >
                 Enviar por correo
               </button>
             }
@@ -981,7 +996,7 @@
             type="text"
             class="input input-bordered w-full min-w-0"
             formControlName="subject"
-            placeholder="Asunto del correo"
+            [placeholder]="sendEmailSubjectPlaceholder()"
           />
         </div>
 
