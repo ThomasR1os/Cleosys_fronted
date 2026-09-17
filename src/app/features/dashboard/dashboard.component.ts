@@ -3,20 +3,17 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import type { ChartConfiguration } from 'chart.js';
+import { ShortDateTimePipe } from '../../core/pipes/short-datetime.pipe';
 import { AuthService } from '../../core/services/auth.service';
 import type {
   QuotationMoney,
+  QuotationRow,
   QuotationStatus,
   QuotationType,
 } from '../ventas/models/ventas.models';
 import { DashboardChartComponent } from './components/dashboard-chart.component';
 import { KpiCardComponent } from './components/kpi-card.component';
-import type {
-  DashboardDatePreset,
-  DashboardFilters,
-  DashboardStats,
-  ReportGrouping,
-} from './models/dashboard.models';
+import type { DashboardFilters, DashboardStats } from './models/dashboard.models';
 import { DashboardStatsService } from './services/dashboard-stats.service';
 
 const CHART_COLORS = {
@@ -30,6 +27,21 @@ const CHART_COLORS = {
   accent: 'rgba(244, 114, 182, 0.85)',
 };
 
+const MONTHS: { value: number; label: string }[] = [
+  { value: 1, label: 'Enero' },
+  { value: 2, label: 'Febrero' },
+  { value: 3, label: 'Marzo' },
+  { value: 4, label: 'Abril' },
+  { value: 5, label: 'Mayo' },
+  { value: 6, label: 'Junio' },
+  { value: 7, label: 'Julio' },
+  { value: 8, label: 'Agosto' },
+  { value: 9, label: 'Septiembre' },
+  { value: 10, label: 'Octubre' },
+  { value: 11, label: 'Noviembre' },
+  { value: 12, label: 'Diciembre' },
+];
+
 @Component({
   selector: 'app-dashboard',
   imports: [
@@ -38,6 +50,7 @@ const CHART_COLORS = {
     FormsModule,
     KpiCardComponent,
     DashboardChartComponent,
+    ShortDateTimePipe,
   ],
   templateUrl: './dashboard.component.html',
 })
@@ -45,25 +58,24 @@ export class DashboardComponent {
   readonly auth = inject(AuthService);
   private readonly statsService = inject(DashboardStatsService);
 
+  readonly months = MONTHS;
+
   readonly loading = signal(true);
   readonly error = signal<string | null>(null);
   readonly stats = signal<DashboardStats | null>(null);
 
-  readonly grouping = signal<ReportGrouping>('month');
-  readonly datePreset = signal<DashboardDatePreset>('thisYear');
-  readonly dateFrom = signal('');
-  readonly dateTo = signal('');
-  readonly filterStatus = signal<'ALL' | QuotationStatus>('ALL');
+  private readonly now = new Date();
+  readonly filterYear = signal(this.now.getFullYear());
+  readonly filterMonth = signal<number | 'ALL'>(this.now.getMonth() + 1);
+  readonly filterStatus = signal<'ALL' | QuotationStatus>('APROBADA');
   readonly filterType = signal<'ALL' | QuotationType>('ALL');
   readonly filterMoney = signal<'ALL' | QuotationMoney>('ALL');
   readonly filterAdvisor = signal<number | 'ALL'>('ALL');
   readonly amountChartMoney = signal<'PEN' | 'USD'>('PEN');
 
   readonly filters = computed((): DashboardFilters => ({
-    grouping: this.grouping(),
-    datePreset: this.datePreset(),
-    dateFrom: this.dateFrom(),
-    dateTo: this.dateTo(),
+    year: this.filterYear(),
+    month: this.filterMonth(),
     status: this.filterStatus(),
     quotationType: this.filterType(),
     money: this.filterMoney(),
@@ -71,6 +83,27 @@ export class DashboardComponent {
   }));
 
   readonly kpis = computed(() => this.stats()?.kpis ?? null);
+
+  readonly periodLabel = computed(() => {
+    const year = this.filterYear();
+    const month = this.filterMonth();
+    if (month === 'ALL') return `en ${year}`;
+    const name = MONTHS.find((m) => m.value === month)?.label ?? '';
+    return `en ${name} ${year}`;
+  });
+
+  readonly hasMonthlyRows = computed(() =>
+    (this.stats()?.timeSeries ?? []).some((row) => row.count > 0),
+  );
+
+  readonly sortedQuotations = computed(() => {
+    const rows = [...(this.stats()?.filtered ?? [])];
+    return rows.sort((a, b) => {
+      const da = this.reportDateMs(a);
+      const db = this.reportDateMs(b);
+      return db - da;
+    });
+  });
 
   readonly trendChartConfig = computed((): ChartConfiguration => {
     const series = this.stats()?.timeSeries ?? [];
@@ -194,17 +227,6 @@ export class DashboardComponent {
     };
   });
 
-  readonly groupingLabel = computed(() => {
-    switch (this.grouping()) {
-      case 'day':
-        return 'por día';
-      case 'month':
-        return 'por mes';
-      case 'year':
-        return 'por año';
-    }
-  });
-
   constructor() {
     this.reload();
   }
@@ -212,7 +234,7 @@ export class DashboardComponent {
   reload(): void {
     this.loading.set(true);
     this.error.set(null);
-    this.statsService.loadStats(this.filters()).subscribe({
+    this.statsService.loadStats(this.filters(), { force: true }).subscribe({
       next: (data) => {
         this.stats.set(data);
         this.loading.set(false);
@@ -225,20 +247,19 @@ export class DashboardComponent {
   }
 
   onFiltersChange(): void {
-    this.reload();
+    this.statsService.loadStats(this.filters()).subscribe({
+      next: (data) => this.stats.set(data),
+      error: () => this.error.set('No se pudieron cargar las estadísticas de cotizaciones.'),
+    });
   }
 
-  setGrouping(value: ReportGrouping): void {
-    this.grouping.set(value);
+  onYearChange(value: number | string): void {
+    this.filterYear.set(Number(value));
     this.onFiltersChange();
   }
 
-  setDatePreset(value: DashboardDatePreset): void {
-    this.datePreset.set(value);
-    if (value !== 'custom') {
-      this.dateFrom.set('');
-      this.dateTo.set('');
-    }
+  onMonthChange(value: number | 'ALL' | string): void {
+    this.filterMonth.set(value === 'ALL' ? 'ALL' : Number(value));
     this.onFiltersChange();
   }
 
@@ -249,5 +270,34 @@ export class DashboardComponent {
 
   formatPercent(value: number): string {
     return `${value.toLocaleString('es-PE', { maximumFractionDigits: 1 })}%`;
+  }
+
+  statusChangedAt(row: QuotationRow): string | null | undefined {
+    return row.approved_at || row.update_date;
+  }
+
+  advisorLabel(row: QuotationRow): string {
+    return (
+      row.user_detail?.nombre?.trim() ||
+      [row.user_detail?.first_name, row.user_detail?.last_name].filter(Boolean).join(' ') ||
+      row.user_detail?.username ||
+      `Usuario #${row.user}`
+    );
+  }
+
+  clientLabel(row: QuotationRow): string {
+    return row.client_detail?.name?.trim() || `Cliente #${row.client}`;
+  }
+
+  rowAmount(row: QuotationRow): string {
+    const n = Number.parseFloat(String(row.final_price ?? 0));
+    return this.formatMoney(Number.isFinite(n) ? n : 0, row.money);
+  }
+
+  private reportDateMs(row: QuotationRow): number {
+    const iso = row.approved_at || row.update_date || row.creation_date;
+    if (!iso) return 0;
+    const t = new Date(iso).getTime();
+    return Number.isNaN(t) ? 0 : t;
   }
 }

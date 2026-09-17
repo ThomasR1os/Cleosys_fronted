@@ -313,6 +313,8 @@ export interface QuotationRow {
   see_sku: boolean;
   creation_date?: string;
   update_date?: string;
+  /** Fecha en que pasó a APROBADA, si el backend la expone. */
+  approved_at?: string | null;
   /** Empresa emisora si el backend expone FK (p. ej. branding PDF). */
   company?: number;
 }

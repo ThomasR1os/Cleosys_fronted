@@ -1,14 +1,12 @@
 import { Injectable, inject } from '@angular/core';
-import { Observable, map } from 'rxjs';
+import { Observable, map, of } from 'rxjs';
 import { QuotationService } from '../../ventas/services/quotation.service';
 import type { QuotationRow } from '../../ventas/models/ventas.models';
 import type {
   AdvisorBucket,
-  DashboardDatePreset,
   DashboardFilters,
   DashboardKpis,
   DashboardStats,
-  ReportGrouping,
   StatusBucket,
   TimeBucket,
   TypeBucket,
@@ -26,116 +24,83 @@ const TYPE_LABELS: Record<string, string> = {
   SERVICIO: 'Servicio',
 };
 
+const MONTH_LABELS = [
+  'Enero',
+  'Febrero',
+  'Marzo',
+  'Abril',
+  'Mayo',
+  'Junio',
+  'Julio',
+  'Agosto',
+  'Septiembre',
+  'Octubre',
+  'Noviembre',
+  'Diciembre',
+];
+
 @Injectable({ providedIn: 'root' })
 export class DashboardStatsService {
   private readonly quotationService = inject(QuotationService);
+  private cachedRows: QuotationRow[] | null = null;
 
-  loadStats(filters: DashboardFilters): Observable<DashboardStats> {
-    return this.quotationService.list().pipe(map((rows) => this.computeStats(rows, filters)));
+  loadStats(filters: DashboardFilters, options?: { force?: boolean }): Observable<DashboardStats> {
+    if (this.cachedRows && !options?.force) {
+      return of(this.computeStats(this.cachedRows, filters));
+    }
+    return this.quotationService.list().pipe(
+      map((rows) => {
+        this.cachedRows = rows;
+        return this.computeStats(rows, filters);
+      }),
+    );
   }
 
   computeStats(rows: QuotationRow[], filters: DashboardFilters): DashboardStats {
     const advisors = this.extractAdvisors(rows);
-    const dateRange = this.resolveDateRange(filters, rows);
+    const years = this.extractYears(rows);
+    const dateRange = this.resolveDateRange(filters);
     const filtered = rows.filter((row) => this.matchesFilters(row, filters, dateRange));
-
-    const { from, to } = dateRange ?? this.defaultChartRange(rows);
 
     return {
       filtered,
       kpis: this.computeKpis(filtered),
-      timeSeries: this.buildTimeSeries(filtered, filters.grouping, from, to),
+      timeSeries: this.buildTimeSeries(filtered, filters.year, filters.month),
       byStatus: this.buildStatusBuckets(filtered),
       byType: this.buildTypeBuckets(filtered),
       byAdvisor: this.buildAdvisorBuckets(filtered),
       advisors,
+      years,
     };
   }
 
-  resolveDateRange(
-    filters: DashboardFilters,
-    rows: QuotationRow[],
-  ): { from: Date; to: Date } | null {
-    const now = new Date();
-    const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-
-    if (filters.datePreset === 'custom' && filters.dateFrom && filters.dateTo) {
-      const from = this.parseDateStart(filters.dateFrom);
-      const to = this.parseDateEnd(filters.dateTo);
-      if (from && to) {
-        return { from, to };
-      }
+  resolveDateRange(filters: DashboardFilters): { from: Date; to: Date } {
+    if (filters.month === 'ALL') {
+      return {
+        from: new Date(filters.year, 0, 1),
+        to: new Date(filters.year, 11, 31, 23, 59, 59, 999),
+      };
     }
-
-    switch (filters.datePreset) {
-      case 'last7': {
-        const from = new Date(endOfToday);
-        from.setDate(from.getDate() - 6);
-        from.setHours(0, 0, 0, 0);
-        return { from, to: endOfToday };
-      }
-      case 'last30': {
-        const from = new Date(endOfToday);
-        from.setDate(from.getDate() - 29);
-        from.setHours(0, 0, 0, 0);
-        return { from, to: endOfToday };
-      }
-      case 'thisMonth':
-        return {
-          from: new Date(now.getFullYear(), now.getMonth(), 1),
-          to: endOfToday,
-        };
-      case 'lastMonth': {
-        const from = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-        const to = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
-        return { from, to };
-      }
-      case 'thisYear':
-        return {
-          from: new Date(now.getFullYear(), 0, 1),
-          to: endOfToday,
-        };
-      case 'lastYear':
-        return {
-          from: new Date(now.getFullYear() - 1, 0, 1),
-          to: new Date(now.getFullYear() - 1, 11, 31, 23, 59, 59, 999),
-        };
-      case 'all':
-        return null;
-      default:
-        return {
-          from: new Date(now.getFullYear(), now.getMonth(), 1),
-          to: endOfToday,
-        };
-    }
-  }
-
-  private defaultChartRange(rows: QuotationRow[]): { from: Date; to: Date } {
-    const now = new Date();
-    const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-    const dates = rowsDates(rows);
-    if (dates.length === 0) {
-      const from = new Date(endOfToday);
-      from.setFullYear(from.getFullYear() - 1);
-      from.setHours(0, 0, 0, 0);
-      return { from, to: endOfToday };
-    }
+    const monthIndex = filters.month - 1;
     return {
-      from: new Date(Math.min(...dates.map((d) => d.getTime()))),
-      to: endOfToday,
+      from: new Date(filters.year, monthIndex, 1),
+      to: new Date(filters.year, monthIndex + 1, 0, 23, 59, 59, 999),
     };
+  }
+
+  /** Fecha del reporte: cambio de estado si existe; si no, creación. */
+  reportDate(row: QuotationRow): Date | null {
+    return this.parseRowDate(row.approved_at || row.update_date || row.creation_date);
   }
 
   private matchesFilters(
     row: QuotationRow,
     filters: DashboardFilters,
-    dateRange: { from: Date; to: Date } | null,
+    dateRange: { from: Date; to: Date },
   ): boolean {
-    if (dateRange) {
-      const created = this.parseRowDate(row.creation_date);
-      if (!created || created < dateRange.from || created > dateRange.to) {
-        return false;
-      }
+    const when = this.reportDate(row);
+    if (!when || when < dateRange.from || when > dateRange.to) {
+      return false;
     }
     if (filters.status !== 'ALL' && row.status !== filters.status) {
       return false;
@@ -179,18 +144,22 @@ export class DashboardStatsService {
 
   private buildTimeSeries(
     rows: QuotationRow[],
-    grouping: ReportGrouping,
-    from: Date,
-    to: Date,
+    year: number,
+    month: number | 'ALL',
   ): TimeBucket[] {
     const buckets = new Map<string, TimeBucket>();
 
     for (const row of rows) {
-      const created = this.parseRowDate(row.creation_date);
-      if (!created) continue;
-      const key = this.bucketKey(created, grouping);
-      const label = this.bucketLabel(created, grouping);
-      const existing = buckets.get(key) ?? { key, label, count: 0, amountPen: 0, amountUsd: 0 };
+      const when = this.reportDate(row);
+      if (!when) continue;
+      const key = this.monthKey(when);
+      const existing = buckets.get(key) ?? {
+        key,
+        label: this.monthLabel(when),
+        count: 0,
+        amountPen: 0,
+        amountUsd: 0,
+      };
       existing.count += 1;
       const amount = this.parseAmount(row.final_price);
       if (row.money === 'PEN') {
@@ -201,17 +170,29 @@ export class DashboardStatsService {
       buckets.set(key, existing);
     }
 
+    const startMonth = month === 'ALL' ? 1 : month;
+    const now = new Date();
+    const endMonth =
+      month === 'ALL'
+        ? year === now.getFullYear()
+          ? now.getMonth() + 1
+          : 12
+        : month;
+
     const series: TimeBucket[] = [];
-    const cursor = new Date(from);
-    cursor.setHours(0, 0, 0, 0);
-
-    while (cursor <= to) {
-      const key = this.bucketKey(cursor, grouping);
-      const label = this.bucketLabel(cursor, grouping);
-      series.push(buckets.get(key) ?? { key, label, count: 0, amountPen: 0, amountUsd: 0 });
-      this.advanceCursor(cursor, grouping);
+    for (let m = startMonth; m <= endMonth; m++) {
+      const cursor = new Date(year, m - 1, 1);
+      const key = this.monthKey(cursor);
+      series.push(
+        buckets.get(key) ?? {
+          key,
+          label: this.monthLabel(cursor),
+          count: 0,
+          amountPen: 0,
+          amountUsd: 0,
+        },
+      );
     }
-
     return series;
   }
 
@@ -243,11 +224,7 @@ export class DashboardStatsService {
     const map = new Map<number, AdvisorBucket>();
     for (const row of rows) {
       const id = row.user;
-      const label =
-        row.user_detail?.nombre?.trim() ||
-        [row.user_detail?.first_name, row.user_detail?.last_name].filter(Boolean).join(' ') ||
-        row.user_detail?.username ||
-        `Usuario #${id}`;
+      const label = advisorLabelFromRow(row);
       const existing = map.get(id) ?? { id, label, count: 0, amountPen: 0, amountUsd: 0 };
       existing.count += 1;
       const amount = this.parseAmount(row.final_price);
@@ -265,64 +242,35 @@ export class DashboardStatsService {
     const map = new Map<number, string>();
     for (const row of rows) {
       if (map.has(row.user)) continue;
-      const label =
-        row.user_detail?.nombre?.trim() ||
-        [row.user_detail?.first_name, row.user_detail?.last_name].filter(Boolean).join(' ') ||
-        row.user_detail?.username ||
-        `Usuario #${row.user}`;
-      map.set(row.user, label);
+      map.set(row.user, advisorLabelFromRow(row));
     }
     return [...map.entries()]
       .map(([id, label]) => ({ id, label }))
       .sort((a, b) => a.label.localeCompare(b.label, 'es'));
   }
 
-  private bucketKey(date: Date, grouping: ReportGrouping): string {
+  private extractYears(rows: QuotationRow[]): number[] {
+    const set = new Set<number>([new Date().getFullYear()]);
+    for (const row of rows) {
+      const when = this.reportDate(row);
+      if (when) set.add(when.getFullYear());
+    }
+    return [...set].sort((a, b) => b - a);
+  }
+
+  private monthKey(date: Date): string {
     const y = date.getFullYear();
     const m = String(date.getMonth() + 1).padStart(2, '0');
-    const d = String(date.getDate()).padStart(2, '0');
-    if (grouping === 'year') return `${y}`;
-    if (grouping === 'month') return `${y}-${m}`;
-    return `${y}-${m}-${d}`;
+    return `${y}-${m}`;
   }
 
-  private bucketLabel(date: Date, grouping: ReportGrouping): string {
-    if (grouping === 'year') {
-      return String(date.getFullYear());
-    }
-    if (grouping === 'month') {
-      return date.toLocaleDateString('es-PE', { month: 'short', year: 'numeric' });
-    }
-    return date.toLocaleDateString('es-PE', { day: '2-digit', month: 'short' });
+  private monthLabel(date: Date): string {
+    return `${MONTH_LABELS[date.getMonth()]} ${date.getFullYear()}`;
   }
 
-  private advanceCursor(cursor: Date, grouping: ReportGrouping): void {
-    if (grouping === 'year') {
-      cursor.setFullYear(cursor.getFullYear() + 1, 0, 1);
-      return;
-    }
-    if (grouping === 'month') {
-      cursor.setMonth(cursor.getMonth() + 1, 1);
-      return;
-    }
-    cursor.setDate(cursor.getDate() + 1);
-  }
-
-  private parseRowDate(iso: string | undefined): Date | null {
+  private parseRowDate(iso: string | null | undefined): Date | null {
     if (!iso) return null;
     const d = new Date(iso);
-    return Number.isNaN(d.getTime()) ? null : d;
-  }
-
-  private parseDateStart(value: string): Date | null {
-    if (!value) return null;
-    const d = new Date(`${value}T00:00:00`);
-    return Number.isNaN(d.getTime()) ? null : d;
-  }
-
-  private parseDateEnd(value: string): Date | null {
-    if (!value) return null;
-    const d = new Date(`${value}T23:59:59.999`);
     return Number.isNaN(d.getTime()) ? null : d;
   }
 
@@ -333,12 +281,11 @@ export class DashboardStatsService {
   }
 }
 
-function rowsDates(rows: QuotationRow[]): Date[] {
-  return rows
-    .map((r) => {
-      if (!r.creation_date) return null;
-      const d = new Date(r.creation_date);
-      return Number.isNaN(d.getTime()) ? null : d;
-    })
-    .filter((d): d is Date => d !== null);
+function advisorLabelFromRow(row: QuotationRow): string {
+  return (
+    row.user_detail?.nombre?.trim() ||
+    [row.user_detail?.first_name, row.user_detail?.last_name].filter(Boolean).join(' ') ||
+    row.user_detail?.username ||
+    `Usuario #${row.user}`
+  );
 }

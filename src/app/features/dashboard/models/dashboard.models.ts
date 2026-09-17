@@ -5,23 +5,10 @@ import type {
   QuotationType,
 } from '../../ventas/models/ventas.models';
 
-export type ReportGrouping = 'day' | 'month' | 'year';
-
-export type DashboardDatePreset =
-  | 'last7'
-  | 'last30'
-  | 'thisMonth'
-  | 'lastMonth'
-  | 'thisYear'
-  | 'lastYear'
-  | 'all'
-  | 'custom';
-
 export interface DashboardFilters {
-  grouping: ReportGrouping;
-  datePreset: DashboardDatePreset;
-  dateFrom: string;
-  dateTo: string;
+  year: number;
+  /** 1–12, o todo el año. */
+  month: number | 'ALL';
   status: 'ALL' | QuotationStatus;
   quotationType: 'ALL' | QuotationType;
   money: 'ALL' | QuotationMoney;
@@ -76,4 +63,5 @@ export interface DashboardStats {
   byType: TypeBucket[];
   byAdvisor: AdvisorBucket[];
   advisors: { id: number; label: string }[];
+  years: number[];
 }

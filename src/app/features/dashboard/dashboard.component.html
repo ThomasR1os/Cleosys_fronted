@@ -5,7 +5,7 @@
         Hola, {{ auth.displayName() || auth.me()?.user?.username }}
       </h1>
       <p class="text-base-content/70 text-lg">
-        Panel de cotizaciones y KPIs de {{ auth.companyName() }}.
+        Reporte de cotizaciones aprobadas de {{ auth.companyName() }}.
       </p>
     </div>
     <div class="flex flex-wrap gap-2">
@@ -22,35 +22,45 @@
         <button type="button" class="btn btn-ghost btn-sm" (click)="reload()">Actualizar</button>
       </div>
 
-      <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
+      <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <label class="form-control w-full">
-          <div class="label py-0"><span class="label-text text-xs">Agrupar</span></div>
+          <div class="label py-0"><span class="label-text text-xs">Año</span></div>
           <select
             class="select select-bordered select-sm w-full"
-            [ngModel]="grouping()"
-            (ngModelChange)="setGrouping($event)"
+            [ngModel]="filterYear()"
+            (ngModelChange)="onYearChange($event)"
           >
-            <option value="day">Por día</option>
-            <option value="month">Por mes</option>
-            <option value="year">Por año</option>
+            @for (y of stats()?.years ?? [filterYear()]; track y) {
+              <option [ngValue]="y">{{ y }}</option>
+            }
           </select>
         </label>
 
         <label class="form-control w-full">
-          <div class="label py-0"><span class="label-text text-xs">Período</span></div>
+          <div class="label py-0"><span class="label-text text-xs">Mes</span></div>
           <select
             class="select select-bordered select-sm w-full"
-            [ngModel]="datePreset()"
-            (ngModelChange)="setDatePreset($event)"
+            [ngModel]="filterMonth()"
+            (ngModelChange)="onMonthChange($event)"
           >
-            <option value="last7">Últimos 7 días</option>
-            <option value="last30">Últimos 30 días</option>
-            <option value="thisMonth">Este mes</option>
-            <option value="lastMonth">Mes anterior</option>
-            <option value="thisYear">Este año</option>
-            <option value="lastYear">Año anterior</option>
-            <option value="all">Todo el historial</option>
-            <option value="custom">Rango personalizado</option>
+            <option [ngValue]="'ALL'">Todo el año</option>
+            @for (m of months; track m.value) {
+              <option [ngValue]="m.value">{{ m.label }}</option>
+            }
+          </select>
+        </label>
+
+        <label class="form-control w-full">
+          <div class="label py-0"><span class="label-text text-xs">Asesora</span></div>
+          <select
+            class="select select-bordered select-sm w-full"
+            [ngModel]="filterAdvisor()"
+            (ngModelChange)="filterAdvisor.set($event); onFiltersChange()"
+          >
+            <option [ngValue]="'ALL'">Todas</option>
+            @for (a of stats()?.advisors ?? []; track a.id) {
+              <option [ngValue]="a.id">{{ a.label }}</option>
+            }
           </select>
         </label>
 
@@ -61,10 +71,10 @@
             [ngModel]="filterStatus()"
             (ngModelChange)="filterStatus.set($event); onFiltersChange()"
           >
-            <option value="ALL">Todos</option>
             <option value="APROBADA">Aprobadas</option>
             <option value="PENDIENTE">Pendientes</option>
             <option value="RECHAZADA">Rechazadas</option>
+            <option value="ALL">Todos</option>
           </select>
         </label>
 
@@ -94,44 +104,7 @@
             <option value="USD">Dólares (USD)</option>
           </select>
         </label>
-
-        <label class="form-control w-full">
-          <div class="label py-0"><span class="label-text text-xs">Asesor</span></div>
-          <select
-            class="select select-bordered select-sm w-full"
-            [ngModel]="filterAdvisor()"
-            (ngModelChange)="filterAdvisor.set($event); onFiltersChange()"
-          >
-            <option [ngValue]="'ALL'">Todos</option>
-            @for (a of stats()?.advisors ?? []; track a.id) {
-              <option [ngValue]="a.id">{{ a.label }}</option>
-            }
-          </select>
-        </label>
       </div>
-
-      @if (datePreset() === 'custom') {
-        <div class="grid gap-3 sm:grid-cols-2 lg:max-w-md">
-          <label class="form-control w-full">
-            <div class="label py-0"><span class="label-text text-xs">Desde</span></div>
-            <input
-              type="date"
-              class="input input-bordered input-sm w-full"
-              [ngModel]="dateFrom()"
-              (ngModelChange)="dateFrom.set($event); onFiltersChange()"
-            />
-          </label>
-          <label class="form-control w-full">
-            <div class="label py-0"><span class="label-text text-xs">Hasta</span></div>
-            <input
-              type="date"
-              class="input input-bordered input-sm w-full"
-              [ngModel]="dateTo()"
-              (ngModelChange)="dateTo.set($event); onFiltersChange()"
-            />
-          </label>
-        </div>
-      }
     </div>
   </section>
 
@@ -147,17 +120,29 @@
   } @else if (kpis(); as k) {
     <!-- KPIs -->
     <section class="space-y-3">
-      <h2 class="text-xl font-semibold">Indicadores clave</h2>
-      <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-        <app-kpi-card title="Total cotizaciones" [value]="k.total.toString()" variant="info" />
-        <app-kpi-card
-          title="Aprobadas"
-          [value]="k.approved.toString()"
-          [subtitle]="formatPercent(k.approvalRate) + ' del total'"
-          variant="success"
-        />
-        <app-kpi-card title="Pendientes" [value]="k.pending.toString()" variant="warning" />
-        <app-kpi-card title="Rechazadas" [value]="k.rejected.toString()" variant="error" />
+      <h2 class="text-xl font-semibold">Indicadores {{ periodLabel() }}</h2>
+      <div
+        class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"
+        [ngClass]="filterStatus() === 'ALL' ? 'xl:grid-cols-6' : 'xl:grid-cols-3'"
+      >
+        @if (filterStatus() === 'ALL') {
+          <app-kpi-card title="Total cotizaciones" [value]="k.total.toString()" variant="info" />
+          <app-kpi-card
+            title="Aprobadas"
+            [value]="k.approved.toString()"
+            [subtitle]="formatPercent(k.approvalRate) + ' del total'"
+            variant="success"
+          />
+          <app-kpi-card title="Pendientes" [value]="k.pending.toString()" variant="warning" />
+          <app-kpi-card title="Rechazadas" [value]="k.rejected.toString()" variant="error" />
+        } @else {
+          <app-kpi-card
+            title="Cotizaciones"
+            [value]="k.total.toString()"
+            [subtitle]="periodLabel()"
+            variant="success"
+          />
+        }
         <app-kpi-card
           title="Monto PEN"
           [value]="formatMoney(k.totalAmountPen, 'PEN')"
@@ -174,7 +159,7 @@
     <!-- Gráficos -->
     <section class="space-y-3">
       <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <h2 class="text-xl font-semibold">Reportes {{ groupingLabel() }}</h2>
+        <h2 class="text-xl font-semibold">Reportes por mes</h2>
         <label class="flex items-center gap-2 text-sm">
           <span class="text-base-content/60">Monto en gráfico:</span>
           <select
@@ -191,9 +176,9 @@
       <div class="grid gap-4 lg:grid-cols-2">
         <div class="card bg-base-100 shadow-md">
           <div class="card-body">
-            <h3 class="card-title text-base">Evolución {{ groupingLabel() }}</h3>
+            <h3 class="card-title text-base">Evolución por mes</h3>
             <p class="text-base-content/60 text-sm">
-              Cantidad de cotizaciones y monto acumulado en el período filtrado.
+              Cantidad y monto {{ periodLabel() }}.
             </p>
             <div class="h-72 pt-2">
               <app-dashboard-chart [config]="trendChartConfig()" />
@@ -203,10 +188,16 @@
 
         <div class="card bg-base-100 shadow-md">
           <div class="card-body">
-            <h3 class="card-title text-base">Distribución por estado</h3>
-            <p class="text-base-content/60 text-sm">Proporción de cotizaciones según su estado.</p>
+            <h3 class="card-title text-base">Por asesora</h3>
+            <p class="text-base-content/60 text-sm">Cotizaciones de cada asesora {{ periodLabel() }}.</p>
             <div class="h-72 pt-2">
-              <app-dashboard-chart [config]="statusChartConfig()" />
+              @if ((stats()?.byAdvisor?.length ?? 0) > 0) {
+                <app-dashboard-chart [config]="advisorChartConfig()" />
+              } @else {
+                <p class="text-base-content/50 flex h-full items-center justify-center text-sm">
+                  Sin datos de asesoras para los filtros actuales.
+                </p>
+              }
             </div>
           </div>
         </div>
@@ -214,58 +205,126 @@
         <div class="card bg-base-100 shadow-md">
           <div class="card-body">
             <h3 class="card-title text-base">Por tipo de cotización</h3>
-            <p class="text-base-content/60 text-sm">Venta, alquiler y servicio en el período.</p>
+            <p class="text-base-content/60 text-sm">Venta, alquiler y servicio {{ periodLabel() }}.</p>
             <div class="h-72 pt-2">
               <app-dashboard-chart [config]="typeChartConfig()" />
             </div>
           </div>
         </div>
 
-        <div class="card bg-base-100 shadow-md">
-          <div class="card-body">
-            <h3 class="card-title text-base">Top asesores</h3>
-            <p class="text-base-content/60 text-sm">Hasta 8 asesores con más cotizaciones.</p>
-            <div class="h-72 pt-2">
-              @if ((stats()?.byAdvisor?.length ?? 0) > 0) {
-                <app-dashboard-chart [config]="advisorChartConfig()" />
-              } @else {
-                <p class="text-base-content/50 flex h-full items-center justify-center text-sm">
-                  Sin datos de asesores para los filtros actuales.
-                </p>
-              }
+        @if (filterStatus() === 'ALL') {
+          <div class="card bg-base-100 shadow-md">
+            <div class="card-body">
+              <h3 class="card-title text-base">Distribución por estado</h3>
+              <p class="text-base-content/60 text-sm">Proporción de cotizaciones según su estado.</p>
+              <div class="h-72 pt-2">
+                <app-dashboard-chart [config]="statusChartConfig()" />
+              </div>
             </div>
           </div>
-        </div>
+        }
       </div>
     </section>
 
-    <!-- Tabla resumen por período -->
-    <section class="card bg-base-100 shadow-md">
-      <div class="card-body gap-3">
-        <h3 class="card-title text-base">Detalle {{ groupingLabel() }}</h3>
-        <div class="overflow-x-auto">
-          <table class="table table-zebra table-sm">
-            <thead>
-              <tr>
-                <th>Período</th>
-                <th class="text-right">Cotizaciones</th>
-                <th class="text-right">Monto PEN</th>
-                <th class="text-right">Monto USD</th>
-              </tr>
-            </thead>
-            <tbody>
-              @for (row of stats()?.timeSeries ?? []; track row.key) {
-                @if (row.count > 0) {
+    <div class="grid gap-4 lg:grid-cols-2">
+      <section class="card bg-base-100 shadow-md">
+        <div class="card-body gap-3">
+          <h3 class="card-title text-base">Detalle por mes</h3>
+          <div class="overflow-x-auto">
+            <table class="table table-zebra table-sm">
+              <thead>
+                <tr>
+                  <th>Mes</th>
+                  <th class="text-right">Cotizaciones</th>
+                  <th class="text-right">Monto PEN</th>
+                  <th class="text-right">Monto USD</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (row of stats()?.timeSeries ?? []; track row.key) {
+                  @if (row.count > 0) {
+                    <tr>
+                      <td>{{ row.label }}</td>
+                      <td class="text-right font-medium">{{ row.count }}</td>
+                      <td class="text-right">{{ formatMoney(row.amountPen, 'PEN') }}</td>
+                      <td class="text-right">{{ formatMoney(row.amountUsd, 'USD') }}</td>
+                    </tr>
+                  }
+                }
+              </tbody>
+            </table>
+            @if (!hasMonthlyRows()) {
+              <p class="text-base-content/50 py-4 text-center text-sm">
+                No hay cotizaciones para los filtros seleccionados.
+              </p>
+            }
+          </div>
+        </div>
+      </section>
+
+      <section class="card bg-base-100 shadow-md">
+        <div class="card-body gap-3">
+          <h3 class="card-title text-base">Detalle por asesora</h3>
+          <div class="overflow-x-auto">
+            <table class="table table-zebra table-sm">
+              <thead>
+                <tr>
+                  <th>Asesora</th>
+                  <th class="text-right">Cotizaciones</th>
+                  <th class="text-right">Monto PEN</th>
+                  <th class="text-right">Monto USD</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (row of stats()?.byAdvisor ?? []; track row.id) {
                   <tr>
                     <td>{{ row.label }}</td>
                     <td class="text-right font-medium">{{ row.count }}</td>
                     <td class="text-right">{{ formatMoney(row.amountPen, 'PEN') }}</td>
                     <td class="text-right">{{ formatMoney(row.amountUsd, 'USD') }}</td>
                   </tr>
+                } @empty {
+                  <tr>
+                    <td colspan="4" class="text-base-content/50 text-center">
+                      Sin datos de asesoras para los filtros seleccionados.
+                    </td>
+                  </tr>
                 }
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <section class="card bg-base-100 shadow-md">
+      <div class="card-body gap-3">
+        <h3 class="card-title text-base">Cotizaciones {{ periodLabel() }}</h3>
+        <div class="max-h-96 overflow-auto">
+          <table class="table table-zebra table-sm">
+            <thead>
+              <tr>
+                <th>Generada</th>
+                <th>Cambio de estado</th>
+                <th>Correlativo</th>
+                <th>Cliente</th>
+                <th>Asesora</th>
+                <th class="text-right">Monto</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (row of sortedQuotations(); track row.id) {
+                <tr>
+                  <td class="whitespace-nowrap">{{ row.creation_date | shortDateTime }}</td>
+                  <td class="whitespace-nowrap">{{ statusChangedAt(row) | shortDateTime }}</td>
+                  <td class="font-medium">{{ row.correlativo }}</td>
+                  <td class="max-w-[14rem] truncate" [title]="clientLabel(row)">{{ clientLabel(row) }}</td>
+                  <td class="max-w-[12rem] truncate" [title]="advisorLabel(row)">{{ advisorLabel(row) }}</td>
+                  <td class="text-right whitespace-nowrap">{{ rowAmount(row) }}</td>
+                </tr>
               } @empty {
                 <tr>
-                  <td colspan="4" class="text-base-content/50 text-center">
+                  <td colspan="6" class="text-base-content/50 text-center">
                     No hay cotizaciones para los filtros seleccionados.
                   </td>
                 </tr>
