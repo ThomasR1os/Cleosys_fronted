@@ -1,0 +1,781 @@
+<div class="fixed inset-0 z-40 bg-black/40" (click)="close()"></div>
+<aside
+  class="fixed inset-y-0 right-0 z-50 flex w-full max-w-[96vw] flex-col overflow-y-auto border-l border-base-300 bg-base-100 shadow-2xl lg:max-w-6xl"
+>
+  <div class="sticky top-0 z-10 flex items-center justify-between border-b border-base-300 bg-base-100 px-5 py-3">
+    <div>
+      <p class="text-sm font-semibold">Detalle de solicitud</p>
+      @if (detail(); as row) {
+        <p class="text-xs text-base-content/60">{{ requestCode(row) }}</p>
+      }
+    </div>
+    <button type="button" class="btn btn-ghost btn-sm btn-square" aria-label="Cerrar" (click)="close()">✕</button>
+  </div>
+
+  <div class="space-y-4 p-5">
+    @if (loading() && !detail()) {
+      <div class="flex justify-center py-12">
+        <span class="loading loading-spinner loading-lg text-primary"></span>
+      </div>
+    }
+
+    @if (errorMessage(); as err) {
+      <div role="alert" class="alert alert-error text-sm whitespace-pre-line">{{ err }}</div>
+    }
+    @if (notice(); as ok) {
+      <div role="status" class="alert alert-success text-sm">{{ ok }}</div>
+    }
+
+    @if (detail(); as row) {
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <span class="badge badge-sm" [class]="workflowBadgeClass(workflow())">{{ workflowLabel(workflow()) }}</span>
+          <h2 class="mt-2 text-xl font-bold leading-snug">{{ descriptionText(row.description) || 'Solicitud sin título' }}</h2>
+          <p class="text-sm text-base-content/70">
+            {{ clientName(row) }}
+            @if (row.client_detail?.ruc; as ruc) {
+              · RUC {{ ruc }}
+            }
+          </p>
+        </div>
+        @if (row.quotation) {
+          <button type="button" class="btn btn-outline btn-sm" (click)="goToQuotation()">
+            Ver {{ row.quotation_correlativo || 'cotización' }}
+          </button>
+        }
+      </div>
+
+      <div class="flex flex-wrap gap-2">
+        @if (canSendToLogistics()) {
+          <button type="button" class="btn btn-primary btn-sm" [disabled]="acting()" (click)="openAction('logistics')">
+            Enviar a logística
+          </button>
+        }
+        @if (canRequestInfo()) {
+          <button type="button" class="btn btn-outline btn-sm" [disabled]="acting()" (click)="openAction('ask')">
+            Solicitar información
+          </button>
+        }
+        @if (canAnswerInfo()) {
+          <button type="button" class="btn btn-primary btn-sm" [disabled]="acting()" (click)="openAction('answer')">
+            Responder consulta
+          </button>
+        }
+        @if (canSendToSupplier()) {
+          <button type="button" class="btn btn-outline btn-sm" [disabled]="acting()" (click)="submitSendToSupplier()">
+            Enviado al proveedor
+          </button>
+        }
+        @if (canRegisterOffer()) {
+          <button type="button" class="btn btn-primary btn-sm" [disabled]="acting()" (click)="openAction('offer')">
+            {{ offers().length ? 'Añadir proveedor' : 'Registrar proveedor' }}
+          </button>
+        }
+        @if (canGenerateQuote()) {
+          <button type="button" class="btn btn-primary btn-sm" [disabled]="acting()" (click)="openAction('quote')">
+            Generar cotización
+          </button>
+        }
+        @if (canCompleteFlow()) {
+          <button type="button" class="btn btn-success btn-sm" [disabled]="acting()" (click)="submitComplete()">
+            Completar flujo
+          </button>
+        }
+        @if (canMarkImpossible()) {
+          <button type="button" class="btn btn-outline btn-error btn-sm" [disabled]="acting()" (click)="openAction('impossible')">
+            No es posible
+          </button>
+        }
+      </div>
+
+      @if (workflow() === 'WAITING_SUPPLIER') {
+        <div role="status" class="alert alert-warning text-sm">
+          Esperando respuesta del proveedor. La tarea sigue a cargo de
+          {{ userDisplayName(row.assigned_user_detail, row.assigned_user) }}.
+        </div>
+      }
+      @if (workflow() === 'WAITING_SALES_INFORMATION') {
+        <div role="status" class="alert alert-info text-sm">
+          Logística necesita más datos. Responde las consultas para devolver la tarea.
+        </div>
+      }
+      @if (quotationReadyForSales()) {
+        <div role="status" class="alert alert-success text-sm">
+          La cotización ya está generada. Revísela, envíela al cliente y cierre el flujo cuando corresponda.
+        </div>
+      }
+
+      <div class="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(14rem,.8fr)]">
+        <div class="space-y-4">
+          <section class="rounded-lg border border-base-300 bg-base-100 p-4">
+            <h3 class="mb-3 text-sm font-semibold">Información</h3>
+            <dl class="grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <dt class="text-xs text-base-content/60">Solicitud</dt>
+                <dd class="font-semibold">{{ requestCode(row) }}</dd>
+              </div>
+              <div>
+                <dt class="text-xs text-base-content/60">Tarea</dt>
+                <dd class="font-semibold">{{ taskCode(row) || task()?.correlativo || '—' }}</dd>
+              </div>
+              <div>
+                <dt class="text-xs text-base-content/60">Responsable actual</dt>
+                <dd>{{ userDisplayName(row.assigned_user_detail, row.assigned_user) }}</dd>
+              </div>
+              <div>
+                <dt class="text-xs text-base-content/60">Vendedor de la operación</dt>
+                <dd>{{ userDisplayName(row.sales_owner_detail, row.sales_owner) }}</dd>
+              </div>
+              <div>
+                <dt class="text-xs text-base-content/60">Logística</dt>
+                <dd>{{ userDisplayName(row.logistics_owner_detail, row.logistics_owner) }}</dd>
+              </div>
+              <div>
+                <dt class="text-xs text-base-content/60">Canal</dt>
+                <dd>{{ row.entry_channel }}</dd>
+              </div>
+              <div>
+                <dt class="text-xs text-base-content/60">Área</dt>
+                <dd>{{ queueLabel(row.task_queue) }}</dd>
+              </div>
+              <div>
+                <dt class="text-xs text-base-content/60">Espera por</dt>
+                <dd>{{ waitingOnLabel(row.waiting_on) }}</dd>
+              </div>
+              <div>
+                <dt class="text-xs text-base-content/60">Plazo</dt>
+                <dd [class.text-error]="dueIsOverdue(row.due_at, workflow())">{{ formatStamp(row.due_at) }}</dd>
+              </div>
+              <div>
+                <dt class="text-xs text-base-content/60">Ingreso</dt>
+                <dd>{{ formatStamp(row.entered_at) }}</dd>
+              </div>
+            </dl>
+          </section>
+
+          <section class="rounded-lg border border-base-300 bg-base-100 p-4">
+            <h3 class="mb-3 text-sm font-semibold">Productos solicitados</h3>
+            @for (item of items(); track item.id; let i = $index) {
+              <div class="flex gap-3 border-t border-base-200 py-3 first:border-t-0 first:pt-0">
+                <span class="w-8 shrink-0 font-mono text-xs text-base-content/50">{{ i + 1 < 10 ? '0' + (i + 1) : i + 1 }}</span>
+                <div class="min-w-0 flex-1">
+                  <p class="font-medium leading-snug">{{ item.description }}</p>
+                  <p class="text-xs text-base-content/60">
+                    @if (item.requested_sku) {
+                      N.º parte {{ item.requested_sku }} ·
+                    }
+                    {{ availabilityLabel(item.availability_status) }}
+                  </p>
+                  @if (isLogisticsRole() && canAct()) {
+                    <select
+                      class="select select-bordered select-xs mt-2"
+                      [value]="item.availability_status ?? 'PENDING_REVIEW'"
+                      [disabled]="acting()"
+                      (change)="patchItemAvailability(item, $any($event.target).value)"
+                    >
+                      <option value="PENDING_REVIEW">Por revisar</option>
+                      <option value="IN_STOCK">En stock</option>
+                      <option value="LOCAL_PURCHASE">Compra local</option>
+                      <option value="IMPORT_REQUIRED">Importación</option>
+                      <option value="NOT_FOUND">No encontrado</option>
+                      <option value="NOT_POSSIBLE">No es posible</option>
+                    </select>
+                  }
+                </div>
+                <strong class="shrink-0 text-sm">{{ itemQty(item) }}</strong>
+              </div>
+            } @empty {
+              <p class="text-sm text-base-content/60">Sin líneas de producto. Usa la descripción general.</p>
+            }
+          </section>
+
+          <section class="rounded-lg border border-base-300 bg-base-100 p-4">
+            <h3 class="mb-3 text-sm font-semibold">Consultas a Ventas</h3>
+            @for (c of clarifications(); track c.id) {
+              <div class="flex gap-3 border-t border-base-200 py-3 first:border-t-0 first:pt-0">
+                <span class="font-semibold text-primary">?</span>
+                <div class="min-w-0 flex-1">
+                  <p class="font-medium">{{ c.question }}</p>
+                  @if (c.answer) {
+                    <p class="text-xs text-base-content/70">Respondida · {{ c.answer }}</p>
+                  } @else {
+                    <p class="text-xs text-warning">Pendiente de respuesta</p>
+                  }
+                </div>
+                <span class="badge badge-sm" [class]="c.answer ? 'badge-success' : 'badge-warning'">
+                  {{ c.answer ? 'OK' : 'Pendiente' }}
+                </span>
+              </div>
+            } @empty {
+              <p class="text-sm text-base-content/60">No hay consultas entre áreas.</p>
+            }
+          </section>
+
+        </div>
+
+        <div class="space-y-4">
+          <section class="rounded-lg border border-primary/30 bg-primary/5 p-4">
+            <p class="text-sm font-semibold">Responsabilidad actual</p>
+            <div class="mt-3 flex items-center justify-between gap-2 text-sm">
+              <div>
+                <p class="font-medium">{{ userDisplayName(row.sales_owner_detail, row.sales_owner) }}</p>
+                <p class="text-xs text-base-content/60">Ventas</p>
+              </div>
+              <span class="text-primary">→</span>
+              <div class="text-right">
+                <p class="font-medium">{{ userDisplayName(row.assigned_user_detail, row.assigned_user) }}</p>
+                <p class="text-xs text-base-content/60">{{ queueLabel(row.task_queue) }}</p>
+              </div>
+            </div>
+          </section>
+
+          <section class="rounded-lg border border-base-300 bg-base-100 p-4">
+            <h3 class="mb-3 text-sm font-semibold">Historial</h3>
+            <ol class="relative space-y-3 border-l border-base-300 pl-4">
+              @for (ev of events(); track $index) {
+                <li>
+                  <span class="absolute -left-1.5 mt-1 h-3 w-3 rounded-full bg-primary"></span>
+                  <p class="text-sm font-medium">{{ ev.title || 'Movimiento' }}</p>
+                  @if (ev.description) {
+                    <p class="text-xs text-base-content/70">{{ ev.description }}</p>
+                  }
+                  <time class="text-[11px] text-base-content/50">{{ formatStamp(ev.created_at) }}</time>
+                </li>
+              } @empty {
+                <li class="text-sm text-base-content/60">Sin eventos de tarea todavía.</li>
+              }
+            </ol>
+          </section>
+
+          <section class="rounded-lg border border-base-300 bg-base-100 p-4">
+            <h3 class="mb-3 text-sm font-semibold">Agregar seguimiento</h3>
+            <textarea
+              class="textarea textarea-bordered w-full"
+              rows="3"
+              [value]="commentText()"
+              (input)="onCommentInput($event)"
+              placeholder="Escribe un comentario…"
+            ></textarea>
+            <button
+              type="button"
+              class="btn btn-outline btn-sm mt-2"
+              [disabled]="acting() || !commentText().trim() || !task()"
+              (click)="publishComment()"
+            >
+              Publicar
+            </button>
+            <ul class="mt-3 space-y-2">
+              @for (c of comments(); track c.id) {
+                <li class="text-sm">
+                  <span class="font-medium">{{ userDisplayName(c.user_detail) }}</span>
+                  <p class="text-base-content/80">{{ c.body }}</p>
+                  <time class="text-[11px] text-base-content/50">{{ formatStamp(c.created_at) }}</time>
+                </li>
+              }
+            </ul>
+          </section>
+        </div>
+      </div>
+
+      <section class="rounded-lg border border-base-300 bg-base-100 p-4">
+        <div class="mb-3 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 class="text-sm font-semibold">Ofertas de proveedores</h3>
+            <p class="mt-0.5 text-xs text-base-content/60">
+              La solicitud puede tener uno o más proveedores. Cada producto elige de quién se compra.
+            </p>
+          </div>
+          @if (canRegisterOffer()) {
+            <button type="button" class="btn btn-primary btn-sm" [disabled]="acting()" (click)="openAction('offer')">
+              Añadir proveedor
+            </button>
+          }
+        </div>
+
+        @if (offers().length && offerMatrix().length) {
+          <div class="overflow-x-auto">
+            <table class="table table-sm">
+              <thead>
+                <tr>
+                  <th class="sticky left-0 z-[1] min-w-48 bg-base-100">Producto</th>
+                  @for (offer of offers(); track offer.id) {
+                    <th class="min-w-44 align-top">
+                      <div class="flex items-start justify-between gap-2">
+                        <div class="min-w-0">
+                          <p class="font-semibold normal-case leading-snug">{{ offerSupplierName(offer) }}</p>
+                          <p class="mt-0.5 font-normal normal-case text-base-content/60">{{ offerColumnMeta(offer) }}</p>
+                        </div>
+                        @if (canRegisterOffer()) {
+                          <div class="flex shrink-0 gap-1">
+                            <button type="button" class="btn btn-ghost btn-xs" [disabled]="acting()" (click)="openEditOffer(offer)">
+                              Editar
+                            </button>
+                            <button type="button" class="btn btn-ghost btn-xs text-error" [disabled]="acting()" (click)="deleteOffer(offer)">
+                              Quitar
+                            </button>
+                          </div>
+                        }
+                      </div>
+                    </th>
+                  }
+                  <th class="min-w-32">Compramos</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (row of offerMatrix(); track row.item.id) {
+                  <tr>
+                    <th class="sticky left-0 z-[1] bg-base-100 font-normal">
+                      <p class="text-[11px] font-medium uppercase tracking-wide text-base-content/50">
+                        Ítem {{ row.number }} · {{ itemQty(row.item) }}
+                      </p>
+                      <p class="font-medium leading-snug">{{ row.item.description }}</p>
+                    </th>
+                    @for (cell of row.cells; track cell.offerId) {
+                      <td>
+                        @if (cell.line; as line) {
+                          <button
+                            type="button"
+                            class="w-full rounded-lg border px-2.5 py-2 text-left transition hover:border-primary"
+                            [class.border-primary]="line.selected"
+                            [class.bg-primary/10]="line.selected"
+                            [class.border-base-300]="!line.selected"
+                            [disabled]="acting() || !canRegisterOffer()"
+                            (click)="choosePurchaseOffer(row.item.id, cell.offerId)"
+                          >
+                            <p class="text-xs font-medium leading-snug">{{ cell.supplierName }}</p>
+                            <p class="mt-0.5 text-sm font-semibold">{{ cell.money }} {{ line.sale_unit_price }}</p>
+                            <p class="text-xs text-base-content/60">{{ leadLabel(line.estimated_lead_time_days ?? null) }}</p>
+                            <p class="mt-1 text-[11px] font-medium" [class.text-primary]="line.selected">
+                              {{ line.selected ? 'Compramos aquí' : 'Elegir' }}
+                            </p>
+                          </button>
+                        } @else {
+                          <span class="text-xs text-base-content/40">No cotizó</span>
+                        }
+                      </td>
+                    }
+                    <td>
+                      @if (row.chosenSupplierName) {
+                        <span class="badge badge-primary badge-sm whitespace-normal">{{ row.chosenSupplierName }}</span>
+                      } @else {
+                        <span class="text-xs text-base-content/50">Sin elegir</span>
+                      }
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        } @else {
+          <p class="rounded-lg border border-dashed border-base-300 p-4 text-sm text-base-content/60">
+            Aún no hay proveedores. Añada uno y registre lo que cotizó; luego elija, por producto, a quién le compran.
+          </p>
+        }
+      </section>
+    }
+  </div>
+</aside>
+
+@if (actionModal(); as modal) {
+  <div class="modal modal-open z-[60]">
+    <div
+      class="modal-box max-h-[92vh]"
+      [class.max-w-5xl]="modal === 'offer'"
+      [class.max-w-3xl]="modal === 'quote'"
+      [class.max-w-2xl]="modal !== 'offer' && modal !== 'quote'"
+      [class.flex]="modal === 'offer' || modal === 'quote'"
+      [class.flex-col]="modal === 'offer' || modal === 'quote'"
+      [class.overflow-hidden]="modal === 'offer' || modal === 'quote'"
+      [class.overflow-y-auto]="modal !== 'offer' && modal !== 'quote'"
+    >
+      @switch (modal) {
+        @case ('logistics') {
+          <h3 class="text-lg font-bold">Enviar a logística</h3>
+          <p class="mt-1 text-sm text-base-content/70">
+            La tarea pasa a la cola de Logística y se notifica al responsable.
+          </p>
+          <form class="mt-4 space-y-3" [formGroup]="logisticsForm" (ngSubmit)="submitLogistics()">
+            <label class="form-control">
+              <span class="label-text">Responsable</span>
+              <select class="select select-bordered" formControlName="assigned_user">
+                <option [ngValue]="0" disabled>Seleccione usuario de logística o admin…</option>
+                @for (u of logisticsUsers(); track u.id) {
+                  <option [ngValue]="u.id">{{ u.nombre }}</option>
+                }
+              </select>
+            </label>
+            <label class="form-control">
+              <span class="label-text">Motivo</span>
+              <textarea class="textarea textarea-bordered" formControlName="reason" placeholder="No hay stock local…"></textarea>
+            </label>
+            <div class="modal-action">
+              <button type="button" class="btn btn-ghost" [disabled]="acting()" (click)="closeAction()">Cancelar</button>
+              <button type="submit" class="btn btn-primary" [disabled]="acting()">Enviar</button>
+            </div>
+          </form>
+        }
+        @case ('ask') {
+          <h3 class="text-lg font-bold">Solicitar información</h3>
+          <p class="mt-1 text-sm text-base-content/70">
+            La pregunta vuelve a ventas y la tarea queda en espera hasta que respondan.
+          </p>
+          <form class="mt-4 flex flex-col gap-4" [formGroup]="askForm" (ngSubmit)="submitAsk()">
+            <label class="flex w-full flex-col gap-1.5">
+              <span class="text-sm font-medium">Sobre qué línea</span>
+              <select class="select select-bordered w-full" formControlName="item">
+                <option [ngValue]="0">Toda la solicitud</option>
+                @for (item of items(); track item.id; let i = $index) {
+                  <option [ngValue]="item.id">{{ askLineLabel(item, i) }}</option>
+                }
+              </select>
+              <span class="text-xs text-base-content/60">
+                Opcional. Si no elige una línea, la consulta es de toda la solicitud.
+              </span>
+            </label>
+            <label class="flex w-full flex-col gap-1.5">
+              <span class="text-sm font-medium">Pregunta para ventas</span>
+              <textarea
+                class="textarea textarea-bordered min-h-28 w-full"
+                rows="4"
+                formControlName="question"
+                placeholder="Ej. ¿Qué voltaje y en qué plazo lo necesita el cliente?"
+              ></textarea>
+              @if (askForm.controls.question.touched && askForm.controls.question.invalid) {
+                <span class="text-xs text-error">Escriba la pregunta antes de enviar.</span>
+              }
+            </label>
+            <div class="modal-action mt-0">
+              <button type="button" class="btn btn-ghost" [disabled]="acting()" (click)="closeAction()">Cancelar</button>
+              <button type="submit" class="btn btn-primary" [disabled]="acting()">Enviar a ventas</button>
+            </div>
+          </form>
+        }
+        @case ('answer') {
+          <h3 class="text-lg font-bold">Responder consulta</h3>
+          <p class="mt-1 text-sm text-base-content/70">
+            La respuesta devuelve la tarea a logística.
+          </p>
+          <form class="mt-4 flex flex-col gap-4" [formGroup]="answerForm" (ngSubmit)="submitAnswer()">
+            <label class="flex w-full flex-col gap-1.5">
+              <span class="text-sm font-medium">Consulta</span>
+              <select class="select select-bordered w-full" formControlName="clarification">
+                @for (c of pendingClarifications(); track c.id) {
+                  <option [ngValue]="c.id">{{ c.question }}</option>
+                }
+              </select>
+            </label>
+            <label class="flex w-full flex-col gap-1.5">
+              <span class="text-sm font-medium">Respuesta</span>
+              <textarea
+                class="textarea textarea-bordered min-h-28 w-full"
+                rows="4"
+                formControlName="answer"
+                placeholder="Escriba la respuesta para logística…"
+              ></textarea>
+              @if (answerForm.controls.answer.touched && answerForm.controls.answer.invalid) {
+                <span class="text-xs text-error">Escriba la respuesta antes de enviar.</span>
+              }
+            </label>
+            <div class="modal-action mt-0">
+              <button type="button" class="btn btn-ghost" [disabled]="acting()" (click)="closeAction()">Cancelar</button>
+              <button type="submit" class="btn btn-primary" [disabled]="acting()">Devolver a logística</button>
+            </div>
+          </form>
+        }
+        @case ('offer') {
+          <div class="flex min-h-0 flex-1 flex-col">
+            <div class="shrink-0 pr-1">
+              <h3 class="text-lg font-bold">
+                {{ editingOfferId() ? 'Editar proveedor' : 'Añadir proveedor' }}
+              </h3>
+              <p class="mt-1 text-sm text-base-content/60">
+                Esta columna es la respuesta de un proveedor. La solicitud puede tener varios; a quién le compran cada
+                producto se elige en la tabla.
+              </p>
+            </div>
+            <form class="mt-4 flex min-h-0 flex-1 flex-col" [formGroup]="offerForm" (ngSubmit)="submitOffer()">
+              <div class="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
+                <section class="rounded-xl border border-base-300 bg-base-200/30 p-4">
+                  <p class="mb-3 text-sm font-semibold">Datos de este proveedor</p>
+                  <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    <label class="flex w-full flex-col gap-1 sm:col-span-2 lg:col-span-1">
+                      <span class="text-xs font-medium">Proveedor</span>
+                      <select class="select select-bordered w-full" formControlName="supplier">
+                        <option [ngValue]="0" disabled>Seleccione…</option>
+                        @for (s of suppliers(); track s.id) {
+                          <option [ngValue]="s.id">{{ s.name }}</option>
+                        }
+                      </select>
+                    </label>
+                    <label class="flex w-full flex-col gap-1">
+                      <span class="text-xs font-medium">Moneda</span>
+                      <select class="select select-bordered w-full" formControlName="money">
+                        <option value="PEN">Soles (PEN)</option>
+                        <option value="USD">Dólares (USD)</option>
+                      </select>
+                    </label>
+                    <label class="flex w-full flex-col gap-1">
+                      <span class="text-xs font-medium">Tipo de cambio</span>
+                      <input class="input input-bordered w-full" formControlName="exchange_rate" placeholder="Solo si es USD" />
+                    </label>
+                    <label class="flex w-full flex-col gap-1">
+                      <span class="text-xs font-medium">Forma de pago</span>
+                      <select class="select select-bordered w-full" formControlName="payment_methods">
+                        <option [ngValue]="0" disabled>Seleccione…</option>
+                        @for (pm of paymentMethods(); track pm.id) {
+                          <option [ngValue]="pm.id">{{ pm.name }}</option>
+                        }
+                      </select>
+                      @if (offerForm.controls.payment_methods.touched && offerForm.controls.payment_methods.invalid) {
+                        <span class="text-error text-xs">Elige una forma de pago.</span>
+                      }
+                    </label>
+                    <label class="flex w-full flex-col gap-1">
+                      <span class="text-xs font-medium">Incoterm</span>
+                      <input class="input input-bordered w-full" formControlName="incoterm" placeholder="FOB, CIF…" />
+                    </label>
+                    <label class="flex w-full flex-col gap-1">
+                      <span class="text-xs font-medium">Vigencia</span>
+                      <input class="input input-bordered w-full" type="date" formControlName="valid_until" />
+                    </label>
+                  </div>
+                </section>
+
+                <section class="space-y-3">
+                  <div class="flex items-end justify-between gap-3">
+                    <p class="text-sm font-semibold">Ítems de la solicitud</p>
+                    <p class="text-xs text-base-content/50">{{ includedOfferCount() }} de {{ offerLines().length }} cotizados aquí</p>
+                  </div>
+                  @if (offerLines().length === 0) {
+                    <p class="rounded-lg border border-dashed border-base-300 p-4 text-sm text-base-content/60">
+                      No hay ítems para cotizar. Los marcados como no encontrado o no es posible no se envían al proveedor.
+                    </p>
+                  }
+                  @for (line of offerLines(); track line.itemId) {
+                    <article
+                      class="rounded-xl border p-4"
+                      [class.border-primary/40]="line.included"
+                      [class.bg-base-100]="line.included"
+                      [class.border-base-300]="!line.included"
+                      [class.bg-base-200/40]="!line.included"
+                    >
+                      <header class="flex flex-wrap items-start justify-between gap-3">
+                        <div class="min-w-0">
+                          <p class="text-xs font-medium uppercase tracking-wide text-base-content/50">
+                            Ítem {{ offerItemNumber(line.itemId) }}
+                            @if (itemRecord(line.itemId); as item) {
+                              · {{ itemQty(item) }}
+                            }
+                          </p>
+                          <h4 class="mt-0.5 text-sm font-semibold leading-snug">
+                            {{ itemDescription(line.itemId) || 'Ítem sin descripción' }}
+                          </h4>
+                        </div>
+                        <label class="flex cursor-pointer items-center gap-2 text-sm">
+                          <span>Este proveedor lo cotiza</span>
+                          <input
+                            type="checkbox"
+                            class="toggle toggle-primary toggle-sm"
+                            [checked]="line.included"
+                            (change)="updateOfferLine(line.itemId, { included: $any($event.target).checked })"
+                          />
+                        </label>
+                      </header>
+
+                      @if (line.included) {
+                        <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                          <label class="relative flex w-full flex-col gap-1 sm:col-span-2 lg:col-span-3">
+                            <span class="text-xs font-medium">Producto del catálogo</span>
+                            <input
+                              class="input input-bordered input-sm w-full"
+                              [value]="line.productQuery || line.productLabel"
+                              (input)="updateOfferLine(line.itemId, { productQuery: $any($event.target).value })"
+                              placeholder="Buscar SKU o descripción…"
+                            />
+                            @if (line.productQuery.trim().length >= 2) {
+                              <ul class="absolute top-full z-10 mt-1 max-h-36 w-full overflow-auto rounded-lg border border-base-300 bg-base-100 shadow-sm">
+                                @for (p of filteredProducts(line.productQuery); track p.id) {
+                                  <li>
+                                    <button
+                                      type="button"
+                                      class="block w-full px-3 py-2 text-left text-sm hover:bg-base-200"
+                                      (click)="setOfferProduct(line.itemId, p)"
+                                    >
+                                      <span class="font-mono text-xs">{{ p.sku }}</span>
+                                      <span class="text-base-content/80"> · {{ p.description }}</span>
+                                    </button>
+                                  </li>
+                                } @empty {
+                                  <li class="px-3 py-2 text-sm text-base-content/60">Sin coincidencias en catálogo</li>
+                                }
+                              </ul>
+                            }
+                          </label>
+                          <label class="flex w-full flex-col gap-1">
+                            <span class="text-xs font-medium">N.º de parte</span>
+                            <input
+                              class="input input-bordered input-sm w-full"
+                              [value]="line.supplier_part_number"
+                              (input)="updateOfferLine(line.itemId, { supplier_part_number: $any($event.target).value })"
+                            />
+                          </label>
+                          <label class="flex w-full flex-col gap-1">
+                            <span class="text-xs font-medium">Costo unitario</span>
+                            <input
+                              class="input input-bordered input-sm w-full"
+                              [value]="line.unit_cost"
+                              (input)="updateOfferLine(line.itemId, { unit_cost: $any($event.target).value })"
+                            />
+                            @if (supplierCostHint(line); as hint) {
+                              <span class="text-[11px] text-base-content/60">{{ hint }}</span>
+                            }
+                          </label>
+                          <label class="flex w-full flex-col gap-1">
+                            <span class="text-xs font-medium">Precio de venta</span>
+                            <input
+                              class="input input-bordered input-sm w-full"
+                              [value]="line.sale_unit_price"
+                              (input)="updateOfferLine(line.itemId, { sale_unit_price: $any($event.target).value })"
+                            />
+                            @if (salePriceHint(line); as hint) {
+                              <span class="text-[11px] text-base-content/60">{{ hint }}</span>
+                            }
+                          </label>
+                          <label class="flex w-full flex-col gap-1">
+                            <span class="text-xs font-medium">Días de espera</span>
+                            <input
+                              class="input input-bordered input-sm w-full"
+                              type="number"
+                              min="0"
+                              [value]="line.estimated_lead_time_days ?? ''"
+                              (input)="
+                                updateOfferLine(line.itemId, {
+                                  estimated_lead_time_days:
+                                    $any($event.target).value === '' ? null : +$any($event.target).value,
+                                })
+                              "
+                            />
+                            @if (leadTimeHint(line); as hint) {
+                              <span class="text-[11px] text-base-content/60">{{ hint }}</span>
+                            }
+                          </label>
+                          <label class="flex w-full flex-col gap-1 sm:col-span-2">
+                            <span class="text-xs font-medium">Garantía</span>
+                            <input
+                              class="input input-bordered input-sm w-full"
+                              [value]="line.warranty"
+                              (input)="updateOfferLine(line.itemId, { warranty: $any($event.target).value })"
+                            />
+                          </label>
+                          <div class="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm sm:col-span-2 lg:col-span-3">
+                            <label class="flex cursor-pointer items-center gap-2">
+                              <input
+                                type="checkbox"
+                                class="checkbox checkbox-sm"
+                                [checked]="line.includes_tax"
+                                (change)="updateOfferLine(line.itemId, { includes_tax: $any($event.target).checked })"
+                              />
+                              Incluye IGV
+                            </label>
+                            <label class="flex cursor-pointer items-center gap-2">
+                              <input
+                                type="checkbox"
+                                class="checkbox checkbox-sm"
+                                [checked]="line.available_locally"
+                                (change)="updateOfferLine(line.itemId, { available_locally: $any($event.target).checked })"
+                              />
+                              Disponible localmente
+                            </label>
+                          </div>
+                        </div>
+                      }
+                    </article>
+                  }
+                </section>
+              </div>
+              <div class="modal-action mt-4 shrink-0 border-t border-base-300 pt-3">
+                <button type="button" class="btn btn-ghost" [disabled]="acting()" (click)="closeAction()">Cancelar</button>
+                <button type="submit" class="btn btn-primary" [disabled]="acting()">
+                  {{ editingOfferId() ? 'Guardar columna' : 'Añadir a la tabla' }}
+                </button>
+              </div>
+            </form>
+          </div>
+        }
+        @case ('quote') {
+          <h3 class="text-lg font-bold">Generar cotización</h3>
+          <p class="mt-1 text-sm text-base-content/70">
+            Se crea un borrador con las líneas marcadas como “Compramos”. Ventas lo revisa antes de enviarlo al cliente.
+          </p>
+          <form class="mt-4 flex min-h-0 flex-1 flex-col" [formGroup]="quoteForm" (ngSubmit)="submitQuote()">
+            <div class="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
+              <div class="grid gap-4 sm:grid-cols-2">
+                <label class="flex w-full flex-col gap-1.5">
+                  <span class="text-sm font-medium">Método de pago</span>
+                  <select class="select select-bordered w-full" formControlName="payment_methods">
+                    <option [ngValue]="0" disabled>Seleccione…</option>
+                    @for (pm of paymentMethods(); track pm.id) {
+                      <option [ngValue]="pm.id">{{ pm.name }}</option>
+                    }
+                  </select>
+                  @if (quoteForm.controls.payment_methods.touched && quoteForm.controls.payment_methods.invalid) {
+                    <span class="text-xs text-error">Elige una forma de pago.</span>
+                  }
+                </label>
+                <label class="flex w-full flex-col gap-1.5">
+                  <span class="text-sm font-medium">Descuento (importe)</span>
+                  <input
+                    class="input input-bordered w-full"
+                    formControlName="discount"
+                    inputmode="decimal"
+                    placeholder="0.00"
+                  />
+                  <span class="text-xs text-base-content/60">Sobre el subtotal de las líneas elegidas. Deje 0.00 si no aplica.</span>
+                </label>
+              </div>
+              <label class="flex w-full flex-col gap-1.5">
+                <span class="text-sm font-medium">Condiciones</span>
+                <textarea
+                  class="textarea textarea-bordered min-h-36 w-full"
+                  rows="6"
+                  formControlName="conditions"
+                ></textarea>
+              </label>
+              <label class="flex w-full flex-col gap-1.5">
+                <span class="text-sm font-medium">SERVICIO TÉCNICO</span>
+                <textarea
+                  class="textarea textarea-bordered min-h-24 w-full"
+                  rows="4"
+                  formControlName="works"
+                  placeholder="Trabajos, arranque, visitas…"
+                ></textarea>
+              </label>
+              <label class="flex cursor-pointer items-center gap-3">
+                <input type="checkbox" class="checkbox" formControlName="see_sku" />
+                <span class="text-sm">Mostrar SKU</span>
+              </label>
+            </div>
+            <div class="modal-action mt-4 shrink-0 border-t border-base-300 pt-3">
+              <button type="button" class="btn btn-ghost" [disabled]="acting()" (click)="closeAction()">Cancelar</button>
+              <button type="submit" class="btn btn-primary" [disabled]="acting()">Generar borrador</button>
+            </div>
+          </form>
+        }
+        @case ('impossible') {
+          <h3 class="text-lg font-bold">Marcar como no posible</h3>
+          <form class="mt-4 space-y-3" [formGroup]="impossibleForm" (ngSubmit)="submitImpossible()">
+            <label class="form-control">
+              <span class="label-text">Motivo</span>
+              <textarea class="textarea textarea-bordered" formControlName="reason"></textarea>
+            </label>
+            <div class="modal-action">
+              <button type="button" class="btn btn-ghost" [disabled]="acting()" (click)="closeAction()">Cancelar</button>
+              <button type="submit" class="btn btn-error" [disabled]="acting()">Devolver a ventas</button>
+            </div>
+          </form>
+        }
+      }
+    </div>
+    <button type="button" class="modal-backdrop bg-black/50" aria-label="Cerrar" (click)="closeAction()"></button>
+  </div>
+}

@@ -13,6 +13,7 @@ import type {
 } from '../ventas/models/ventas.models';
 import { DashboardChartComponent } from './components/dashboard-chart.component';
 import { KpiCardComponent } from './components/kpi-card.component';
+import { ProformaDashboardComponent } from './components/proforma-dashboard.component';
 import type { DashboardFilters, DashboardStats } from './models/dashboard.models';
 import { DashboardStatsService } from './services/dashboard-stats.service';
 
@@ -50,6 +51,7 @@ const MONTHS: { value: number; label: string }[] = [
     FormsModule,
     KpiCardComponent,
     DashboardChartComponent,
+    ProformaDashboardComponent,
     ShortDateTimePipe,
   ],
   templateUrl: './dashboard.component.html',
@@ -59,6 +61,8 @@ export class DashboardComponent {
   private readonly statsService = inject(DashboardStatsService);
 
   readonly months = MONTHS;
+
+  readonly report = signal<'quotations' | 'proformas'>('quotations');
 
   readonly loading = signal(true);
   readonly error = signal<string | null>(null);

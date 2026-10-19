@@ -7,7 +7,7 @@
       <p class="text-base-content/70 mt-1 text-sm">Ubicaciones asociadas a un proveedor.</p>
     </div>
     @if (auth.canWriteAlmacen()) {
-      <button type="button" class="btn btn-primary btn-lg" (click)="openNew()">Nuevo almacén</button>
+      <button type="button" class="btn btn-primary" (click)="openNew()">Nuevo almacén</button>
     }
   </div>
 
@@ -22,78 +22,207 @@
     <div role="alert" class="alert alert-error text-sm">{{ err }}</div>
   }
 
-  <div class="overflow-x-auto rounded-lg border border-base-300 bg-base-100">
+  @if (!loading()) {
+    <div class="flex flex-col gap-3 rounded-xl border border-base-300 bg-base-100 p-4 shadow-sm sm:flex-row sm:items-end">
+      <label class="form-control min-w-0 flex-1">
+        <span class="label-text text-xs font-medium">Buscar</span>
+        <input
+          type="search"
+          class="input input-bordered input-sm w-full"
+          placeholder="ID, proveedor o dirección…"
+          autocomplete="off"
+          [value]="searchQuery()"
+          (input)="setSearchQuery($any($event.target).value)"
+        />
+      </label>
+      @if (hasActiveSearch()) {
+        <button type="button" class="btn btn-ghost btn-sm" (click)="clearSearch()">Limpiar</button>
+      }
+    </div>
+  }
+
+  <div class="overflow-hidden rounded-xl border border-base-300 bg-base-100 shadow-sm">
     @if (loading()) {
       <div class="flex justify-center p-12">
         <span class="loading loading-spinner loading-lg text-primary"></span>
       </div>
     } @else {
-      <table class="table table-zebra">
-        <thead>
-          <tr>
-            <th>ID</th>
-            <th>Proveedor</th>
-            <th>Dirección</th>
-            <th class="text-right">Acciones</th>
-          </tr>
-        </thead>
-        <tbody>
-          @for (row of items(); track row.id) {
+      <div class="overflow-x-auto">
+        <table class="table table-zebra">
+          <thead>
             <tr>
-              <td>{{ row.id }}</td>
-              <td>{{ supplierById().get(row.supplier) ?? row.supplier }}</td>
-              <td>{{ row.address }}</td>
-              <td class="text-right space-x-1">
-                <a class="btn btn-ghost btn-sm" [routerLink]="['/almacen/almacenes', row.id, 'stock']"
-                  >Ver stock</a
-                >
-                @if (auth.canWriteAlmacen()) {
-                  <button type="button" class="btn btn-ghost btn-sm" (click)="openEdit(row)">Editar</button>
-                  <button type="button" class="btn btn-outline btn-error btn-sm" (click)="remove(row)">
-                    Eliminar
-                  </button>
+              <th>ID</th>
+              <th>Proveedor</th>
+              <th>Dirección</th>
+              <th class="text-right">Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (row of pagedItems(); track row.id) {
+              <tr>
+                <td><span class="badge badge-ghost font-mono">#{{ row.id }}</span></td>
+                <td class="font-medium">{{ supplierById().get(row.supplier) ?? row.supplier }}</td>
+                <td class="max-w-md">{{ row.address }}</td>
+                <td class="text-right">
+                  <div class="flex flex-wrap justify-end gap-1">
+                    <a class="btn btn-ghost btn-sm" [routerLink]="['/almacen/almacenes', row.id, 'stock']">
+                      Ver stock
+                    </a>
+                    @if (auth.canWriteAlmacen()) {
+                      <button type="button" class="btn btn-ghost btn-sm" (click)="openEdit(row)">Editar</button>
+                      <button type="button" class="btn btn-outline btn-error btn-sm" (click)="remove(row)">
+                        Eliminar
+                      </button>
+                    }
+                  </div>
+                </td>
+              </tr>
+            } @empty {
+              <tr>
+                <td colspan="4" class="text-base-content/60 py-10 text-center">
+                  @if (hasActiveSearch()) {
+                    No hay almacenes que coincidan con la búsqueda.
+                    @if (totalLoaded() > 0) {
+                      <span class="mt-1 block text-xs">({{ totalLoaded() }} en total)</span>
+                    }
+                  } @else {
+                    No hay almacenes.
+                  }
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+      @if (totalCount() > 0) {
+        <div class="flex flex-col gap-3 border-t border-base-300 bg-base-200/40 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <p class="text-sm text-base-content/70">
+            Mostrando {{ rangeStart() }}–{{ rangeEnd() }} de {{ totalCount() }}
+            @if (hasActiveSearch() && totalLoaded() !== totalCount()) {
+              <span class="text-base-content/50"> ({{ totalLoaded() }} en total)</span>
+            }
+          </p>
+          <div class="flex flex-wrap items-center gap-2">
+            <label class="flex items-center gap-2 text-sm text-base-content/70">
+              <span>Por página</span>
+              <select
+                class="select select-bordered select-sm w-[4.75rem] min-h-8"
+                [value]="pageSize()"
+                (change)="setPageSize(+$any($event.target).value)"
+              >
+                @for (opt of pageSizeOptions; track opt) {
+                  <option [value]="opt">{{ opt }}</option>
                 }
-              </td>
-            </tr>
-          } @empty {
-            <tr>
-              <td colspan="4" class="text-base-content/60 text-center">No hay almacenes.</td>
-            </tr>
-          }
-        </tbody>
-      </table>
+              </select>
+            </label>
+            <div class="join border border-base-300">
+              <button
+                type="button"
+                class="btn btn-sm join-item"
+                [disabled]="pageIndex() === 0"
+                (click)="prevPage()"
+                aria-label="Página anterior"
+              >
+                «
+              </button>
+              <span class="btn btn-sm join-item btn-ghost pointer-events-none cursor-default no-animation">
+                {{ pageIndex() + 1 }} / {{ totalPages() }}
+              </span>
+              <button
+                type="button"
+                class="btn btn-sm join-item"
+                [disabled]="totalPages() === 0 || pageIndex() >= totalPages() - 1"
+                (click)="nextPage()"
+                aria-label="Página siguiente"
+              >
+                »
+              </button>
+            </div>
+          </div>
+        </div>
+      }
     }
   </div>
 </div>
 
 @if (modalOpen()) {
   <div class="modal modal-open">
-    <div class="modal-box max-w-lg">
-      <h2 class="font-bold text-lg mb-4">{{ editingId() == null ? 'Nuevo almacén' : 'Editar almacén' }}</h2>
-      <form class="flex flex-col gap-3" [formGroup]="form" (ngSubmit)="save()">
-        @if (editingId() != null) {
-          <label class="form-control">
-            <span class="label-text">ID</span>
-            <input class="input input-bordered" type="number" formControlName="id" readonly />
-          </label>
-        }
-        <label class="form-control">
-          <span class="label-text">Proveedor</span>
-          <select class="select select-bordered" formControlName="supplier">
-            @for (s of suppliers(); track s.id) {
-              <option [ngValue]="s.id">{{ s.name }}</option>
+    <div class="modal-box flex max-h-[90vh] max-w-lg flex-col overflow-hidden p-0">
+      <header class="flex shrink-0 items-start justify-between gap-3 border-b border-base-300 px-6 py-4">
+        <div>
+          <h2 class="text-lg font-bold">
+            {{ editingId() == null ? 'Nuevo almacén' : 'Editar almacén' }}
+          </h2>
+          <p class="text-base-content/60 mt-1 text-sm">
+            @if (editingId() == null) {
+              Asocie una ubicación a un proveedor.
+            } @else {
+              Almacén #{{ editingId() }}
             }
-          </select>
-        </label>
-        <label class="form-control">
-          <span class="label-text">Dirección</span>
-          <input class="input input-bordered" formControlName="address" />
-        </label>
-        <div class="modal-action">
-          <button type="button" class="btn" (click)="closeModal()">Cancelar</button>
+          </p>
+        </div>
+        <button type="button" class="btn btn-ghost btn-sm btn-circle" (click)="closeModal()" aria-label="Cerrar">
+          ✕
+        </button>
+      </header>
+
+      <form class="flex min-h-0 flex-1 flex-col" [formGroup]="form" (ngSubmit)="save()">
+        <div class="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-5">
+          @if (showModalValidationHint()) {
+            <div role="alert" class="alert alert-warning text-sm">
+              Complete los campos obligatorios antes de guardar.
+            </div>
+          }
+          @if (modalError(); as err) {
+            <div role="alert" class="alert alert-error text-sm">{{ err }}</div>
+          }
+
+          @if (editingId() != null) {
+            <label class="flex flex-col gap-1.5">
+              <span class="text-sm font-medium">ID</span>
+              <input class="input input-bordered bg-base-200" type="number" formControlName="id" readonly />
+            </label>
+          }
+
+          <label class="flex flex-col gap-1.5">
+            <span class="text-sm font-medium">Proveedor</span>
+            <select
+              class="select select-bordered w-full"
+              [class.select-error]="isFieldInvalid('supplier')"
+              formControlName="supplier"
+            >
+              @if (suppliers().length === 0) {
+                <option [ngValue]="0" disabled>No hay proveedores</option>
+              }
+              @for (s of suppliers(); track s.id) {
+                <option [ngValue]="s.id">{{ s.name }}</option>
+              }
+            </select>
+            @if (fieldError('supplier'); as msg) {
+              <span class="text-error text-xs">{{ msg }}</span>
+            }
+          </label>
+
+          <label class="flex flex-col gap-1.5">
+            <span class="text-sm font-medium">Dirección</span>
+            <textarea
+              class="textarea textarea-bordered w-full"
+              [class.textarea-error]="isFieldInvalid('address')"
+              rows="3"
+              formControlName="address"
+              placeholder="Calle, distrito, ciudad…"
+            ></textarea>
+            @if (fieldError('address'); as msg) {
+              <span class="text-error text-xs">{{ msg }}</span>
+            }
+          </label>
+        </div>
+
+        <div class="modal-action mt-0 shrink-0 border-t border-base-300 bg-base-200/40 px-6 py-4">
+          <button type="button" class="btn btn-ghost" (click)="closeModal()" [disabled]="saving()">Cancelar</button>
           <button type="submit" class="btn btn-primary" [disabled]="saving()">
             @if (saving()) {
-              <span class="loading loading-spinner"></span>
+              <span class="loading loading-spinner loading-sm"></span>
             }
             Guardar
           </button>

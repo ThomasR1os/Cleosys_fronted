@@ -1,0 +1,126 @@
+<div class="space-y-4">
+  <a routerLink="/logistica/ordenes-internas" class="link link-hover text-sm">← Volver a órdenes internas</a>
+
+  @if (loading()) {
+    <div class="flex justify-center p-12">
+      <span class="loading loading-spinner loading-lg text-primary"></span>
+    </div>
+  } @else if (order(); as current) {
+    <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+      <div>
+        <div class="flex flex-wrap items-center gap-2">
+          <h1 class="text-3xl font-bold">Orden interna #{{ current.id }}</h1>
+          <span class="badge {{ statusBadge(current.status) }}">{{ statusLabel(current.status) }}</span>
+        </div>
+        <p class="text-base-content/70 mt-1 text-sm">
+          Cliente <strong>{{ clientLabel(current) }}</strong>
+          · Cotización <strong class="font-mono">{{ quotationLabel(current) }}</strong>
+        </p>
+        @if (current.notes) {
+          <p class="mt-2 text-sm">{{ current.notes }}</p>
+        }
+      </div>
+      <div class="flex flex-wrap gap-2">
+        @if (canPurchase()) {
+          <button type="button" class="btn btn-primary" (click)="generatePurchase()">
+            Generar orden de compra
+          </button>
+        }
+        @if (canClose()) {
+          <button type="button" class="btn btn-outline" [disabled]="saving()" (click)="openClose()">
+            Cerrar
+          </button>
+        }
+      </div>
+    </div>
+
+    @if (!auth.canWriteLogistica()) {
+      <div role="status" class="alert alert-warning text-sm">
+        Solo consulta. Cerrar la orden o generar la compra exige rol <strong>Logística</strong> o
+        <strong>Administrador</strong>.
+      </div>
+    }
+
+    @if (errorMessage(); as err) {
+      <div role="alert" class="alert alert-error text-sm whitespace-pre-line">{{ err }}</div>
+    }
+
+    <section class="rounded-lg border border-base-300 bg-base-100 p-4">
+      <h2 class="text-lg font-semibold">Qué hay que adquirir</h2>
+      <p class="text-base-content/60 mt-1 text-sm">
+        Pendiente es lo que todavía falta comprar. Vendida es lo que pidió el cliente; cotizada es lo que
+        decía la cotización y no cambia. Al crear una orden de compra ligada, el estado pasa solo a
+        parcial y, cuando todo está cubierto, a comprada.
+      </p>
+      <div class="mt-4 overflow-x-auto">
+        <table class="table table-zebra text-sm">
+          <thead>
+            <tr>
+              <th>Producto</th>
+              <th class="text-right">Cotizada</th>
+              <th class="text-right">Vendida</th>
+              <th class="text-right">Ordenada</th>
+              <th class="text-right">Pendiente</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (item of items(); track item.id) {
+              <tr>
+                <td>{{ itemLabel(item) }}</td>
+                <td class="text-right tabular-nums">{{ item.quoted_cant ? qty(item.quoted_cant) : '—' }}</td>
+                <td class="text-right tabular-nums">{{ qty(item.cant) }}</td>
+                <td class="text-right tabular-nums">{{ qty(item.ordered_qty) }}</td>
+                <td class="text-right tabular-nums">{{ qty(item.pending_qty) }}</td>
+              </tr>
+            } @empty {
+              <tr>
+                <td colspan="5" class="text-base-content/60 text-center">Esta orden no tiene líneas.</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </section>
+  } @else if (errorMessage(); as err) {
+    <div role="alert" class="alert alert-error text-sm whitespace-pre-line">{{ err }}</div>
+  }
+
+  @if (closeOpen()) {
+    <div class="modal modal-open z-50">
+      <div class="modal-box max-w-lg">
+        <h2 class="text-lg font-bold">Cerrar orden interna</h2>
+        <p class="text-base-content/70 mt-2 text-sm">
+          Úsalo cuando lo aprobado sale de stock y no hay que comprarlo. La orden queda en
+          <strong>Cerrada</strong>.
+        </p>
+        @if (hasPending()) {
+          <div role="status" class="alert alert-warning mt-3 text-sm">
+            Todavía hay cantidad pendiente de comprar. Si cierras, esa cantidad no se va a pedir.
+          </div>
+        }
+        @if (errorMessage(); as err) {
+          <div role="alert" class="alert alert-error mt-3 text-sm whitespace-pre-line">{{ err }}</div>
+        }
+        <label class="form-control mt-4 w-full">
+          <span class="label-text">Notas</span>
+          <textarea
+            class="textarea textarea-bordered w-full"
+            rows="3"
+            [value]="closeNotes()"
+            (input)="onCloseNotes($any($event.target).value)"
+          ></textarea>
+        </label>
+        <div class="modal-action">
+          <button type="button" class="btn btn-ghost" [disabled]="saving()" (click)="closeClose()">Cancelar</button>
+          <button type="button" class="btn btn-primary" [disabled]="saving()" (click)="confirmClose()">
+            @if (saving()) {
+              <span class="loading loading-spinner loading-sm"></span>
+            }
+            Cerrar orden
+          </button>
+        </div>
+      </div>
+      <button type="button" class="modal-backdrop bg-black/50" aria-label="Cerrar" (click)="closeClose()"></button>
+    </div>
+  }
+</div>

@@ -1,0 +1,272 @@
+<div class="space-y-4">
+  <a routerLink="/logistica" class="link link-hover text-sm">← Volver a Logística</a>
+
+  <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div>
+      <h1 class="text-3xl font-bold">Órdenes de compra</h1>
+      <p class="text-base-content/70 mt-1 text-sm">
+        Compras a proveedores de
+        <strong>{{ companyTitle() || 'tu empresa' }}</strong>.
+        Cada empresa lleva sus órdenes por separado. Al cerrar una orden puedes generar el documento OC.
+      </p>
+    </div>
+    @if (auth.canWriteLogistica()) {
+      <a routerLink="/logistica/ordenes-compra/nueva" class="btn btn-primary btn-lg">Nueva orden</a>
+    }
+  </div>
+
+  @if (!auth.canWriteLogistica()) {
+    <div role="status" class="alert alert-warning text-sm">
+      Solo consulta. Para crear o editar se requiere rol <strong>Logística</strong> o
+      <strong>Administrador</strong>.
+    </div>
+  }
+
+  @if (errorMessage(); as err) {
+    <div role="alert" class="alert alert-error text-sm whitespace-pre-line">{{ err }}</div>
+  }
+
+  <div class="grid grid-cols-1 gap-3 rounded-lg border border-base-300 bg-base-100 p-4 sm:grid-cols-2 lg:grid-cols-4 lg:items-end">
+    <div class="flex min-w-0 flex-col gap-1 sm:col-span-2 lg:col-span-1">
+      <span class="text-sm font-medium">Proveedor</span>
+      <div class="relative">
+        <input
+          class="input input-bordered input-sm w-full"
+          [value]="supplierQuery()"
+          (input)="onSupplierQuery($any($event.target).value)"
+          (focus)="supplierMenuOpen.set(true)"
+          (blur)="closeSupplierMenuSoon()"
+          placeholder="Nombre o RUC"
+          autocomplete="off"
+        />
+        @if (supplierMenuOpen()) {
+          <ul class="border-base-300 bg-base-100 absolute z-30 mt-1 max-h-60 w-full overflow-auto rounded-lg border shadow-lg">
+            <li>
+              <button type="button" class="hover:bg-base-200 w-full px-3 py-2 text-left text-sm" (mousedown)="pickSupplierFilter(null, $event)">
+                Todos
+              </button>
+            </li>
+            @for (supplier of supplierMatches(); track supplier.id) {
+              <li>
+                <button
+                  type="button"
+                  class="hover:bg-base-200 w-full px-3 py-2 text-left text-sm"
+                  (mousedown)="pickSupplierFilter(supplier, $event)"
+                >
+                  <span class="font-medium">{{ supplier.name }}</span>
+                  @if (supplier.ruc) {
+                    <span class="text-base-content/60 block text-xs">RUC {{ supplier.ruc }}</span>
+                  }
+                </button>
+              </li>
+            } @empty {
+              <li class="text-base-content/60 px-3 py-2 text-sm">Ningún proveedor coincide.</li>
+            }
+          </ul>
+        }
+      </div>
+    </div>
+    <div class="flex min-w-0 flex-col gap-1">
+      <span class="text-sm font-medium">Estado</span>
+      <select
+        class="select select-bordered select-sm w-full"
+        [value]="filterStatus()"
+        (change)="onStatusFilter($any($event.target).value)"
+      >
+        <option value="">Todos</option>
+        @for (status of statuses; track status.value) {
+          <option [value]="status.value">{{ status.label }}</option>
+        }
+      </select>
+    </div>
+    <div class="flex min-w-0 flex-col gap-1 sm:col-span-2">
+      <span class="text-sm font-medium">Buscar</span>
+      <input
+        class="input input-bordered input-sm w-full"
+        [value]="searchQuery()"
+        (input)="onSearchInput($any($event.target).value)"
+        placeholder="Correlativo, referencia del proveedor o RUC"
+        autocomplete="off"
+      />
+    </div>
+    @if (hasFilters()) {
+      <button type="button" class="btn btn-ghost btn-sm w-fit" (click)="clearFilters()">Limpiar filtros</button>
+    }
+  </div>
+
+  <div class="overflow-x-auto rounded-lg border border-base-300 bg-base-100">
+    @if (loading() || listLoading()) {
+      <div class="flex justify-center p-12">
+        <span class="loading loading-spinner loading-lg text-primary"></span>
+      </div>
+    } @else {
+      <table class="table table-zebra text-sm">
+        <thead>
+          <tr>
+            <th>Correlativo</th>
+            <th>Proveedor</th>
+            <th>Estado</th>
+            <th>Entrega</th>
+            <th>Moneda</th>
+            <th class="text-right">Total</th>
+            <th class="text-right">Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of pagedOrders(); track row.id) {
+            <tr>
+              <td class="font-medium">
+                <a class="link link-hover" [routerLink]="['/logistica/ordenes-compra', row.id]">
+                  {{ orderCode(row) }}
+                </a>
+                @if (row.supplier_reference) {
+                  <div class="text-base-content/60 max-w-[12rem] truncate text-xs" [title]="row.supplier_reference">
+                    Ref. {{ row.supplier_reference }}
+                  </div>
+                }
+              </td>
+              <td>{{ supplierLabel(row.supplier) }}</td>
+              <td>
+                <span class="badge badge-sm {{ statusBadge(row.status) }}">{{ statusLabel(row.status) }}</span>
+              </td>
+              <td>{{ delivery(row.expected_delivery_date) }}</td>
+              <td>{{ row.money }}</td>
+              <td class="text-right whitespace-nowrap">{{ money(row.total, row.money) }}</td>
+              <td class="text-right">
+                <div class="flex flex-nowrap justify-end gap-0.5">
+                  <a
+                    class="btn btn-ghost btn-sm btn-square"
+                    [routerLink]="['/logistica/ordenes-compra', row.id]"
+                    title="Abrir"
+                    aria-label="Abrir"
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke-width="1.5"
+                      class="h-4 w-4 stroke-current"
+                      aria-hidden="true"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z"
+                      />
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"
+                      />
+                    </svg>
+                  </a>
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-sm btn-square"
+                    [disabled]="pdfBusyId() === row.id"
+                    title="Generar OC"
+                    aria-label="Generar OC"
+                    (click)="generateOc(row)"
+                  >
+                    @if (pdfBusyId() === row.id) {
+                      <span class="loading loading-spinner loading-xs"></span>
+                    } @else {
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke-width="1.5"
+                        class="h-4 w-4 stroke-current"
+                        aria-hidden="true"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m.75 12 3 3m0 0 3-3m-3 3v-6m-1.5-9H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"
+                        />
+                      </svg>
+                    }
+                  </button>
+                  @if (auth.canWriteLogistica()) {
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-error btn-sm btn-square"
+                      title="Eliminar"
+                      aria-label="Eliminar"
+                      (click)="remove(row)"
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke-width="1.5"
+                        class="h-4 w-4 stroke-current"
+                        aria-hidden="true"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
+                        />
+                      </svg>
+                    </button>
+                  }
+                </div>
+              </td>
+            </tr>
+          } @empty {
+            <tr>
+              <td colspan="7" class="text-base-content/60 text-center">
+                No hay órdenes de compra{{ hasFilters() ? ' con estos filtros' : '' }}.
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+      @if (totalCount() > 0) {
+        <div class="flex flex-col gap-3 border-t border-base-300 bg-base-200/40 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <p class="text-sm text-base-content/70">
+            Mostrando {{ rangeStart() }}–{{ rangeEnd() }} de {{ totalCount() }}
+          </p>
+          <div class="flex flex-wrap items-center gap-2">
+            <label class="flex items-center gap-2 text-sm text-base-content/70">
+              <span>Por página</span>
+              <select
+                class="select select-bordered select-sm w-[4.75rem] min-h-8"
+                [value]="pageSize()"
+                (change)="setPageSize(+$any($event.target).value)"
+              >
+                @for (opt of pageSizeOptions; track opt) {
+                  <option [value]="opt">{{ opt }}</option>
+                }
+              </select>
+            </label>
+            <div class="join border border-base-300">
+              <button
+                type="button"
+                class="btn btn-sm join-item"
+                [disabled]="pageIndex() === 0"
+                (click)="prevPage()"
+                aria-label="Página anterior"
+              >
+                «
+              </button>
+              <span class="btn btn-sm join-item btn-ghost pointer-events-none cursor-default no-animation">
+                {{ pageIndex() + 1 }} / {{ totalPages() }}
+              </span>
+              <button
+                type="button"
+                class="btn btn-sm join-item"
+                [disabled]="totalPages() === 0 || pageIndex() >= totalPages() - 1"
+                (click)="nextPage()"
+                aria-label="Página siguiente"
+              >
+                »
+              </button>
+            </div>
+          </div>
+        </div>
+      }
+    }
+  </div>
+</div>

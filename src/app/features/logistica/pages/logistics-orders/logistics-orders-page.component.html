@@ -1,0 +1,149 @@
+<div class="space-y-4">
+  <a routerLink="/logistica" class="link link-hover text-sm">← Volver a Logística</a>
+
+  <div>
+    <h1 class="text-3xl font-bold">Órdenes internas</h1>
+    <p class="text-base-content/70 mt-1 text-sm">
+      Lo que ventas aprobó y logística tiene que adquirir para
+      <strong>{{ companyTitle() || 'tu empresa' }}</strong>.
+      La orden nace al aprobar la cotización; aquí no se crea a mano.
+    </p>
+  </div>
+
+  @if (!auth.canWriteLogistica()) {
+    <div role="status" class="alert alert-warning text-sm">
+      Solo consulta. Cerrar la orden o generar la compra exige rol <strong>Logística</strong> o
+      <strong>Administrador</strong>.
+    </div>
+  }
+
+  @if (errorMessage(); as err) {
+    <div role="alert" class="alert alert-error text-sm whitespace-pre-line">{{ err }}</div>
+  }
+
+  <div class="grid grid-cols-1 gap-3 rounded-lg border border-base-300 bg-base-100 p-4 sm:grid-cols-2 lg:grid-cols-4 lg:items-end">
+    <label class="flex min-w-0 flex-col gap-1">
+      <span class="text-sm font-medium">Estado</span>
+      <select class="select select-bordered select-sm w-full" [value]="filterStatus()" (change)="onStatusFilter($any($event.target).value)">
+        <option value="">Todos</option>
+        @for (opt of statuses; track opt.value) {
+          <option [value]="opt.value">{{ opt.label }}</option>
+        }
+      </select>
+    </label>
+    <label class="flex min-w-0 flex-col gap-1">
+      <span class="text-sm font-medium">Cotización (id)</span>
+      <input
+        class="input input-bordered input-sm w-full"
+        type="number"
+        min="1"
+        [value]="filterQuotation()"
+        (change)="onQuotationFilter($any($event.target).value)"
+        placeholder="Id de la cotización"
+      />
+    </label>
+    <label class="flex min-w-0 flex-col gap-1">
+      <span class="text-sm font-medium">Cliente</span>
+      <select class="select select-bordered select-sm w-full" [value]="filterClient() ?? ''" (change)="onClientFilter($any($event.target).value)">
+        <option value="">Todos</option>
+        @for (client of clients(); track client.id) {
+          <option [value]="client.id">{{ client.name }}</option>
+        }
+      </select>
+    </label>
+    <label class="flex min-w-0 flex-col gap-1">
+      <span class="text-sm font-medium">Buscar</span>
+      <input
+        class="input input-bordered input-sm w-full"
+        [value]="searchQuery()"
+        (input)="onSearch($any($event.target).value)"
+        placeholder="Correlativo, cliente, notas"
+      />
+    </label>
+  </div>
+
+  @if (hasFilters()) {
+    <button type="button" class="btn btn-ghost btn-sm" (click)="clearFilters()">Limpiar filtros</button>
+  }
+
+  @if (loading()) {
+    <div class="flex justify-center p-12">
+      <span class="loading loading-spinner loading-lg text-primary"></span>
+    </div>
+  } @else {
+    <div class="overflow-x-auto rounded-lg border border-base-300 bg-base-100">
+      <table class="table table-zebra text-sm">
+        <thead>
+          <tr>
+            <th>Orden</th>
+            <th>Cliente</th>
+            <th>Cotización</th>
+            <th>Estado</th>
+            <th class="text-right">Pendiente</th>
+            <th class="text-right">Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of pagedOrders(); track row.id) {
+            <tr>
+              <td class="font-mono">#{{ row.id }}</td>
+              <td>{{ clientLabel(row) }}</td>
+              <td class="font-mono text-xs">{{ quotationLabel(row) }}</td>
+              <td>
+                <span class="badge badge-sm {{ statusBadge(row.status) }}">{{ statusLabel(row.status) }}</span>
+              </td>
+              <td class="text-right tabular-nums">{{ pendingLabel(row.id) }}</td>
+              <td class="text-right">
+                <a class="btn btn-ghost btn-sm" [routerLink]="['/logistica/ordenes-internas', row.id]">Abrir</a>
+              </td>
+            </tr>
+          } @empty {
+            <tr>
+              <td colspan="6" class="text-base-content/60 text-center">
+                No hay órdenes internas{{ hasFilters() ? ' con estos filtros' : '' }}.
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+      @if (totalCount() > 0) {
+        <div class="flex flex-col gap-3 border-t border-base-300 bg-base-200/40 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <p class="text-sm text-base-content/70">
+            Mostrando {{ rangeStart() }}–{{ rangeEnd() }} de {{ totalCount() }}
+          </p>
+          <div class="flex flex-wrap items-center gap-2">
+            <label class="flex items-center gap-2 text-sm text-base-content/70">
+              <span>Por página</span>
+              <select
+                class="select select-bordered select-sm w-[4.75rem] min-h-8"
+                [value]="pageSize()"
+                (change)="setPageSize(+$any($event.target).value)"
+              >
+                @for (opt of pageSizeOptions; track opt) {
+                  <option [value]="opt">{{ opt }}</option>
+                }
+              </select>
+            </label>
+            <div class="join border border-base-300">
+              <button type="button" class="btn btn-sm join-item" [disabled]="pageIndex() === 0" (click)="prevPage()" aria-label="Página anterior">
+                «
+              </button>
+              <span class="btn btn-sm join-item btn-ghost pointer-events-none cursor-default no-animation">
+                {{ pageIndex() + 1 }} / {{ totalPages() }}
+              </span>
+              <button
+                type="button"
+                class="btn btn-sm join-item"
+                [disabled]="totalPages() === 0 || pageIndex() >= totalPages() - 1"
+                (click)="nextPage()"
+                aria-label="Página siguiente"
+              >
+                »
+              </button>
+            </div>
+          </div>
+        </div>
+      }
+    </div>
+  }
+</div>

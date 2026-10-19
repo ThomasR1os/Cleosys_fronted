@@ -25,6 +25,11 @@ export interface Product {
   /** Garantía del producto. */
   warranty: string | null;
   /**
+   * Días de espera estimados. `null` = todavía no hay plazo.
+   * `0` = entrega inmediata.
+   */
+  estimated_lead_time_days: number | null;
+  /**
    * Compatibilidad con respuestas antiguas / Excel.
    * (En algunos entornos el backend expone el typo `warrannty`.)
    */
@@ -72,6 +77,27 @@ export interface WarehouseMovement {
   product: number;
   cant: string;
   movement_type: MovementType;
-  observation: number;
+  /** Nota libre. Vacía llega como `null`. */
+  observation: string | null;
   creation_date?: string;
+}
+
+/** Alta manual. `cant` va como decimal en texto (`"1.00"`). Sin nota, se omite `observation`. */
+export interface WarehouseMovementWrite {
+  warehouse: number;
+  product: number;
+  movement_type: MovementType;
+  cant: string;
+  observation?: string | null;
+}
+
+export interface WarehouseMovementImportError {
+  row: number;
+  error: string;
+}
+
+export interface WarehouseMovementImportResult {
+  created: number;
+  failed: number;
+  errors: WarehouseMovementImportError[];
 }

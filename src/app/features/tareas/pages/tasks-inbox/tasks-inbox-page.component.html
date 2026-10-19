@@ -1,0 +1,108 @@
+<div class="space-y-6">
+  <a [routerLink]="backLink()" class="link link-hover text-sm">← Volver</a>
+
+  <nav class="tabs tabs-boxed w-fit max-w-full overflow-x-auto border border-base-300 bg-base-100">
+    @if (backLink() === '/logistica') {
+      <a routerLink="/logistica/solicitudes-proforma" class="tab whitespace-nowrap">Solicitudes proforma</a>
+      <a routerLink="/logistica/pendientes" class="tab tab-active whitespace-nowrap">Mis pendientes</a>
+    } @else {
+      <a routerLink="/ventas/solicitudes-proforma" class="tab whitespace-nowrap">Solicitudes proforma</a>
+      <a routerLink="/ventas/pendientes" class="tab tab-active whitespace-nowrap">Mis pendientes</a>
+      <a routerLink="/ventas/cotizaciones" class="tab whitespace-nowrap">Cotizaciones</a>
+    }
+  </nav>
+
+  <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div>
+      <h1 class="text-3xl font-bold">Mis pendientes</h1>
+      <p class="text-base-content/70 mt-1 text-sm">
+        Tareas que requieren tu atención o seguimiento. Las de proforma se atienden en la solicitud.
+      </p>
+    </div>
+    <button type="button" class="btn btn-outline" (click)="reload()">Actualizar</button>
+  </div>
+
+  @if (errorMessage(); as err) {
+    <div role="alert" class="alert alert-error text-sm">{{ err }}</div>
+  }
+
+  @if (summary(); as s) {
+    <section class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <article class="rounded-lg border border-base-300 bg-base-100 p-4">
+        <p class="text-xs text-base-content/60">Asignadas a mí</p>
+        <p class="mt-1 text-2xl font-bold">{{ s.assigned_to_me }}</p>
+      </article>
+      <article class="rounded-lg border border-base-300 bg-base-100 p-4">
+        <p class="text-xs text-base-content/60">Esperando proveedor</p>
+        <p class="mt-1 text-2xl font-bold">{{ s.waiting_supplier }}</p>
+      </article>
+      <article class="rounded-lg border border-base-300 bg-base-100 p-4">
+        <p class="text-xs text-base-content/60">Pendiente de ventas</p>
+        <p class="mt-1 text-2xl font-bold">{{ s.pending_sales }}</p>
+      </article>
+      <article class="rounded-lg border border-error/30 bg-base-100 p-4">
+        <p class="text-xs text-base-content/60">Fuera de plazo</p>
+        <p class="mt-1 text-2xl font-bold text-error">{{ s.overdue }}</p>
+      </article>
+    </section>
+  }
+
+  <div class="tabs tabs-bordered">
+    <button type="button" class="tab" [class.tab-active]="tab() === 'mine'" (click)="setTab('mine')">Asignadas a mí</button>
+    <button type="button" class="tab" [class.tab-active]="tab() === 'unassigned'" (click)="setTab('unassigned')">Sin asignar</button>
+    <button type="button" class="tab" [class.tab-active]="tab() === 'all'" (click)="setTab('all')">Todas</button>
+  </div>
+
+  <div class="overflow-hidden rounded-lg border border-base-300 bg-base-100">
+    @if (loading()) {
+      <div class="flex justify-center p-12">
+        <span class="loading loading-spinner loading-lg text-primary"></span>
+      </div>
+    } @else {
+      <div class="overflow-x-auto">
+        <table class="table table-zebra text-sm">
+          <thead>
+            <tr>
+              <th>Tarea</th>
+              <th>Solicitud</th>
+              <th>Responsable</th>
+              <th>Área</th>
+              <th>Estado</th>
+              <th>Espera por</th>
+              <th>Plazo</th>
+              <th class="text-right">Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (row of filtered(); track row.id) {
+              <tr>
+                <td>
+                  <div class="font-semibold text-primary">{{ row.correlativo || 'TAR-' + row.id }}</div>
+                  <div class="text-xs text-base-content/60">{{ row.title || 'Tarea de seguimiento' }}</div>
+                </td>
+                <td>{{ row.proforma_correlativo || (row.proforma_request ? '#' + row.proforma_request : '—') }}</td>
+                <td>{{ assignee(row) }}</td>
+                <td>{{ queue(row) }}</td>
+                <td>{{ statusLabel(row.status) }}</td>
+                <td>{{ waiting(row) }}</td>
+                <td>{{ formatStamp(row.due_at) }}</td>
+                <td class="text-right">
+                  <div class="flex justify-end gap-1">
+                    @if (!row.assigned_user) {
+                      <button type="button" class="btn btn-outline btn-xs" (click)="take(row)">Tomar</button>
+                    }
+                    <button type="button" class="btn btn-ghost btn-xs" (click)="open(row)">Abrir</button>
+                  </div>
+                </td>
+              </tr>
+            } @empty {
+              <tr>
+                <td colspan="8" class="py-8 text-center text-base-content/60">No hay tareas en esta vista.</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    }
+  </div>
+</div>

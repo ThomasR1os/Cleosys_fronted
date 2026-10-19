@@ -1,4 +1,7 @@
 import type {
+  ProformaEntryChannel,
+  ProformaRequestRow,
+  ProformaRequestType,
   QuotationMoney,
   QuotationRow,
   QuotationStatus,
@@ -63,5 +66,65 @@ export interface DashboardStats {
   byType: TypeBucket[];
   byAdvisor: AdvisorBucket[];
   advisors: { id: number; label: string }[];
+  years: number[];
+}
+
+/** Segmento operativo del reporte de solicitudes de proforma. */
+export type ProformaReportSegment =
+  | 'ALL'
+  | 'OPEN'
+  | 'LOGISTICS'
+  | 'SALES'
+  | 'DONE'
+  | 'CLOSED';
+
+export interface ProformaDashboardFilters {
+  year: number;
+  /** 1–12, o todo el año. */
+  month: number | 'ALL';
+  segment: ProformaReportSegment;
+  proformaType: 'ALL' | ProformaRequestType;
+  channel: 'ALL' | ProformaEntryChannel;
+  assigneeId: number | 'ALL';
+}
+
+export interface ProformaDashboardKpis {
+  total: number;
+  open: number;
+  completed: number;
+  closed: number;
+  overdue: number;
+  withQuotation: number;
+}
+
+export interface ProformaNamedBucket {
+  key: string;
+  label: string;
+  count: number;
+}
+
+export interface ProformaTimeBucket {
+  key: string;
+  label: string;
+  count: number;
+  withQuotation: number;
+}
+
+export interface ProformaAssigneeBucket {
+  id: number;
+  label: string;
+  count: number;
+  overdue: number;
+}
+
+export interface ProformaDashboardStats {
+  filtered: ProformaRequestRow[];
+  kpis: ProformaDashboardKpis;
+  timeSeries: ProformaTimeBucket[];
+  byWorkflow: ProformaNamedBucket[];
+  byType: ProformaNamedBucket[];
+  byChannel: ProformaNamedBucket[];
+  byAssignee: ProformaAssigneeBucket[];
+  assignees: { id: number; label: string }[];
   years: number[];
 }

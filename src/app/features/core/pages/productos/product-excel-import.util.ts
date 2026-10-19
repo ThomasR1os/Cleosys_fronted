@@ -4,6 +4,8 @@ import type { Product } from '../../../almacen/models/almacen.models';
 /** Campos importables (sin imágenes). */
 export type ProductExcelRow = {
   sku: string;
+  /** La celda de plazo tiene texto, un decimal o un negativo. Esa fila no se envía. */
+  leadTimeError?: string;
 } & Partial<{
   description: string | null;
   category: number | null;
@@ -19,6 +21,8 @@ export type ProductExcelRow = {
   status: string | null;
   dimensions: string | null;
   gross_weight: string | null;
+  /** Solo si la celda trae un entero ≥ 0. Ausente = celda vacía o columna omitida. */
+  estimated_lead_time_days: number;
 }>;
 
 export type ExcelParseResult =
@@ -76,6 +80,11 @@ const SLUG_TO_FIELD: Record<string, keyof ProductExcelRow> = {
   dimensiones: 'dimensions',
   gross_weight: 'gross_weight',
   peso_bruto: 'gross_weight',
+  estimated_lead_time_days: 'estimated_lead_time_days',
+  tiempo_de_espera_estimado: 'estimated_lead_time_days',
+  tiempo_espera_estimado: 'estimated_lead_time_days',
+  plazo_estimado: 'estimated_lead_time_days',
+  plazo: 'estimated_lead_time_days',
 };
 
 function parseCell(field: keyof ProductExcelRow, raw: unknown): unknown {
@@ -90,8 +99,31 @@ function parseCell(field: keyof ProductExcelRow, raw: unknown): unknown {
     const n = decimalOrNull(raw);
     return n === null ? undefined : n;
   }
+  if (field === 'estimated_lead_time_days') {
+    return parseLeadDaysCell(raw);
+  }
   const s = String(raw).trim();
   return s === '' ? undefined : s;
+}
+
+const LEAD_TIME_ERROR = 'Tiempo de espera estimado debe ser un entero mayor o igual a 0.';
+
+/**
+ * Celda vacía → se omite la clave.
+ * 45, "45" y 45.0 → esos días.
+ * Negativo, decimal o texto → marca de error para fallar solo esa fila.
+ */
+function parseLeadDaysCell(raw: unknown): number | typeof LEAD_TIME_ERROR | undefined {
+  if (raw == null) return undefined;
+  if (typeof raw === 'number') {
+    if (!Number.isFinite(raw) || raw < 0 || raw !== Math.trunc(raw)) return LEAD_TIME_ERROR;
+    return raw;
+  }
+  const value = String(raw).trim().replace(/\s/g, '').replace(',', '.');
+  if (!value) return undefined;
+  if (!/^\d+(\.0+)?$/.test(value)) return LEAD_TIME_ERROR;
+  const days = Math.trunc(Number(value));
+  return Number.isFinite(days) && days >= 0 ? days : LEAD_TIME_ERROR;
 }
 
 export function parseProductExcel(buffer: ArrayBuffer): ExcelParseResult {
@@ -127,6 +159,10 @@ export function parseProductExcel(buffer: ArrayBuffer): ExcelParseResult {
     const partial: Record<string, unknown> = {};
     for (const [excelKey, field] of headerMap) {
       const v = parseCell(field, raw[excelKey]);
+      if (v === LEAD_TIME_ERROR) {
+        partial['leadTimeError'] = LEAD_TIME_ERROR;
+        continue;
+      }
       if (v !== undefined) partial[field as string] = v;
     }
     const sku = partial['sku'];
@@ -169,6 +205,7 @@ function normalizeBulkStatus(raw: string): string | undefined {
 export function excelRowToBulkItem(partial: ProductExcelRow): Record<string, unknown> {
   const sku = partial.sku.trim();
   if (!sku) throw new Error('SKU vacío');
+  if (partial.leadTimeError) throw new Error(partial.leadTimeError);
 
   const item: Record<string, unknown> = { sku };
 
@@ -224,6 +261,11 @@ export function excelRowToBulkItem(partial: ProductExcelRow): Record<string, unk
     }
   }
 
+  // Celda vacía o columna ausente: no se envía la clave (no pisa el plazo ya guardado).
+  if (partial.estimated_lead_time_days !== undefined) {
+    item['estimated_lead_time_days'] = partial.estimated_lead_time_days;
+  }
+
   return item;
 }
 
@@ -237,6 +279,7 @@ export function excelRowToProductPayload(
 ): Partial<Product> {
   const sku = partial.sku.trim();
   if (!sku) throw new Error('SKU vacío');
+  if (partial.leadTimeError) throw new Error(partial.leadTimeError);
 
   if (!existing) {
     const desc = strOrNull(partial.description) ?? '(sin descripción)';
@@ -253,6 +296,7 @@ export function excelRowToProductPayload(
       rental_price_without_operator: partial.rental_price_without_operator ?? null,
       rental_price_with_operator: partial.rental_price_with_operator ?? null,
       warranty: strOrNull(partial.warranty),
+      estimated_lead_time_days: partial.estimated_lead_time_days ?? null,
       status: strOrNull(partial.status) ?? 'ACTIVE',
       dimensions: strOrNull(partial.dimensions),
       gross_weight: strOrNull(partial.gross_weight),
@@ -282,6 +326,10 @@ export function excelRowToProductPayload(
         : existing.rental_price_with_operator,
     warranty:
       partial.warranty !== undefined ? strOrNull(partial.warranty) : existing.warranty,
+    estimated_lead_time_days:
+      partial.estimated_lead_time_days !== undefined
+        ? partial.estimated_lead_time_days
+        : existing.estimated_lead_time_days,
     status: partial.status !== undefined ? strOrNull(partial.status) ?? 'ACTIVE' : existing.status,
     dimensions:
       partial.dimensions !== undefined ? strOrNull(partial.dimensions) : existing.dimensions,
@@ -308,6 +356,7 @@ export function downloadProductExcelTemplate(): void {
     'status',
     'dimensions',
     'gross_weight',
+    'Tiempo de espera estimado',
   ] as const;
   const example = [
     'EJ-SKU-001',
@@ -325,6 +374,7 @@ export function downloadProductExcelTemplate(): void {
     'ACTIVE',
     '10x20x30 cm',
     '2.5 kg',
+    45,
   ];
   const ws = XLSX.utils.aoa_to_sheet([headers as unknown as string[], example]);
   const wb = XLSX.utils.book_new();

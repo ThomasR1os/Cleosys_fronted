@@ -40,6 +40,13 @@ export function buildFichaPdfRows(product: Product): FichaPdfParam[] {
   if (product.warranty?.trim()) {
     rows.push({ parametro: 'Garantía', valor: product.warranty.trim() });
   }
+  if (product.estimated_lead_time_days != null) {
+    const days = product.estimated_lead_time_days;
+    rows.push({
+      parametro: 'Tiempo de espera estimado',
+      valor: days === 0 ? 'Entrega inmediata' : `${days} días`,
+    });
+  }
   if (product.dimensions?.trim()) {
     rows.push({ parametro: 'Dimensiones', valor: product.dimensions.trim() });
   }

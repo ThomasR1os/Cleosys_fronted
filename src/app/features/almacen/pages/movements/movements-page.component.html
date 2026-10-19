@@ -5,18 +5,68 @@
     <div>
       <h1 class="text-3xl font-bold">Entradas y salidas</h1>
       <p class="text-base-content/70 mt-1 text-sm">
-        Cada movimiento actualiza el stock en el servidor (entradas suman, salidas restan).
+        Cada movimiento actualiza el stock en el servidor: las entradas suman y las salidas restan.
       </p>
     </div>
     @if (auth.canWriteAlmacen()) {
-      <button type="button" class="btn btn-primary btn-lg" (click)="openNew()">Registrar movimiento</button>
+      <div class="flex flex-wrap items-center gap-2">
+        <button type="button" class="btn btn-outline btn-sm" (click)="downloadTemplate()" [disabled]="importBusy()">
+          Plantilla Excel
+        </button>
+        <label class="btn btn-outline btn-sm cursor-pointer" [class.btn-disabled]="importBusy()">
+          @if (importBusy()) {
+            <span class="loading loading-spinner loading-xs"></span>
+            Importando…
+          } @else {
+            Importar Excel
+          }
+          <input
+            type="file"
+            class="hidden"
+            accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            [disabled]="importBusy()"
+            (change)="onExcelSelected($event)"
+          />
+        </label>
+        <button type="button" class="btn btn-primary" (click)="openNew()" [disabled]="importBusy()">
+          Registrar movimiento
+        </button>
+      </div>
     }
   </div>
 
   @if (!auth.canWriteAlmacen()) {
     <div role="status" class="alert alert-warning text-sm">
-      Solo consulta. Para registrar o eliminar movimientos se requiere rol <strong>Almacén</strong> o
+      Solo consulta. Para registrar, importar o eliminar movimientos se requiere rol <strong>Almacén</strong> o
       <strong>Administrador</strong>.
+    </div>
+  }
+
+  @if (auth.canWriteAlmacen()) {
+    <p class="text-base-content/60 text-xs">
+      Excel (.xlsx), hoja activa, máximo 500 filas, de la fecha más antigua a la más reciente. Columnas:
+      <code>sku</code>, <code>warehouse_id</code>, <code>movement_type</code> (ENTRADA o SALIDA),
+      <code>cant</code>, <code>observation</code> (opcional) y <code>creation_date</code> (opcional:
+      <code>2026-03-15</code>, <code>2026-03-15 14:30</code>, <code>15/03/2026</code> o
+      <code>15/03/2026 14:30</code>). Si la fecha va vacía, se usa la de la importación.
+      Subir el mismo archivo otra vez crea los movimientos de nuevo.
+    </p>
+  }
+
+  @if (importSummary(); as sum) {
+    <div role="status" class="alert alert-success text-sm">{{ sum }}</div>
+  }
+
+  @if (importErrors().length) {
+    <div role="alert" class="alert alert-error items-start text-sm">
+      <div>
+        <p class="font-medium">No se guardó ninguna fila. El stock no cambió.</p>
+        <ul class="mt-2 list-disc space-y-1 pl-5">
+          @for (item of importErrors(); track $index) {
+            <li>Fila {{ item.row }}: {{ item.error }}</li>
+          }
+        </ul>
+      </div>
     </div>
   }
 
@@ -24,103 +74,304 @@
     <div role="alert" class="alert alert-error text-sm">{{ err }}</div>
   }
 
-  <div class="overflow-x-auto rounded-lg border border-base-300 bg-base-100">
+  @if (!loading()) {
+    <div class="flex flex-col gap-3 rounded-xl border border-base-300 bg-base-100 p-4 shadow-sm sm:flex-row sm:items-end">
+      <label class="form-control min-w-0 flex-1">
+        <span class="label-text text-xs font-medium">Buscar</span>
+        <input
+          type="search"
+          class="input input-bordered input-sm w-full"
+          placeholder="Almacén, producto, cantidad u observación…"
+          autocomplete="off"
+          [value]="searchQuery()"
+          (input)="setSearchQuery($any($event.target).value)"
+        />
+      </label>
+      <label class="form-control w-full sm:w-44">
+        <span class="label-text text-xs font-medium">Tipo</span>
+        <select
+          class="select select-bordered select-sm w-full"
+          [value]="typeFilter()"
+          (change)="setTypeFilter($any($event.target).value)"
+        >
+          <option value="ALL">Todos</option>
+          @for (opt of typeOptions; track opt.value) {
+            <option [value]="opt.value">{{ opt.label }}</option>
+          }
+        </select>
+      </label>
+      @if (hasActiveFilters()) {
+        <button type="button" class="btn btn-ghost btn-sm" (click)="clearFilters()">Limpiar</button>
+      }
+    </div>
+  }
+
+  <div class="overflow-hidden rounded-xl border border-base-300 bg-base-100 shadow-sm">
     @if (loading()) {
       <div class="flex justify-center p-12">
         <span class="loading loading-spinner loading-lg text-primary"></span>
       </div>
     } @else {
-      <table class="table table-zebra text-sm">
-        <thead>
-          <tr>
-            <th>ID</th>
-            <th>Fecha</th>
-            <th>Almacén</th>
-            <th>Producto</th>
-            <th>Cantidad</th>
-            <th>Tipo</th>
-            <th>Obs. (nº)</th>
-            <th class="text-right">Acciones</th>
-          </tr>
-        </thead>
-        <tbody>
-          @for (row of movements(); track row.id) {
+      <div class="overflow-x-auto">
+        <table class="table table-zebra text-sm">
+          <thead>
             <tr>
-              <td>{{ row.id }}</td>
-              <td>{{ formatDate(row.creation_date) }}</td>
-              <td class="max-w-[12rem] truncate" [title]="warehouseLabel().get(row.warehouse) ?? ''">
-                {{ warehouseLabel().get(row.warehouse) ?? row.warehouse }}
-              </td>
-              <td class="max-w-[14rem] truncate" [title]="productLabel().get(row.product) ?? ''">
-                {{ productLabel().get(row.product) ?? row.product }}
-              </td>
-              <td>{{ row.cant }}</td>
-              <td>{{ tipoLabel(row.movement_type) }}</td>
-              <td>{{ row.observation }}</td>
-              <td class="text-right">
-                @if (auth.canWriteAlmacen()) {
-                  <button type="button" class="btn btn-outline btn-error btn-sm" (click)="remove(row)">
-                    Eliminar
-                  </button>
+              <th>ID</th>
+              <th>Fecha</th>
+              <th>Almacén</th>
+              <th>Producto</th>
+              <th>Cantidad</th>
+              <th>Tipo</th>
+              <th>Observación</th>
+              <th class="text-right">Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (row of pagedMovements(); track row.id) {
+              <tr>
+                <td class="font-mono text-xs">#{{ row.id }}</td>
+                <td class="whitespace-nowrap">{{ formatDate(row.creation_date) }}</td>
+                <td class="max-w-[12rem] truncate" [title]="warehouseLabel().get(row.warehouse) ?? ''">
+                  {{ warehouseLabel().get(row.warehouse) ?? row.warehouse }}
+                </td>
+                <td class="max-w-[14rem] truncate" [title]="productLabel().get(row.product) ?? ''">
+                  {{ productLabel().get(row.product) ?? row.product }}
+                </td>
+                <td class="font-medium">{{ row.cant }}</td>
+                <td>
+                  <span
+                    class="badge badge-sm"
+                    [class.badge-success]="row.movement_type === 'ENTRADA'"
+                    [class.badge-warning]="row.movement_type === 'SALIDA'"
+                  >
+                    {{ tipoLabel(row.movement_type) }}
+                  </span>
+                </td>
+                <td class="max-w-[14rem] truncate" [title]="row.observation ?? ''">
+                  {{ row.observation || '—' }}
+                </td>
+                <td class="text-right">
+                  @if (auth.canWriteAlmacen()) {
+                    <button type="button" class="btn btn-outline btn-error btn-sm" (click)="remove(row)">
+                      Eliminar
+                    </button>
+                  }
+                </td>
+              </tr>
+            } @empty {
+              <tr>
+                <td colspan="8" class="text-base-content/60 py-10 text-center">
+                  @if (hasActiveFilters()) {
+                    No hay movimientos que coincidan con los filtros.
+                    @if (totalLoaded() > 0) {
+                      <span class="mt-1 block text-xs">({{ totalLoaded() }} en total)</span>
+                    }
+                  } @else {
+                    No hay movimientos registrados.
+                  }
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+      @if (totalCount() > 0) {
+        <div class="flex flex-col gap-3 border-t border-base-300 bg-base-200/40 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <p class="text-sm text-base-content/70">
+            Mostrando {{ rangeStart() }}–{{ rangeEnd() }} de {{ totalCount() }}
+            @if (hasActiveFilters() && totalLoaded() !== totalCount()) {
+              <span class="text-base-content/50"> ({{ totalLoaded() }} en total)</span>
+            }
+          </p>
+          <div class="flex flex-wrap items-center gap-2">
+            <label class="flex items-center gap-2 text-sm text-base-content/70">
+              <span>Por página</span>
+              <select
+                class="select select-bordered select-sm w-[4.75rem] min-h-8"
+                [value]="pageSize()"
+                (change)="setPageSize(+$any($event.target).value)"
+              >
+                @for (opt of pageSizeOptions; track opt) {
+                  <option [value]="opt">{{ opt }}</option>
                 }
-              </td>
-            </tr>
-          } @empty {
-            <tr>
-              <td colspan="8" class="text-base-content/60 text-center">No hay movimientos registrados.</td>
-            </tr>
-          }
-        </tbody>
-      </table>
+              </select>
+            </label>
+            <div class="join border border-base-300">
+              <button
+                type="button"
+                class="btn btn-sm join-item"
+                [disabled]="pageIndex() === 0"
+                (click)="prevPage()"
+                aria-label="Página anterior"
+              >
+                «
+              </button>
+              <span class="btn btn-sm join-item btn-ghost pointer-events-none cursor-default no-animation">
+                {{ pageIndex() + 1 }} / {{ totalPages() }}
+              </span>
+              <button
+                type="button"
+                class="btn btn-sm join-item"
+                [disabled]="totalPages() === 0 || pageIndex() >= totalPages() - 1"
+                (click)="nextPage()"
+                aria-label="Página siguiente"
+              >
+                »
+              </button>
+            </div>
+          </div>
+        </div>
+      }
     }
   </div>
 </div>
 
 @if (modalOpen()) {
   <div class="modal modal-open">
-    <div class="modal-box max-h-[90vh] max-w-lg overflow-y-auto">
-      <h2 class="font-bold text-lg mb-4">Nuevo movimiento</h2>
-      <form class="flex flex-col gap-3" [formGroup]="form" (ngSubmit)="save()">
-        <label class="form-control">
-          <span class="label-text">Almacén</span>
-          <select class="select select-bordered" formControlName="warehouse">
-            @for (w of warehouses(); track w.id) {
-              <option [ngValue]="w.id">{{ warehouseLabel().get(w.id) }}</option>
+    <div class="modal-box flex max-h-[90vh] max-w-lg flex-col overflow-hidden p-0">
+      <header class="flex shrink-0 items-start justify-between gap-3 border-b border-base-300 px-6 py-4">
+        <div>
+          <h2 class="text-lg font-bold">Nuevo movimiento</h2>
+          <p class="text-base-content/60 mt-1 text-sm">
+            La entrada aumenta el stock y la salida lo reduce.
+          </p>
+        </div>
+        <button type="button" class="btn btn-ghost btn-sm btn-circle" (click)="closeModal()" aria-label="Cerrar">
+          ✕
+        </button>
+      </header>
+
+      <form class="flex min-h-0 flex-1 flex-col" [formGroup]="form" (ngSubmit)="save()">
+        <div class="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-5">
+          @if (showModalValidationHint()) {
+            <div role="alert" class="alert alert-warning text-sm">
+              Revise almacén, producto y cantidad antes de guardar.
+            </div>
+          }
+          @if (modalError(); as err) {
+            <div role="alert" class="alert alert-error text-sm">{{ err }}</div>
+          }
+
+          <div class="flex flex-col gap-1.5">
+            <span class="text-sm font-medium">Tipo</span>
+            <div class="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                class="btn"
+                [class.btn-success]="form.controls.movement_type.value === 'ENTRADA'"
+                [class.btn-outline]="form.controls.movement_type.value !== 'ENTRADA'"
+                (click)="setMovementType('ENTRADA')"
+              >
+                Entrada
+              </button>
+              <button
+                type="button"
+                class="btn"
+                [class.btn-warning]="form.controls.movement_type.value === 'SALIDA'"
+                [class.btn-outline]="form.controls.movement_type.value !== 'SALIDA'"
+                (click)="setMovementType('SALIDA')"
+              >
+                Salida
+              </button>
+            </div>
+          </div>
+
+          <label class="flex flex-col gap-1.5">
+            <span class="text-sm font-medium">Almacén</span>
+            <select
+              class="select select-bordered w-full"
+              [class.select-error]="isFieldInvalid('warehouse')"
+              formControlName="warehouse"
+            >
+              @if (warehouses().length === 0) {
+                <option [ngValue]="0" disabled>No hay almacenes</option>
+              }
+              @for (w of warehouses(); track w.id) {
+                <option [ngValue]="w.id">{{ warehouseLabel().get(w.id) }}</option>
+              }
+            </select>
+            @if (fieldError('warehouse'); as msg) {
+              <span class="text-error text-xs">{{ msg }}</span>
             }
-          </select>
-        </label>
-        <label class="form-control">
-          <span class="label-text">Producto</span>
-          <select class="select select-bordered max-w-full" formControlName="product">
-            @for (p of products(); track p.id) {
-              <option [ngValue]="p.id">{{ p.sku }} — {{ p.description }}</option>
+          </label>
+
+          <div class="flex flex-col gap-1.5">
+            <span class="text-sm font-medium">Producto</span>
+            <input
+              class="input input-bordered w-full"
+              [class.input-error]="isFieldInvalid('product')"
+              [value]="productQuery()"
+              (input)="onProductQuery($any($event.target).value)"
+              (focus)="openProductMenu()"
+              (blur)="closeProductMenuSoon()"
+              placeholder="Busca por SKU o descripción"
+              autocomplete="off"
+            />
+            @if (productMenuOpen()) {
+              <ul class="max-h-48 overflow-auto rounded-lg border border-base-300 bg-base-100">
+                @if (!productQuery().trim() && productMatches().length) {
+                  <li class="text-base-content/50 px-3 py-1.5 text-xs">Escribe para filtrar el catálogo.</li>
+                }
+                @for (product of productMatches(); track product.id) {
+                  <li>
+                    <button
+                      type="button"
+                      class="hover:bg-base-200 w-full px-3 py-2 text-left text-sm"
+                      (mousedown)="pickProduct(product, $event)"
+                    >
+                      <span class="font-medium">{{ product.sku }}</span>
+                      <span class="text-base-content/60 block text-xs">{{ product.description }}</span>
+                    </button>
+                  </li>
+                } @empty {
+                  <li class="text-base-content/60 px-3 py-2 text-sm">Ningún producto coincide.</li>
+                }
+              </ul>
             }
-          </select>
-        </label>
-        <label class="form-control">
-          <span class="label-text">Cantidad</span>
-          <input class="input input-bordered" type="number" step="0.01" min="0" formControlName="cant" />
-        </label>
-        <label class="form-control">
-          <span class="label-text">Tipo</span>
-          <select class="select select-bordered" formControlName="movement_type">
-            @for (opt of typeOptions; track opt.value) {
-              <option [ngValue]="opt.value">{{ opt.label }}</option>
+            @if (fieldError('product'); as msg) {
+              <span class="text-error text-xs">{{ msg }}</span>
             }
-          </select>
-        </label>
-        <label class="form-control">
-          <span class="label-text">Observación (código numérico)</span>
-          <input class="input input-bordered" type="number" step="1" formControlName="observation" />
-        </label>
-        <p class="text-base-content/60 text-xs">
-          El campo «observación» en el sistema es numérico según el modelo de datos.
-        </p>
-        <div class="modal-action">
-          <button type="button" class="btn" (click)="closeModal()">Cancelar</button>
+          </div>
+
+          <label class="flex flex-col gap-1.5">
+            <span class="text-sm font-medium">Cantidad</span>
+            <input
+              class="input input-bordered w-full"
+              [class.input-error]="isFieldInvalid('cant')"
+              type="number"
+              step="0.01"
+              min="0"
+              formControlName="cant"
+            />
+            @if (fieldError('cant'); as msg) {
+              <span class="text-error text-xs">{{ msg }}</span>
+            }
+          </label>
+
+          <label class="flex flex-col gap-1.5">
+            <span class="flex items-baseline justify-between gap-2 text-sm font-medium">
+              Observación
+              <span class="text-base-content/50 text-xs font-normal">Opcional · {{ form.controls.observation.value.length }}/500</span>
+            </span>
+            <textarea
+              class="textarea textarea-bordered w-full"
+              [class.textarea-error]="isFieldInvalid('observation')"
+              rows="3"
+              maxlength="500"
+              formControlName="observation"
+              placeholder="Nota del movimiento"
+            ></textarea>
+            @if (fieldError('observation'); as msg) {
+              <span class="text-error text-xs">{{ msg }}</span>
+            }
+          </label>
+        </div>
+
+        <div class="modal-action mt-0 shrink-0 border-t border-base-300 bg-base-200/40 px-6 py-4">
+          <button type="button" class="btn btn-ghost" (click)="closeModal()" [disabled]="saving()">Cancelar</button>
           <button type="submit" class="btn btn-primary" [disabled]="saving()">
             @if (saving()) {
-              <span class="loading loading-spinner"></span>
+              <span class="loading loading-spinner loading-sm"></span>
             }
             Guardar
           </button>

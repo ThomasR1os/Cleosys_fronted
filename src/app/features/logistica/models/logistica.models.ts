@@ -16,5 +16,6 @@ export interface ProductSupplierRow {
   supplier: number;
   cost: string;
   incoterm: string;
+  estimated_lead_time_days: number | null;
   creation_date?: string;
 }

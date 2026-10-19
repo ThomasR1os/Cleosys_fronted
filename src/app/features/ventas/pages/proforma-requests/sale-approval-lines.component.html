@@ -1,0 +1,102 @@
+<div class="mt-4 overflow-x-auto">
+  <table class="table table-sm">
+    <thead>
+      <tr>
+        <th>Producto</th>
+        <th class="text-right">Cotizada</th>
+        <th class="text-right">Cant.</th>
+        <th class="text-right">En stock</th>
+        <th class="text-right">A comprar</th>
+        <th>Proveedor (oferta)</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      @for (row of choices(); track row.lineId) {
+        <tr>
+          <td>
+            <div class="font-mono text-xs">{{ row.sku }}</div>
+            <div class="max-w-xs truncate text-xs text-base-content/70">{{ row.description }}</div>
+          </td>
+          <td class="text-right tabular-nums">{{ qty(row.quotedQty) }}</td>
+          <td class="text-right">
+            <input
+              type="number"
+              class="input input-bordered input-xs w-24 text-right"
+              min="1"
+              step="1"
+              [disabled]="disabled()"
+              [value]="row.acceptedQty"
+              (change)="setAccepted(row.lineId, $any($event.target).value)"
+              [attr.aria-label]="'Cantidad pedida de ' + row.sku"
+            />
+          </td>
+          <td class="text-right">
+            <input
+              type="number"
+              class="input input-bordered input-xs w-24 text-right"
+              min="0"
+              step="1"
+              [max]="row.acceptedQty"
+              [disabled]="disabled()"
+              [value]="row.stockQty"
+              (change)="setStock(row.lineId, $any($event.target).value)"
+              [attr.aria-label]="'En stock de ' + row.sku"
+            />
+          </td>
+          <td class="text-right tabular-nums">{{ qty(toBuy(row)) }}</td>
+          <td class="text-sm">
+            @if (toBuy(row) <= 0) {
+              <span class="text-base-content/60">No se compra</span>
+            } @else if (row.supplierName) {
+              <span>{{ row.supplierName }}</span>
+              @if (row.money) {
+                <span class="text-base-content/60 block text-xs">{{ row.money }} · costo {{ row.unitCost }}</span>
+              }
+            } @else {
+              <span class="text-warning">Sin oferta elegida</span>
+            }
+          </td>
+          <td class="text-right">
+            <button
+              type="button"
+              class="btn btn-outline btn-error btn-xs"
+              [disabled]="disabled()"
+              (click)="removeRow(row.lineId)"
+            >
+              Quitar
+            </button>
+          </td>
+        </tr>
+      } @empty {
+        <tr>
+          <td colspan="7" class="text-center text-base-content/60">
+            No queda ningún ítem en el pedido. La cotización no se modificó.
+          </td>
+        </tr>
+      }
+    </tbody>
+  </table>
+</div>
+
+@if (issue(); as reason) {
+  <p class="mt-2 text-sm text-warning">{{ reason }}</p>
+}
+
+@if (groups().length) {
+  <p class="mt-3 text-sm">
+    Se crearán borradores de compra con los proveedores elegidos en la solicitud:
+    @for (group of groups(); track group.supplierId + group.money; let last = $last) {
+      <strong>{{ group.supplierName }}</strong> ({{ group.lineCount }}
+      {{ group.lineCount === 1 ? 'línea' : 'líneas' }}, {{ group.money }})@if (!last) {, }
+    }.
+  </p>
+} @else if (choices().length && !issue()) {
+  <p class="mt-3 text-sm text-base-content/70">
+    Nada va a compra: lo pedido queda en stock o no hay proveedor elegido en la solicitud.
+  </p>
+}
+
+@if (missingSupplier() && offerDebug(); as debug) {
+  <p class="mt-2 text-xs text-base-content/50">Datos de oferta cargados: {{ debug }}</p>
+}

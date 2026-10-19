@@ -32,4 +32,11 @@ export const VENTAS_ROUTES: Routes = [
         (m) => m.ProformaRequestsPageComponent,
       ),
   },
+  {
+    path: 'pendientes',
+    loadComponent: () =>
+      import('../tareas/pages/tasks-inbox/tasks-inbox-page.component').then(
+        (m) => m.TasksInboxPageComponent,
+      ),
+  },
 ];

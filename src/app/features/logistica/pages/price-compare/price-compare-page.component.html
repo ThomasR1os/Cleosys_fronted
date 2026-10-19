@@ -1,0 +1,196 @@
+<div class="space-y-4">
+  <a routerLink="/logistica" class="link link-hover text-sm">← Volver a Logística</a>
+
+  <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+    <div>
+      <h1 class="text-3xl font-bold">Comparar precios</h1>
+      <p class="text-base-content/70 mt-1 max-w-3xl text-sm">
+        Agrega los productos que quieres comprar. La tabla muestra el costo de catálogo de cada proveedor
+        que los ofrece. El menor de cada fila se marca dentro de la misma moneda.
+      </p>
+    </div>
+    @if (selected().length) {
+      <button type="button" class="btn btn-ghost btn-sm" (click)="clearProducts()">Quitar productos</button>
+    }
+  </div>
+
+  @if (errorMessage(); as err) {
+    <div role="alert" class="alert alert-error text-sm whitespace-pre-line">
+      <span>{{ err }}</span>
+      <button type="button" class="btn btn-sm" (click)="reload()">Reintentar</button>
+    </div>
+  }
+
+  <div class="rounded-lg border border-base-300 bg-base-100 p-4">
+    <div class="flex min-w-0 max-w-xl flex-col gap-1">
+      <span class="text-sm font-medium">Agregar producto</span>
+      <div class="relative">
+        <input
+          class="input input-bordered w-full"
+          [value]="productQuery()"
+          (input)="onProductQuery($any($event.target).value)"
+          (focus)="openProductMenu()"
+          (blur)="closeProductMenuSoon()"
+          placeholder="Busca por SKU, descripción o ID"
+          autocomplete="off"
+          [disabled]="loading()"
+        />
+        @if (productMenuOpen() && !loading()) {
+          <ul class="border-base-300 bg-base-100 absolute z-30 mt-1 max-h-64 w-full overflow-auto rounded-lg border shadow-lg">
+            @if (!productQuery().trim() && productMatches().length) {
+              <li class="text-base-content/50 px-3 py-1.5 text-xs">Escribe para filtrar el catálogo.</li>
+            }
+            @for (product of productMatches(); track product.id) {
+              <li>
+                <button
+                  type="button"
+                  class="hover:bg-base-200 flex w-full flex-col items-start px-3 py-2 text-left text-sm"
+                  (mousedown)="addProduct(product, $event)"
+                >
+                  <span class="font-mono text-xs">{{ product.sku }}</span>
+                  <span class="line-clamp-2">{{ product.description }}</span>
+                </button>
+              </li>
+            } @empty {
+              <li class="text-base-content/60 px-3 py-2 text-sm">Ningún producto coincide.</li>
+            }
+          </ul>
+        }
+      </div>
+    </div>
+
+    @if (selected().length) {
+      <label class="mt-4 flex cursor-pointer items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          class="checkbox checkbox-sm checkbox-primary"
+          [checked]="onlyComplete()"
+          (change)="toggleOnlyComplete($any($event.target).checked)"
+        />
+        <span>Solo proveedores que cotizan todos los productos</span>
+      </label>
+    }
+  </div>
+
+  @if (loading()) {
+    <div class="flex justify-center p-12">
+      <span class="loading loading-spinner loading-lg text-primary"></span>
+    </div>
+  } @else if (!selected().length) {
+    <div class="text-base-content/60 rounded-lg border border-dashed border-base-300 p-8 text-center text-sm">
+      Todavía no hay productos en el comparativo. Busca uno arriba para ver los precios por proveedor.
+    </div>
+  } @else if (!comparison().columns.length) {
+    <div class="rounded-lg border border-base-300 bg-base-100 p-6 text-sm">
+      @if (onlyComplete()) {
+        Ningún proveedor tiene precio para todos los productos elegidos.
+        <button type="button" class="link" (click)="toggleOnlyComplete(false)">Ver cotizaciones parciales</button>.
+      } @else {
+        Estos productos no tienen costo de proveedor.
+        <a routerLink="/logistica/producto-proveedor" class="link">Regístralos en Producto por proveedor</a>.
+      }
+    </div>
+  } @else {
+    <div class="overflow-x-auto rounded-lg border border-base-300 bg-base-100">
+      <table class="table table-sm text-sm">
+        <thead>
+          <tr>
+            <th class="bg-base-100 sticky left-0 z-20 min-w-64">Producto</th>
+            @for (column of comparison().columns; track column.id) {
+              <th class="min-w-40 align-bottom">
+                <div>{{ column.name }}</div>
+                @if (column.typeLabel) {
+                  <div class="text-base-content/50 text-xs font-normal">{{ column.typeLabel }}</div>
+                }
+              </th>
+            }
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of comparison().rows; track row.id) {
+            <tr>
+              <td class="bg-base-100 sticky left-0 z-10 align-top">
+                <div class="flex items-start justify-between gap-2">
+                  <div class="min-w-0">
+                    <div class="font-mono text-xs">{{ row.sku }}</div>
+                    <div class="line-clamp-2">{{ row.description }}</div>
+                  </div>
+                  <button type="button" class="btn btn-ghost btn-xs shrink-0" (click)="removeProduct(row.id)">
+                    Quitar
+                  </button>
+                </div>
+                <label class="mt-2 flex items-center gap-2 text-xs">
+                  <span>Cant.</span>
+                  <input
+                    type="number"
+                    class="input input-bordered input-xs w-24"
+                    min="0.001"
+                    step="1"
+                    [value]="row.qty"
+                    (change)="setQty(row.id, $any($event.target))"
+                  />
+                </label>
+                @if (row.quoted === 0) {
+                  <p class="text-warning mt-1 text-xs">Sin costo en el catálogo.</p>
+                }
+              </td>
+              @for (cell of row.cells; track $index) {
+                <td class="align-top" [class.bg-success/10]="cell?.best">
+                  @if (cell) {
+                    <div class="font-medium" [class.text-success]="cell.best">{{ cell.priceLabel }}</div>
+                    @if (cell.incoterm) {
+                      <div class="text-base-content/50 text-xs">{{ cell.incoterm }}</div>
+                    }
+                    @if (cell.lineLabel) {
+                      <div class="text-base-content/70 text-xs">Importe {{ cell.lineLabel }}</div>
+                    }
+                    @if (cell.best) {
+                      <div class="text-success text-xs">Menor {{ cell.money }}</div>
+                    }
+                  } @else {
+                    <span class="text-base-content/40">—</span>
+                  }
+                </td>
+              }
+            </tr>
+          }
+        </tbody>
+        <tfoot>
+          <tr>
+            <th class="bg-base-100 sticky left-0 z-10 align-top">
+              <div>Total</div>
+              <div class="text-base-content/50 text-xs font-normal">Cantidad × costo, por moneda</div>
+            </th>
+            @for (total of comparison().totals; track $index) {
+              <td class="align-top">
+                @if (!total.parts.length) {
+                  <span class="text-base-content/40">—</span>
+                } @else {
+                  @for (part of total.parts; track part.label) {
+                    <div class="font-medium" [class.text-success]="part.winner">{{ part.label }}</div>
+                    @if (part.winner) {
+                      <div class="text-success text-xs">Menor total en esta moneda</div>
+                    }
+                  }
+                  @if (!total.coversAll) {
+                    <div class="text-base-content/50 text-xs">
+                      Falta {{ total.missing }} {{ total.missing === 1 ? 'producto' : 'productos' }}
+                    </div>
+                  } @else if (total.parts.length > 1) {
+                    <div class="text-base-content/50 text-xs">Monedas distintas</div>
+                  }
+                }
+              </td>
+            }
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+    <p class="text-base-content/60 text-xs">
+      Soles y dólares no se convierten. El menor total solo se marca cuando un proveedor cotiza todos los
+      productos en una sola moneda.
+      Los costos salen de
+      <a routerLink="/logistica/producto-proveedor" class="link">Producto por proveedor</a>.
+    </p>
+  }
+</div>

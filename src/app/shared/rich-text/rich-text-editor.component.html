@@ -1,0 +1,134 @@
+<div class="rich-text-editor rounded-lg border border-base-300 bg-base-100" [class.opacity-60]="disabled()">
+  <div class="flex flex-wrap items-center gap-1 border-b border-base-300 p-1.5" role="toolbar" aria-label="Formato">
+    <button
+      type="button"
+      class="btn btn-xs font-bold"
+      title="Negrita"
+      [class.btn-active]="markActive('bold')"
+      [disabled]="disabled()"
+      (mousedown)="keepSelection($event)"
+      (click)="toggleBold()"
+    >
+      B
+    </button>
+    <button
+      type="button"
+      class="btn btn-xs italic"
+      title="Cursiva"
+      [class.btn-active]="markActive('italic')"
+      [disabled]="disabled()"
+      (mousedown)="keepSelection($event)"
+      (click)="toggleItalic()"
+    >
+      I
+    </button>
+    <button
+      type="button"
+      class="btn btn-xs underline"
+      title="Subrayado"
+      [class.btn-active]="markActive('underline')"
+      [disabled]="disabled()"
+      (mousedown)="keepSelection($event)"
+      (click)="toggleUnderline()"
+    >
+      S
+    </button>
+    <button
+      type="button"
+      class="btn btn-xs"
+      title="Título"
+      [class.btn-active]="markActive('heading')"
+      [disabled]="disabled()"
+      (mousedown)="keepSelection($event)"
+      (click)="toggleHeading()"
+    >
+      Título
+    </button>
+    <label class="btn btn-xs gap-1 px-1.5" title="Color del texto">
+      <span class="text-xs">Color</span>
+      <input
+        type="color"
+        class="h-4 w-5 cursor-pointer border-0 bg-transparent p-0"
+        aria-label="Color del texto"
+        [value]="currentColor()"
+        [disabled]="disabled()"
+        (input)="applyColor($event)"
+      />
+    </label>
+    <button
+      type="button"
+      class="btn btn-xs"
+      title="Quitar color"
+      [disabled]="disabled()"
+      (mousedown)="keepSelection($event)"
+      (click)="clearColor()"
+    >
+      Quitar color
+    </button>
+    <span class="mx-0.5 hidden h-5 w-px bg-base-300 sm:inline-block" aria-hidden="true"></span>
+    <button
+      type="button"
+      class="btn btn-xs"
+      title="Lista"
+      [class.btn-active]="markActive('bulletList')"
+      [disabled]="disabled()"
+      (mousedown)="keepSelection($event)"
+      (click)="toggleBulletList()"
+    >
+      Lista
+    </button>
+    <button
+      type="button"
+      class="btn btn-xs"
+      title="Lista numerada"
+      [class.btn-active]="markActive('orderedList')"
+      [disabled]="disabled()"
+      (mousedown)="keepSelection($event)"
+      (click)="toggleOrderedList()"
+    >
+      1. 2. 3.
+    </button>
+    <span class="mx-0.5 hidden h-5 w-px bg-base-300 sm:inline-block" aria-hidden="true"></span>
+    <button
+      type="button"
+      class="btn btn-xs"
+      title="Insertar cuadro de 3×3"
+      [disabled]="disabled()"
+      (mousedown)="keepSelection($event)"
+      (click)="insertTable()"
+    >
+      Cuadro
+    </button>
+    <button
+      type="button"
+      class="btn btn-xs"
+      title="Agregar fila"
+      [disabled]="disabled() || !canEditTable()"
+      (mousedown)="keepSelection($event)"
+      (click)="addRow()"
+    >
+      + Fila
+    </button>
+    <button
+      type="button"
+      class="btn btn-xs"
+      title="Agregar columna"
+      [disabled]="disabled() || !canEditTable()"
+      (mousedown)="keepSelection($event)"
+      (click)="addColumn()"
+    >
+      + Columna
+    </button>
+    <button
+      type="button"
+      class="btn btn-xs"
+      title="Quitar cuadro"
+      [disabled]="disabled() || !canEditTable()"
+      (mousedown)="keepSelection($event)"
+      (click)="deleteTable()"
+    >
+      Quitar cuadro
+    </button>
+  </div>
+  <div #host></div>
+</div>

@@ -3,8 +3,10 @@ import { HttpClient } from '@angular/common/http';
 import { Component, DestroyRef, OnInit, computed, effect, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import {
+  AbstractControl,
   FormBuilder,
   ReactiveFormsModule,
+  ValidationErrors,
   Validators,
 } from '@angular/forms';
 import { DecimalPipe } from '@angular/common';
@@ -33,6 +35,17 @@ type SkuCheckStatus = 'idle' | 'checking' | 'available' | 'exists';
 
 
 const BULK_UPSERT_CHUNK_SIZE = 500;
+
+/** Vacío es válido (null). 0 es entrega inmediata. Decimales y negativos no. */
+function leadDaysValidator(control: AbstractControl): ValidationErrors | null {
+  const value = control.value;
+  if (value == null || value === '') return null;
+  const days = typeof value === 'number' ? value : Number(String(value).trim().replace(',', '.'));
+  if (!Number.isFinite(days) || days < 0 || !Number.isInteger(days)) {
+    return { leadDays: true };
+  }
+  return null;
+}
 
 type CatalogRow = { id: number; name: string };
 
@@ -100,6 +113,7 @@ export class ProductosPageComponent implements OnInit {
         p.price ?? '',
         p.datasheet ?? '',
         p.warranty ?? '',
+        p.estimated_lead_time_days ?? '',
         catById.get(this.resolveProductCategoryId(p) ?? -1) ?? p.category_name ?? '',
         subById.get(this.coerceFk(p.subcategory) ?? -1) ?? '',
         brandById.get(this.coerceFk(p.brand) ?? -1) ?? '',
@@ -211,6 +225,7 @@ export class ProductosPageComponent implements OnInit {
     rental_price_without_operator: this.fb.control<number | null>(null),
     rental_price_with_operator: this.fb.control<number | null>(null),
     warranty: [''],
+    estimated_lead_time_days: this.fb.control<number | null>(null, leadDaysValidator),
     status: this.fb.nonNullable.control<string>('ACTIVE'),
     dimensions: [''],
     gross_weight: [''],
@@ -477,12 +492,25 @@ export class ProductosPageComponent implements OnInit {
     return status;
   }
 
+  leadTimeLabel(days: number | null): string {
+    if (days == null) return '—';
+    if (days === 0) return 'Inmediata';
+    return `${days} d`;
+  }
+
+  leadTimeTitle(days: number | null): string {
+    if (days == null) return 'Sin plazo';
+    if (days === 0) return 'Entrega inmediata';
+    return `${days} días`;
+  }
+
   hasFichaTecnica(row: Product): boolean {
     return !!(
       row.datasheet?.trim() ||
       row.warranty?.trim() ||
       row.dimensions?.trim() ||
-      row.gross_weight?.trim()
+      row.gross_weight?.trim() ||
+      row.estimated_lead_time_days != null
     );
   }
 
@@ -581,6 +609,7 @@ export class ProductosPageComponent implements OnInit {
       rental_price_without_operator: null,
       rental_price_with_operator: null,
       warranty: '',
+      estimated_lead_time_days: null,
       status: 'ACTIVE',
       dimensions: '',
       gross_weight: '',
@@ -607,6 +636,7 @@ export class ProductosPageComponent implements OnInit {
       rental_price_with_operator: row.rental_price_with_operator ?? null,
       /** `ProductService` ya normaliza `warranty` incluso si el backend devolvió `warrannty`. */
       warranty: row.warranty ?? '',
+      estimated_lead_time_days: row.estimated_lead_time_days,
       status: row.status || 'ACTIVE',
       dimensions: row.dimensions ?? '',
       gross_weight: row.gross_weight ?? '',
@@ -683,6 +713,12 @@ export class ProductosPageComponent implements OnInit {
     return t === '' ? null : t;
   }
 
+  /** Vacío → null (borra el plazo). 0 se conserva. */
+  private leadDaysOrNull(v: number | null | ''): number | null {
+    if (v == null || v === '' || (typeof v === 'number' && Number.isNaN(v))) return null;
+    return v;
+  }
+
   private nullIfDecimal(v: unknown): number | null {
     if (v === null || v === undefined) return null;
     if (typeof v === 'number' && !Number.isNaN(v)) return v;
@@ -706,6 +742,7 @@ export class ProductosPageComponent implements OnInit {
       rental_price_without_operator: this.nullIfDecimal(v.rental_price_without_operator),
       rental_price_with_operator: this.nullIfDecimal(v.rental_price_with_operator),
       warranty: this.nullIfBlank(v.warranty),
+      estimated_lead_time_days: this.leadDaysOrNull(v.estimated_lead_time_days),
       status: v.status?.trim() || 'ACTIVE',
       dimensions: this.nullIfBlank(v.dimensions),
       gross_weight: this.nullIfBlank(v.gross_weight),

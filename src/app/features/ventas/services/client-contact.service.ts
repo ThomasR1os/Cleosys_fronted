@@ -19,10 +19,21 @@ export class ClientContactService {
    * Query `client` — si el backend usa otro nombre, ajustar aquí.
    */
   listForClient(clientId: number): Observable<ClientContactRow[]> {
-    const params = new HttpParams().set('client', String(clientId));
-    return this.http
-      .get<ClientContactRow[] | { results: ClientContactRow[] }>(`${this.base}/`, { params })
-      .pipe(map((res) => (Array.isArray(res) ? res : res.results)));
+    const params = new HttpParams().set('client', String(clientId)).set('page_size', '50');
+    return this.http.get<unknown>(`${this.base}/`, { params }).pipe(
+      map((res) => {
+        const raw = Array.isArray(res)
+          ? res
+          : res && typeof res === 'object'
+            ? ((res as { results?: unknown[] }).results ?? [])
+            : [];
+        return raw.filter((row): row is ClientContactRow => {
+          if (!row || typeof row !== 'object') return false;
+          const item = row as ClientContactRow;
+          return Number(item.id) > 0 && (item.client == null || Number(item.client) === clientId);
+        });
+      }),
+    );
   }
 
   create(body: ClientContactCreatePayload): Observable<ClientContactRow> {

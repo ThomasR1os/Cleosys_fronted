@@ -6,54 +6,150 @@
   }
 
   @if (warehouse(); as wh) {
-    <header>
-      <h1 class="text-3xl font-bold">Stock — Almacén #{{ wh.id }}</h1>
-      <p class="text-base-content/70 mt-1">{{ wh.address }}</p>
-    </header>
+    <div class="rounded-xl border border-base-300 bg-base-100 p-5 shadow-sm">
+      <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-base-content/50 text-xs font-medium tracking-wide uppercase">Existencias</p>
+          <h1 class="mt-1 text-3xl font-bold">Almacén #{{ wh.id }}</h1>
+          <p class="text-base-content/70 mt-1">{{ wh.address }}</p>
+        </div>
+        <a routerLink="/almacen/movimientos" class="btn btn-outline btn-sm">Registrar movimiento</a>
+      </div>
+      @if (!loading()) {
+        <div class="mt-5 grid gap-3 sm:grid-cols-2">
+          <div class="rounded-lg border border-base-300 bg-base-200/40 px-4 py-3">
+            <p class="text-base-content/60 text-xs">Líneas de stock</p>
+            <p class="text-2xl font-semibold">{{ lineCount() }}</p>
+          </div>
+          <div class="rounded-lg border border-base-300 bg-base-200/40 px-4 py-3">
+            <p class="text-base-content/60 text-xs">Unidades</p>
+            <p class="text-2xl font-semibold">{{ unitTotal() }}</p>
+          </div>
+        </div>
+      }
+    </div>
   }
 
-  <div role="status" class="alert alert-info text-sm">
-    Las cantidades son <strong>lectura</strong> aquí. Para cambiar stock use
+  <div role="status" class="alert border border-info/30 bg-info/10 text-sm">
+    Las cantidades son de consulta. Para cambiar el stock use
     <a routerLink="/almacen/movimientos" class="link font-medium">Entradas y salidas</a>.
   </div>
 
-  <div class="overflow-x-auto rounded-lg border border-base-300 bg-base-100">
+  @if (!loading() && warehouse()) {
+    <div class="flex flex-col gap-3 rounded-xl border border-base-300 bg-base-100 p-4 shadow-sm sm:flex-row sm:items-end">
+      <label class="form-control min-w-0 flex-1">
+        <span class="label-text text-xs font-medium">Buscar</span>
+        <input
+          type="search"
+          class="input input-bordered input-sm w-full"
+          placeholder="SKU, descripción, ubicación o stock…"
+          autocomplete="off"
+          [value]="searchQuery()"
+          (input)="setSearchQuery($any($event.target).value)"
+        />
+      </label>
+      @if (hasActiveSearch()) {
+        <button type="button" class="btn btn-ghost btn-sm" (click)="clearSearch()">Limpiar</button>
+      }
+    </div>
+  }
+
+  <div class="overflow-hidden rounded-xl border border-base-300 bg-base-100 shadow-sm">
     @if (loading()) {
       <div class="flex justify-center p-12">
         <span class="loading loading-spinner loading-lg text-primary"></span>
       </div>
     } @else {
-      <table class="table table-zebra">
-        <thead>
-          <tr>
-            <th>Producto</th>
-            <th>SKU</th>
-            <th>Stock</th>
-            <th>Ubicación</th>
-          </tr>
-        </thead>
-        <tbody>
-          @for (row of rows(); track row.id) {
+      <div class="overflow-x-auto">
+        <table class="table table-zebra">
+          <thead>
             <tr>
-              <td>
-                <span class="font-medium">{{ row.product }}</span>
-                @if (description(row.product)) {
-                  <span class="text-base-content/70 block text-sm">{{ description(row.product) }}</span>
+              <th>Producto</th>
+              <th>SKU</th>
+              <th>Stock</th>
+              <th>Ubicación</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (row of pagedRows(); track row.id) {
+              <tr>
+                <td>
+                  <span class="font-medium">{{ description(row.product) || 'Producto #' + row.product }}</span>
+                  <span class="text-base-content/50 block text-xs">ID {{ row.product }}</span>
+                </td>
+                <td class="font-mono text-sm">{{ sku(row.product) }}</td>
+                <td>
+                  <span
+                    class="badge font-semibold"
+                    [class.badge-error]="row.stock <= 0"
+                    [class.badge-success]="row.stock > 0"
+                  >
+                    {{ row.stock }}
+                  </span>
+                </td>
+                <td>{{ row.location || '—' }}</td>
+              </tr>
+            } @empty {
+              <tr>
+                <td colspan="4" class="text-base-content/60 py-10 text-center">
+                  @if (hasActiveSearch()) {
+                    No hay líneas que coincidan con la búsqueda.
+                  } @else {
+                    Sin líneas de stock en este almacén. Un movimiento de entrada crea la primera fila.
+                  }
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+      @if (totalCount() > 0) {
+        <div class="flex flex-col gap-3 border-t border-base-300 bg-base-200/40 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <p class="text-sm text-base-content/70">
+            Mostrando {{ rangeStart() }}–{{ rangeEnd() }} de {{ totalCount() }}
+            @if (hasActiveSearch() && lineCount() !== totalCount()) {
+              <span class="text-base-content/50"> ({{ lineCount() }} en total)</span>
+            }
+          </p>
+          <div class="flex flex-wrap items-center gap-2">
+            <label class="flex items-center gap-2 text-sm text-base-content/70">
+              <span>Por página</span>
+              <select
+                class="select select-bordered select-sm w-[4.75rem] min-h-8"
+                [value]="pageSize()"
+                (change)="setPageSize(+$any($event.target).value)"
+              >
+                @for (opt of pageSizeOptions; track opt) {
+                  <option [value]="opt">{{ opt }}</option>
                 }
-              </td>
-              <td>{{ sku(row.product) }}</td>
-              <td>{{ row.stock }}</td>
-              <td>{{ row.location }}</td>
-            </tr>
-          } @empty {
-            <tr>
-              <td colspan="4" class="text-base-content/60 text-center">
-                Sin líneas de stock en este almacén (o aún no hay movimientos que generen filas).
-              </td>
-            </tr>
-          }
-        </tbody>
-      </table>
+              </select>
+            </label>
+            <div class="join border border-base-300">
+              <button
+                type="button"
+                class="btn btn-sm join-item"
+                [disabled]="pageIndex() === 0"
+                (click)="prevPage()"
+                aria-label="Página anterior"
+              >
+                «
+              </button>
+              <span class="btn btn-sm join-item btn-ghost pointer-events-none cursor-default no-animation">
+                {{ pageIndex() + 1 }} / {{ totalPages() }}
+              </span>
+              <button
+                type="button"
+                class="btn btn-sm join-item"
+                [disabled]="totalPages() === 0 || pageIndex() >= totalPages() - 1"
+                (click)="nextPage()"
+                aria-label="Página siguiente"
+              >
+                »
+              </button>
+            </div>
+          </div>
+        </div>
+      }
     }
   </div>
 </div>

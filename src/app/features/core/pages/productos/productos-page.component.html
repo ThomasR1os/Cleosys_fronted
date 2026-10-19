@@ -197,6 +197,7 @@
             <th>Categoría</th>
             <th>Marca</th>
             <th>Precio</th>
+            <th>Espera</th>
             <th>Estado</th>
             <th>Última actualización</th>
             <th class="text-right">Acciones</th>
@@ -218,6 +219,9 @@
                 } @else {
                   —
                 }
+              </td>
+              <td class="whitespace-nowrap" [attr.title]="leadTimeTitle(row.estimated_lead_time_days)">
+                {{ leadTimeLabel(row.estimated_lead_time_days) }}
               </td>
               <td class="whitespace-nowrap">{{ statusLabel(row.status) }}</td>
               <td class="whitespace-nowrap">
@@ -620,7 +624,7 @@
                 formControlName="datasheet"
               ></textarea>
             </label>
-            <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <label class="flex w-full min-w-0 flex-col gap-1">
                 <div class="label">
                   <span class="label-text">Garantía</span>
@@ -631,6 +635,32 @@
                   formControlName="warranty"
                   placeholder="p. ej. 12 meses"
                 />
+              </label>
+              <label class="flex w-full min-w-0 flex-col gap-1">
+                <div class="label">
+                  <span class="label-text">Tiempo de espera estimado</span>
+                </div>
+                <input
+                  class="input input-bordered w-full min-w-0"
+                  type="number"
+                  min="0"
+                  step="1"
+                  inputmode="numeric"
+                  formControlName="estimated_lead_time_days"
+                  placeholder="Días"
+                  [class.input-error]="
+                    form.controls.estimated_lead_time_days.invalid &&
+                    form.controls.estimated_lead_time_days.touched
+                  "
+                />
+                @if (
+                  form.controls.estimated_lead_time_days.hasError('leadDays') &&
+                  form.controls.estimated_lead_time_days.touched
+                ) {
+                  <span class="text-error text-xs">Debe ser un número entero de días, 0 o mayor.</span>
+                } @else {
+                  <span class="text-base-content/50 text-xs">Vacío si aún no hay plazo. 0 es entrega inmediata.</span>
+                }
               </label>
               <label class="flex w-full min-w-0 flex-col gap-1">
                 <div class="label">

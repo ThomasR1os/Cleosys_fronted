@@ -81,12 +81,23 @@ export interface ClientLookupSalesSummary {
   contacts_count: number;
 }
 
+/** Cartera comercial anidada en lookup / cliente. */
+export interface ClientPortfolio {
+  id: number;
+  sales_owner?: number | ClientLookupSalesUser | null;
+  sales_owner_name?: string | null;
+  status?: string | null;
+  assignment_source?: string | null;
+  assigned_at?: string | null;
+}
+
 /** GET /api/clients/lookup-by-ruc/ */
 export interface ClientLookupByRucResponse {
   exists: boolean;
   client: ClientRow | null;
   sales_summary: ClientLookupSalesSummary | null;
   contacts: ClientLookupContactItem[];
+  portfolio?: ClientPortfolio | null;
 }
 
 /** Objeto `encargado` en GET /ventas/client-contacts/ (nombre preformateado en el backend). */
@@ -149,6 +160,29 @@ export interface ClientContactPatchPayload {
 export type ProformaEntryChannel = 'META' | 'GOOGLE_ADS' | 'WHATSAPP' | 'EMAIL';
 export type ProformaRequestType = 'MAQUINARIA' | 'REPUESTOS' | 'SERVICIOS' | 'ALQUILERES';
 export type ProformaRequestStatus = 'PENDIENTE' | 'APROBADA' | 'RECHAZADA' | 'SIN_RESPUESTA';
+export type ProformaPriority = 'LOW' | 'NORMAL' | 'HIGH';
+export type ProformaWorkflowStatus =
+  | 'DRAFT'
+  | 'PENDING_SALES'
+  | 'STOCK_REVIEW'
+  | 'PENDING_LOGISTICS'
+  | 'WAITING_SALES_INFORMATION'
+  | 'WAITING_SUPPLIER'
+  | 'LOGISTICS_PROCESSING'
+  | 'PENDING_SALES_REVIEW'
+  | 'QUOTATION_READY'
+  | 'NOT_POSSIBLE'
+  | 'COMPLETED'
+  | 'CANCELLED';
+export type TaskQueue = 'MARKETING' | 'SALES' | 'LOGISTICS' | 'WAREHOUSE' | 'SERVICES' | 'ADMIN';
+export type WaitingOn = 'NONE' | 'MARKETING' | 'SALES' | 'LOGISTICS' | 'SUPPLIER' | 'CLIENT';
+export type ItemAvailabilityStatus =
+  | 'PENDING_REVIEW'
+  | 'IN_STOCK'
+  | 'LOCAL_PURCHASE'
+  | 'IMPORT_REQUIRED'
+  | 'NOT_FOUND'
+  | 'NOT_POSSIBLE';
 
 /** Cliente anidado en solicitud de proforma (solo lectura). */
 export interface ProformaClientDetail {
@@ -174,10 +208,24 @@ export interface ProformaRequestRow {
   client_detail?: ProformaClientDetail | null;
   assigned_user: number;
   assigned_user_detail?: ProformaAssignedUserDetail | null;
+  sales_owner?: number | null;
+  sales_owner_detail?: ProformaAssignedUserDetail | null;
+  logistics_owner?: number | null;
+  logistics_owner_detail?: ProformaAssignedUserDetail | null;
+  created_by_detail?: ProformaAssignedUserDetail | null;
   entry_channel: ProformaEntryChannel;
   proforma_type: ProformaRequestType;
-  /** Estado de respuesta al requerimiento (`PENDIENTE` por defecto al crear). */
+  /** Estado comercial (`PENDIENTE` por defecto al crear). */
   status?: ProformaRequestStatus;
+  /** Estado operativo del flujo. No se cambia con PATCH. */
+  workflow_status?: ProformaWorkflowStatus | null;
+  priority?: ProformaPriority | null;
+  due_at?: string | null;
+  task_queue?: TaskQueue | null;
+  waiting_on?: WaitingOn | null;
+  correlativo?: string | null;
+  task_id?: number | null;
+  task_correlativo?: string | null;
   description: string;
   quotation: number | null;
   quotation_correlativo?: string | null;
@@ -185,17 +233,138 @@ export interface ProformaRequestRow {
   entered_at?: string | null;
   /** Solo lectura: momento en que se vinculó cotización; null si no hay. */
   quoted_at?: string | null;
+  updated_at?: string | null;
+  last_moved_at?: string | null;
+  /** Orden interna creada al aprobar. Solo lectura. */
+  logistics_order_id?: number | null;
+  company_client_detail?: ClientPortfolio | null;
+  request_items?: ProformaRequestItem[];
+  clarifications?: ProformaClarification[];
+  supplier_offers?: SupplierOffer[];
+}
+
+export interface ProformaRequestItemPayload {
+  requested_sku?: string;
+  description: string;
+  quantity: string;
+  requested_unit?: string;
+  availability_status?: ItemAvailabilityStatus;
+  requires_sourcing?: boolean;
+  product?: number | null;
+}
+
+export interface ProformaRequestItem {
+  id: number;
+  proforma_request: number;
+  requested_sku?: string | null;
+  description: string;
+  quantity: string | number;
+  requested_unit?: string | null;
+  availability_status?: ItemAvailabilityStatus | null;
+  requires_sourcing?: boolean;
+  product?: number | null;
+}
+
+export interface ProformaClarification {
+  id: number;
+  proforma_request: number;
+  item?: number | null;
+  question: string;
+  answer?: string | null;
+  asked_by_detail?: ProformaAssignedUserDetail | null;
+  answered_by_detail?: ProformaAssignedUserDetail | null;
+  created_at?: string | null;
+  answered_at?: string | null;
+}
+
+export interface SupplierOfferItem {
+  id: number;
+  supplier_offer?: number;
+  proforma_request_item: number;
+  product: number;
+  supplier_part_number?: string | null;
+  unit_cost: string;
+  sale_unit_price: string;
+  includes_tax?: boolean;
+  estimated_lead_time_days?: number | null;
+  warranty?: string | null;
+  available_locally?: boolean;
+  selected?: boolean;
+  product_detail?: { id: number; sku?: string; description?: string } | null;
+}
+
+export interface SupplierOffer {
+  id: number;
+  proforma_request: number;
+  supplier: number;
+  supplier_detail?: { id: number; name: string; ruc?: string } | null;
+  money?: 'PEN' | 'USD' | null;
+  exchange_rate?: string | number | null;
+  payment_methods?: number | null;
+  /** Texto legado, si el backend aún lo devuelve. */
+  payment_terms?: string | null;
+  incoterm?: string | null;
+  valid_until?: string | null;
+  attachment_url?: string | null;
+  items?: SupplierOfferItem[];
+  created_at?: string | null;
+}
+
+export interface SupplierOfferItemWrite {
+  proforma_request_item: number;
+  product: number;
+  supplier_part_number?: string;
+  unit_cost: string;
+  sale_unit_price: string;
+  includes_tax?: boolean;
+  estimated_lead_time_days?: number | null;
+  warranty?: string;
+  available_locally?: boolean;
+  selected?: boolean;
+}
+
+export interface SupplierOfferCreatePayload {
+  proforma_request: number;
+  supplier: number;
+  money?: 'PEN' | 'USD';
+  exchange_rate?: string | null;
+  payment_methods: number;
+  incoterm?: string;
+  valid_until?: string | null;
+  attachment_url?: string;
+  items: SupplierOfferItemWrite[];
+}
+
+export interface GenerateQuotationPayload {
+  payment_methods: number;
+  discount?: string;
+  conditions?: string;
+  works?: string;
+  see_sku?: boolean;
+  rental_unit?: RentalUnit | null;
+  rental_quantity?: number | null;
 }
 
 export interface ProformaRequestCreatePayload {
   client: number;
-  assigned_user: number;
+  assigned_user?: number;
   entry_channel: ProformaEntryChannel;
   proforma_type: ProformaRequestType;
   description: string;
+  priority?: ProformaPriority;
+  due_at?: string | null;
+  request_items?: ProformaRequestItemPayload[];
   /** Opcional: el servidor usa `PENDIENTE` si no se envía. */
   status?: ProformaRequestStatus;
   quotation?: number | null;
+}
+
+/** Línea vendida al aprobar. No modifica la cotización. */
+export interface ProformaSoldItem {
+  /** Id de la línea de cotización (`quotation-products`). */
+  quotation_product: number;
+  /** Cantidad que pidió el cliente. Entero de 1 para arriba. */
+  cant: number;
 }
 
 export interface ProformaRequestPatchPayload {
@@ -206,6 +375,67 @@ export interface ProformaRequestPatchPayload {
   status?: ProformaRequestStatus;
   description?: string;
   quotation?: number | null;
+  priority?: ProformaPriority;
+  due_at?: string | null;
+  /**
+   * Solo junto con `status: APROBADA`. Lo que no va aquí no entra a la orden.
+   * La cotización enviada no cambia.
+   */
+  sold_items?: ProformaSoldItem[];
+}
+
+export interface ProformaRequestListParams {
+  mine?: boolean;
+  assigned_user?: number;
+  workflow_status?: ProformaWorkflowStatus;
+  /** Tope de páginas DRF al listar (por defecto 25 ≈ 250 filas con page_size 10). */
+  maxPages?: number;
+  pageSize?: number;
+}
+
+/** GET|POST /api/ventas/proforma-requests/{id}/attachments/ */
+export interface ProformaRequestAttachment {
+  id: number;
+  name: string;
+  url: string;
+  content_type: string;
+}
+
+/** Disponibilidad de un producto del catálogo. */
+export type RecommendationMatchAvailability = 'STOCK' | 'IMPORTACION';
+
+/** Resultado de una línea: hay stock, hay que importar, o no hubo coincidencia. */
+export type RecommendationLineAvailability = RecommendationMatchAvailability | 'NO_ENCONTRADO';
+
+/** Hasta 3 productos parecidos, el más parecido primero. */
+export interface ProformaRecommendationMatch {
+  product_id: number;
+  sku: string;
+  description: string;
+  stock: number;
+  availability: RecommendationMatchAvailability;
+}
+
+/** Una fila de lo que el modelo entendió del requerimiento. */
+export interface ProformaRecommendationLine {
+  requested: string;
+  qty: number;
+  brand: string | null;
+  availability: RecommendationLineAvailability;
+  /** null si hay productos. */
+  message: string | null;
+  matches: ProformaRecommendationMatch[];
+}
+
+/** GET|POST /api/ventas/proforma-requests/{id}/recommend/ */
+export interface ProformaRecommendation {
+  id: number;
+  lines: ProformaRecommendationLine[];
+  /** null si alguna línea encontró producto. */
+  message: string | null;
+  unreadable_attachments: string[];
+  created_at: string;
+  updated_at: string;
 }
 
 /** GET /api/ventas/proforma-requests/assignable-users/ */
@@ -229,6 +459,16 @@ export interface AssignableUser {
 export type QuotationType = 'VENTA' | 'ALQUILER' | 'SERVICIO';
 export type QuotationMoney = 'USD' | 'PEN';
 export type QuotationStatus = 'APROBADA' | 'PENDIENTE' | 'RECHAZADA';
+
+/** GET /api/ventas/quotations/?client=<id>&summary=1 */
+export interface QuotationSummary {
+  id: number;
+  correlativo: string;
+  status: QuotationStatus;
+  client: number;
+  final_price: string;
+}
+
 /** Modalidad de alquiler: días o mes. Solo aplica cuando quotation_type === 'ALQUILER'. */
 export type RentalUnit = 'DIAS' | 'MES';
 
@@ -315,6 +555,8 @@ export interface QuotationRow {
   update_date?: string;
   /** Fecha en que pasó a APROBADA, si el backend la expone. */
   approved_at?: string | null;
+  /** Orden interna creada al aprobar. Solo lectura. */
+  logistics_order_id?: number | null;
   /** Empresa emisora si el backend expone FK (p. ej. branding PDF). */
   company?: number;
 }

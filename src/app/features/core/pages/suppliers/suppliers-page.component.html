@@ -34,7 +34,7 @@
           </tr>
         </thead>
         <tbody>
-          @for (row of items(); track row.id) {
+          @for (row of pagedItems(); track row.id) {
             <tr>
               <td>{{ row.id }}</td>
               <td class="font-medium">{{ row.name }}</td>
@@ -57,6 +57,50 @@
           }
         </tbody>
       </table>
+      @if (totalCount() > 0) {
+        <div class="flex flex-col gap-3 border-t border-base-300 bg-base-200/40 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <p class="text-sm text-base-content/70">
+            Mostrando {{ rangeStart() }}–{{ rangeEnd() }} de {{ totalCount() }}
+          </p>
+          <div class="flex flex-wrap items-center gap-2">
+            <label class="flex items-center gap-2 text-sm text-base-content/70">
+              <span>Por página</span>
+              <select
+                class="select select-bordered select-sm w-[4.75rem] min-h-8"
+                [value]="pageSize()"
+                (change)="setPageSize(+$any($event.target).value)"
+              >
+                @for (opt of pageSizeOptions; track opt) {
+                  <option [value]="opt">{{ opt }}</option>
+                }
+              </select>
+            </label>
+            <div class="join border border-base-300">
+              <button
+                type="button"
+                class="btn btn-sm join-item"
+                [disabled]="pageIndex() === 0"
+                (click)="prevPage()"
+                aria-label="Página anterior"
+              >
+                «
+              </button>
+              <span class="btn btn-sm join-item btn-ghost pointer-events-none cursor-default no-animation">
+                {{ pageIndex() + 1 }} / {{ totalPages() }}
+              </span>
+              <button
+                type="button"
+                class="btn btn-sm join-item"
+                [disabled]="totalPages() === 0 || pageIndex() >= totalPages() - 1"
+                (click)="nextPage()"
+                aria-label="Página siguiente"
+              >
+                »
+              </button>
+            </div>
+          </div>
+        </div>
+      }
     }
   </div>
 </div>
@@ -75,17 +119,11 @@
           </span>
         </div>
       }
-      <form class="grid gap-3 sm:grid-cols-2" [formGroup]="form" (ngSubmit)="save()">
-        @if (editingId() != null) {
-          <label class="form-control sm:col-span-2">
-            <span class="label-text">ID</span>
-            <input class="input input-bordered" type="number" formControlName="id" readonly />
-          </label>
-        }
-        <label class="form-control">
-          <span class="label-text">Tipo</span>
+      <form class="grid grid-cols-1 gap-4 sm:grid-cols-2" [formGroup]="form" (ngSubmit)="save()">
+        <div class="flex min-w-0 flex-col gap-1">
+          <span class="text-sm font-medium">Tipo</span>
           <select
-            class="select select-bordered"
+            class="select select-bordered w-full"
             [class.select-error]="isFieldInvalid('type')"
             formControlName="type"
             [attr.aria-invalid]="isFieldInvalid('type')"
@@ -95,78 +133,78 @@
             }
           </select>
           @if (fieldError('type'); as msg) {
-            <span class="label-text-alt text-error">{{ msg }}</span>
+            <span class="text-error text-xs">{{ msg }}</span>
           }
-        </label>
-        <label class="form-control">
-          <span class="label-text">RUC</span>
+        </div>
+        <div class="flex min-w-0 flex-col gap-1">
+          <span class="text-sm font-medium">RUC</span>
           <input
-            class="input input-bordered"
+            class="input input-bordered w-full"
             [class.input-error]="isFieldInvalid('ruc')"
             formControlName="ruc"
             [attr.aria-invalid]="isFieldInvalid('ruc')"
             autocomplete="off"
           />
           @if (fieldError('ruc'); as msg) {
-            <span class="label-text-alt text-error">{{ msg }}</span>
+            <span class="text-error text-xs">{{ msg }}</span>
           }
-        </label>
-        <label class="form-control sm:col-span-2">
-          <span class="label-text">Nombre</span>
+        </div>
+        <div class="flex min-w-0 flex-col gap-1 sm:col-span-2">
+          <span class="text-sm font-medium">Nombre</span>
           <input
-            class="input input-bordered"
+            class="input input-bordered w-full"
             [class.input-error]="isFieldInvalid('name')"
             formControlName="name"
             [attr.aria-invalid]="isFieldInvalid('name')"
             autocomplete="organization"
           />
           @if (fieldError('name'); as msg) {
-            <span class="label-text-alt text-error">{{ msg }}</span>
+            <span class="text-error text-xs">{{ msg }}</span>
           }
-        </label>
-        <label class="form-control sm:col-span-2">
-          <span class="label-text">Dirección</span>
+        </div>
+        <div class="flex min-w-0 flex-col gap-1 sm:col-span-2">
+          <span class="text-sm font-medium">Dirección</span>
           <input
-            class="input input-bordered"
+            class="input input-bordered w-full"
             [class.input-error]="isFieldInvalid('address')"
             formControlName="address"
             [attr.aria-invalid]="isFieldInvalid('address')"
             autocomplete="street-address"
           />
           @if (fieldError('address'); as msg) {
-            <span class="label-text-alt text-error">{{ msg }}</span>
+            <span class="text-error text-xs">{{ msg }}</span>
           }
-        </label>
-        <label class="form-control">
-          <span class="label-text">Contacto</span>
+        </div>
+        <div class="flex min-w-0 flex-col gap-1">
+          <span class="text-sm font-medium">Contacto</span>
           <input
-            class="input input-bordered"
+            class="input input-bordered w-full"
             [class.input-error]="isFieldInvalid('contact')"
             formControlName="contact"
             [attr.aria-invalid]="isFieldInvalid('contact')"
             autocomplete="name"
           />
           @if (fieldError('contact'); as msg) {
-            <span class="label-text-alt text-error">{{ msg }}</span>
+            <span class="text-error text-xs">{{ msg }}</span>
           }
-        </label>
-        <label class="form-control">
-          <span class="label-text">Teléfono</span>
+        </div>
+        <div class="flex min-w-0 flex-col gap-1">
+          <span class="text-sm font-medium">Teléfono</span>
           <input
-            class="input input-bordered"
+            class="input input-bordered w-full"
             [class.input-error]="isFieldInvalid('phone')"
             formControlName="phone"
             [attr.aria-invalid]="isFieldInvalid('phone')"
             autocomplete="tel"
           />
           @if (fieldError('phone'); as msg) {
-            <span class="label-text-alt text-error">{{ msg }}</span>
+            <span class="text-error text-xs">{{ msg }}</span>
           }
-        </label>
-        <label class="form-control sm:col-span-2">
-          <span class="label-text">Email</span>
+        </div>
+        <div class="flex min-w-0 flex-col gap-1 sm:col-span-2">
+          <span class="text-sm font-medium">Email</span>
           <input
-            class="input input-bordered"
+            class="input input-bordered w-full"
             [class.input-error]="isFieldInvalid('email')"
             type="email"
             formControlName="email"
@@ -174,16 +212,16 @@
             autocomplete="email"
           />
           @if (fieldError('email'); as msg) {
-            <span class="label-text-alt text-error">{{ msg }}</span>
+            <span class="text-error text-xs">{{ msg }}</span>
           }
-        </label>
-        <label class="form-control sm:col-span-2">
-          <div class="label">
-            <span class="label-text">Cuentas bancarias</span>
-            <span class="label-text-alt text-base-content/60">Obligatorio</span>
+        </div>
+        <div class="flex min-w-0 flex-col gap-1 sm:col-span-2">
+          <div class="flex items-baseline justify-between gap-2">
+            <span class="text-sm font-medium">Cuentas bancarias</span>
+            <span class="text-base-content/60 text-xs">Obligatorio</span>
           </div>
           <textarea
-            class="textarea textarea-bordered"
+            class="textarea textarea-bordered w-full"
             [class.textarea-error]="isFieldInvalid('bank_accounts')"
             rows="3"
             formControlName="bank_accounts"
@@ -191,10 +229,10 @@
             placeholder="IBAN, CCI, banco y titular…"
           ></textarea>
           @if (fieldError('bank_accounts'); as msg) {
-            <span class="label-text-alt text-error mt-1">{{ msg }}</span>
+            <span class="text-error text-xs">{{ msg }}</span>
           }
-        </label>
-        <div class="modal-action sm:col-span-2">
+        </div>
+        <div class="modal-action mt-0 sm:col-span-2">
           <button type="button" class="btn" (click)="closeModal()">Cancelar</button>
           <button type="submit" class="btn btn-primary" [disabled]="saving()">
             @if (saving()) {

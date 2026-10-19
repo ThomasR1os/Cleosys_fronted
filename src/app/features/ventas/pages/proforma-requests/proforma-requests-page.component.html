@@ -1,31 +1,69 @@
 <div class="space-y-6">
-  <a routerLink="/ventas" class="link link-hover text-sm">← Volver a Ventas</a>
+  <a [routerLink]="hubLink()" class="link link-hover text-sm">← Volver a {{ hubLabel() }}</a>
 
-  <nav
-    aria-label="Secciones de ventas"
-    class="tabs tabs-boxed w-fit max-w-full overflow-x-auto border border-base-300 bg-base-100"
-  >
-    <a routerLink="/ventas/clientes" class="tab whitespace-nowrap">Clientes</a>
-    <a routerLink="/ventas/solicitudes-proforma" class="tab tab-active whitespace-nowrap">Solicitudes proforma</a>
-    <a routerLink="/ventas/cotizaciones" class="tab whitespace-nowrap">Cotizaciones</a>
-  </nav>
+  @if (isLogisticsContext()) {
+    <nav
+      aria-label="Secciones de logística"
+      class="tabs tabs-boxed w-fit max-w-full overflow-x-auto border border-base-300 bg-base-100"
+    >
+      <a routerLink="/logistica/solicitudes-proforma" class="tab tab-active whitespace-nowrap">Solicitudes proforma</a>
+      <a routerLink="/logistica/pendientes" class="tab whitespace-nowrap">Mis pendientes</a>
+      <a routerLink="/logistica/tareas" class="tab whitespace-nowrap">Tareas logísticas</a>
+    </nav>
+  } @else {
+    <nav
+      aria-label="Secciones de ventas"
+      class="tabs tabs-boxed w-fit max-w-full overflow-x-auto border border-base-300 bg-base-100"
+    >
+      <a routerLink="/ventas/clientes" class="tab whitespace-nowrap">Clientes</a>
+      <a routerLink="/ventas/solicitudes-proforma" class="tab tab-active whitespace-nowrap">Solicitudes proforma</a>
+      <a routerLink="/ventas/pendientes" class="tab whitespace-nowrap">Mis pendientes</a>
+      <a routerLink="/ventas/cotizaciones" class="tab whitespace-nowrap">Cotizaciones</a>
+    </nav>
+  }
 
   <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
     <div>
       <h1 class="text-3xl font-bold">Solicitudes de proforma</h1>
       <p class="text-base-content/70 mt-1 text-sm">
-        Derivar requerimientos a asesores y vincular cotizaciones cuando correspondan.
+        Seguimiento del requerimiento desde el ingreso hasta la cotización, con responsable y área actuales.
       </p>
     </div>
-    <button
-      type="button"
-      class="btn btn-primary btn-lg"
-      [disabled]="!hasCompanyProfile()"
-      (click)="openNew()"
-    >
-      Nueva solicitud
-    </button>
+    <div class="flex flex-wrap items-center gap-2">
+      @if (canBulkCloseLegacy() && summaryCards().pendingSales > 0) {
+        <button
+          type="button"
+          class="btn btn-outline btn-warning"
+          [disabled]="bulkCloseBusy() || !hasCompanyProfile()"
+          (click)="bulkCloseLegacyBeforeCutoff()"
+        >
+          @if (bulkCloseBusy()) {
+            <span class="loading loading-spinner loading-sm"></span>
+            Cerrando…
+          } @else {
+            Cerrar con cotización / no procedidas (antes 15/10)
+          }
+        </button>
+      }
+      <button
+        type="button"
+        class="btn btn-primary btn-lg"
+        [disabled]="!hasCompanyProfile()"
+        (click)="openNew()"
+      >
+        Nueva solicitud
+      </button>
+    </div>
   </div>
+
+  @if (bulkCloseProgress(); as prog) {
+    <div role="status" class="alert alert-info text-sm">
+      Cierre histórico en curso… {{ prog.done }} / {{ prog.total }}
+    </div>
+  }
+  @if (bulkCloseResult(); as okMsg) {
+    <div role="status" class="alert alert-success text-sm">{{ okMsg }}</div>
+  }
 
   @if (!hasCompanyProfile()) {
     <div role="alert" class="alert alert-warning text-sm">
@@ -38,7 +76,33 @@
     <div role="alert" class="alert alert-error text-sm">{{ err }}</div>
   }
 
-  @if (!loading()) {
+  <section class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <article class="rounded-lg border border-base-300 bg-base-100 p-4">
+        <p class="text-xs text-base-content/60">Asignadas a mí</p>
+        <p class="mt-1 text-2xl font-bold">{{ summaryCards().assignedToMe }}</p>
+      </article>
+      <article class="rounded-lg border border-base-300 bg-base-100 p-4">
+        <p class="text-xs text-base-content/60">Esperando proveedor</p>
+        <p class="mt-1 text-2xl font-bold">{{ summaryCards().waitingSupplier }}</p>
+      </article>
+      <article class="rounded-lg border border-base-300 bg-base-100 p-4">
+        <p class="text-xs text-base-content/60">Por revisar en Ventas</p>
+        <p class="mt-1 text-2xl font-bold">{{ summaryCards().pendingSales }}</p>
+      </article>
+      <article class="rounded-lg border border-error/30 bg-base-100 p-4">
+        <p class="text-xs text-base-content/60">Fuera de plazo</p>
+        <p class="mt-1 text-2xl font-bold text-error">{{ summaryCards().overdue }}</p>
+      </article>
+    </section>
+
+    <div class="tabs tabs-bordered">
+      <button type="button" class="tab" [class.tab-active]="listTab() === 'all'" (click)="setListTab('all')">Todas</button>
+      <button type="button" class="tab" [class.tab-active]="listTab() === 'mine'" (click)="setListTab('mine')">Asignadas a mí</button>
+      <button type="button" class="tab" [class.tab-active]="listTab() === 'unassigned'" (click)="setListTab('unassigned')">Sin asignar</button>
+      <button type="button" class="tab" [class.tab-active]="listTab() === 'waiting'" (click)="setListTab('waiting')">En espera</button>
+      <button type="button" class="tab" [class.tab-active]="listTab() === 'done'" (click)="setListTab('done')">Finalizadas</button>
+    </div>
+
     <div
       class="flex flex-col gap-3 rounded-lg border border-base-300 bg-base-100 p-4 sm:flex-row sm:flex-wrap sm:items-end"
     >
@@ -49,7 +113,7 @@
           class="input input-bordered input-sm w-full"
           [value]="listSearchQuery()"
           (input)="onListSearchInput($event)"
-          placeholder="Cliente, asesor, descripción, cotización…"
+          placeholder="Cliente, correlativo, producto…"
           autocomplete="off"
         />
       </label>
@@ -92,8 +156,47 @@
           }
         </select>
       </label>
+      <label class="form-control w-full sm:w-48">
+        <span class="label-text">Estado operativo</span>
+        <select
+          class="select select-bordered select-sm w-full"
+          [value]="filterWorkflow()"
+          (change)="onFilterWorkflowChange($event)"
+        >
+          <option value="ALL">Todos</option>
+          @for (st of WORKFLOW_STATUSES; track st) {
+            <option [value]="st">{{ workflowLabel(st) }}</option>
+          }
+        </select>
+      </label>
       <label class="form-control w-full sm:w-40">
-        <span class="label-text">Estado</span>
+        <span class="label-text">Área</span>
+        <select
+          class="select select-bordered select-sm w-full"
+          [value]="filterQueue()"
+          (change)="onFilterQueueChange($event)"
+        >
+          <option value="ALL">Todas</option>
+          <option value="SALES">Ventas</option>
+          <option value="LOGISTICS">Logística</option>
+          <option value="MARKETING">Marketing</option>
+        </select>
+      </label>
+      <label class="form-control w-full sm:w-36">
+        <span class="label-text">Prioridad</span>
+        <select
+          class="select select-bordered select-sm w-full"
+          [value]="filterPriority()"
+          (change)="onFilterPriorityChange($event)"
+        >
+          <option value="ALL">Cualquiera</option>
+          @for (p of PRIORITIES; track p) {
+            <option [value]="p">{{ priorityLabel(p) }}</option>
+          }
+        </select>
+      </label>
+      <label class="form-control w-full sm:w-40">
+        <span class="label-text">Estado comercial</span>
         <select
           class="select select-bordered select-sm w-full"
           [value]="filterStatus()"
@@ -123,79 +226,175 @@
         </button>
       }
     </div>
-  }
 
   <div class="overflow-hidden rounded-lg border border-base-300 bg-base-100">
-    @if (loading()) {
-      <div class="flex justify-center p-12">
+    @if (loading() && items().length === 0) {
+      <div class="flex flex-col items-center gap-3 p-12">
         <span class="loading loading-spinner loading-lg text-primary"></span>
+        <p class="max-w-sm text-center text-sm text-base-content/60">
+          Esperando al servidor. El listado llega pesado; las primeras filas se muestran en cuanto respondan.
+        </p>
       </div>
     } @else {
       <div class="overflow-x-auto">
         <table class="table table-zebra text-sm">
           <thead>
             <tr>
-              <th>ID</th>
+              <th>Solicitud / tarea</th>
               <th>Cliente</th>
-              <th>Asignado</th>
-              <th>Ingreso</th>
-              <th>Cotizado</th>
-              <th>Canal</th>
-              <th>Tipo</th>
+              <th>Responsable actual</th>
+              <th>Área</th>
               <th>Estado</th>
-              <th>Descripción</th>
-              <th>Cotización</th>
+              <th>Espera por</th>
+              <th>Último movimiento</th>
+              <th>Plazo</th>
               <th class="text-right">Acciones</th>
             </tr>
           </thead>
           <tbody>
             @for (row of pagedItems(); track row.id) {
-              <tr>
-                <td>{{ row.id }}</td>
+              <tr class="cursor-pointer hover:bg-base-200/60" (click)="openDetail(row)">
+                <td>
+                  <div class="font-semibold text-primary">{{ requestCode(row) }}</div>
+                  <div class="text-xs text-base-content/60">
+                    {{ taskCode(row) || 'Sin tarea' }} · {{ typeLabel(row.proforma_type) }}
+                  </div>
+                </td>
                 <td class="max-w-[14rem]">
                   <div class="font-medium leading-snug">{{ clientDisplayName(row) }}</div>
                   @if (row.client_detail?.ruc; as ruc) {
                     <div class="text-xs text-base-content/60">RUC {{ ruc }}</div>
                   }
                 </td>
-                <td class="max-w-[12rem]">{{ assignedDisplayName(row) }}</td>
-                <td class="whitespace-nowrap text-xs text-base-content/90">{{ formatStamp(row.entered_at) }}</td>
-                <td class="whitespace-nowrap text-xs text-base-content/90">{{ formatStamp(row.quoted_at) }}</td>
-                <td>{{ channelLabel(row.entry_channel) }}</td>
-                <td>{{ typeLabel(row.proforma_type) }}</td>
-                <td>
-                  <span class="badge badge-sm whitespace-nowrap" [class]="statusBadgeClass(rowStatus(row))">
-                    {{ statusLabel(rowStatus(row)) }}
-                  </span>
-                </td>
-                <td class="max-w-[14rem]">{{ truncate(row.description) }}</td>
-                <td>
+                <td class="max-w-[12rem]">
+                  <div>{{ assignedDisplayName(row) }}</div>
                   @if (row.quotation_correlativo) {
-                    <span class="font-mono text-xs">{{ row.quotation_correlativo }}</span>
-                  } @else {
-                    <span class="text-base-content/50">—</span>
+                    <div class="text-xs text-base-content/60">Cotización {{ row.quotation_correlativo }}</div>
                   }
                 </td>
-                <td class="text-right">
-                  <div class="flex flex-wrap gap-1 justify-end">
+                <td>
+                  <span class="badge badge-ghost badge-sm">{{ queueLabel(row.task_queue) }}</span>
+                </td>
+                <td>
+                  <span class="badge badge-sm whitespace-nowrap" [class]="workflowBadgeClass(rowWorkflow(row))">
+                    {{ workflowLabel(rowWorkflow(row)) }}
+                  </span>
+                </td>
+                <td>{{ waitingOnLabel(row.waiting_on) }}</td>
+                <td class="whitespace-nowrap text-xs">{{ lastMoveStamp(row) }}</td>
+                <td class="whitespace-nowrap text-xs" [class.text-error]="isOverdue(row)" [class.font-semibold]="isOverdue(row)">
+                  {{ dueStamp(row) }}
+                </td>
+                <td class="text-right" (click)="$event.stopPropagation()">
+                  <div class="flex flex-nowrap gap-1 justify-end">
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-sm btn-square"
+                      title="Ver detalle"
+                      aria-label="Ver detalle"
+                      (click)="openDetail(row)"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" class="h-4 w-4 stroke-current" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+                      </svg>
+                    </button>
                     @if (row.quotation == null) {
-                      <button type="button" class="btn btn-primary btn-sm" (click)="goGenerateQuotation(row)">
-                        Generar cotización
+                      <button
+                        type="button"
+                        class="btn btn-primary btn-sm btn-square"
+                        title="Generar cotización"
+                        aria-label="Generar cotización"
+                        (click)="goGenerateQuotation(row)"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" class="h-4 w-4 stroke-current" aria-hidden="true">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m3.75 9v6m3-3H9m1.5-12H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+                        </svg>
                       </button>
                     } @else {
-                      <button type="button" class="btn btn-outline btn-sm" (click)="goToQuotation(row)">
-                        Ir a cotización
+                      @if (canApproveProforma(row)) {
+                        <button
+                          type="button"
+                          class="btn btn-primary btn-sm btn-square"
+                          title="Aprobar venta"
+                          aria-label="Aprobar venta"
+                          (click)="openApproval(row)"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" class="h-4 w-4 stroke-current" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                          </svg>
+                        </button>
+                      }
+                      @if (internalOrderId(row); as orderId) {
+                        <a
+                          class="btn btn-ghost btn-sm btn-square"
+                          [routerLink]="['/logistica/ordenes-internas', orderId]"
+                          title="Orden interna"
+                          aria-label="Orden interna"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" class="h-4 w-4 stroke-current" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 0 0 2.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 0 0-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75 2.25 2.25 0 0 0-.1-.664m-5.8 0A2.251 2.251 0 0 1 13.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25Z" />
+                          </svg>
+                        </a>
+                      }
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-sm btn-square"
+                        title="Ir a cotización"
+                        aria-label="Ir a cotización"
+                        (click)="goToQuotation(row)"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" class="h-4 w-4 stroke-current" aria-hidden="true">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+                        </svg>
                       </button>
                       @if (canEdit(row)) {
-                        <button type="button" class="btn btn-ghost btn-sm" (click)="unlinkQuotation(row)">
-                          Desvincular
+                        <button
+                          type="button"
+                          class="btn btn-ghost btn-sm btn-square"
+                          title="Desvincular cotización"
+                          aria-label="Desvincular cotización"
+                          (click)="unlinkQuotation(row)"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" class="h-4 w-4 stroke-current" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M13.181 8.68a4.503 4.503 0 0 1 1.903 6.405m-9.768-2.782L3.56 14.06a4.5 4.5 0 0 0 6.364 6.364l3.129-3.129m5.614-5.615 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5c-.258.26-.479.541-.661.84m1.903 6.405a4.495 4.495 0 0 1-1.242-.88 4.5 4.5 0 0 1-1.242-6.585m1.242 6.585L8.68 13.181" />
+                          </svg>
                         </button>
                       }
                     }
                     @if (canEdit(row)) {
-                      <button type="button" class="btn btn-ghost btn-sm" (click)="openEdit(row)">Editar</button>
-                      <button type="button" class="btn btn-outline btn-error btn-sm" (click)="remove(row)">
-                        Eliminar
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-sm btn-square text-primary"
+                        title="Recomendar con IA"
+                        aria-label="Recomendar con IA"
+                        (click)="openRecommendation(row)"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" class="h-4 w-4 stroke-current" aria-hidden="true">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z" />
+                        </svg>
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-sm btn-square"
+                        title="Editar"
+                        aria-label="Editar"
+                        (click)="openEdit(row)"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" class="h-4 w-4 stroke-current" aria-hidden="true">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" />
+                        </svg>
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-sm btn-square text-error"
+                        title="Eliminar"
+                        aria-label="Eliminar"
+                        (click)="remove(row)"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" class="h-4 w-4 stroke-current" aria-hidden="true">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+                        </svg>
                       </button>
                     }
                   </div>
@@ -203,7 +402,7 @@
               </tr>
             } @empty {
               <tr>
-                <td colspan="11" class="text-base-content/60 text-center py-8">
+                <td colspan="9" class="text-base-content/60 text-center py-8">
                   @if (items().length === 0) {
                     No hay solicitudes de proforma.
                   } @else {
@@ -223,6 +422,12 @@
             Mostrando {{ rangeStart() }}–{{ rangeEnd() }} de {{ totalCount() }}
             @if (hasActiveListFilters() && items().length !== totalCount()) {
               <span class="text-base-content/50">({{ items().length }} en total cargadas)</span>
+            }
+            @if (loadingMore()) {
+              <span class="ml-2 inline-flex items-center gap-1 text-base-content/50">
+                <span class="loading loading-spinner loading-xs"></span>
+                cargando más…
+              </span>
             }
           </p>
           <div class="flex flex-wrap items-center gap-2">
@@ -270,7 +475,7 @@
 
 @if (modalOpen()) {
   <div class="modal modal-open">
-    <div class="modal-box max-w-lg max-h-[90vh] overflow-y-auto">
+    <div class="modal-box max-w-4xl max-h-[92vh] overflow-y-auto">
       @if (modalView() === 'newClient') {
         <div class="mb-4">
           <h2 class="text-xl font-bold">Nuevo cliente</h2>
@@ -424,20 +629,22 @@
           </div>
         </form>
       } @else {
-        <div class="mb-4">
-          <h2 class="text-xl font-bold">{{ editingId() == null ? 'Nueva solicitud' : 'Editar solicitud #' + editingId() }}</h2>
-          @if (editingRow(); as erow) {
-            <dl class="mt-3 grid gap-1 text-xs text-base-content/70 sm:grid-cols-2">
-              <div>
-                <dt class="font-medium text-base-content/80">Ingreso</dt>
-                <dd>{{ formatStamp(erow.entered_at) }}</dd>
-              </div>
-              <div>
-                <dt class="font-medium text-base-content/80">Cotizado el</dt>
-                <dd>{{ formatStamp(erow.quoted_at) }}</dd>
-              </div>
-            </dl>
+        <div class="mb-5">
+          @if (editingId() == null) {
+            <ol class="mb-3 flex flex-wrap gap-2 text-xs">
+              <li class="rounded-full bg-primary px-3 py-1 font-medium text-primary-content">1. Datos</li>
+              <li class="rounded-full bg-base-200 px-3 py-1 text-base-content/60">2. Recomendación</li>
+              <li class="rounded-full bg-base-200 px-3 py-1 text-base-content/60">3. Cotizar o derivar</li>
+            </ol>
           }
+          <h2 class="text-xl font-bold">{{ editingId() == null ? 'Nueva solicitud de proforma' : 'Editar solicitud' }}</h2>
+          <p class="mt-1 text-sm text-base-content/60">
+            @if (editingId() == null) {
+              Primero el requerimiento. Al guardar, el sistema buscará productos y le ofrecerá cotizarlos o pasarlos a Logística.
+            } @else if (editingRow(); as erow) {
+              {{ requestCode(erow) }} · Ingreso {{ formatStamp(erow.entered_at) }}
+            }
+          </p>
         </div>
 
         @if (assignableLoading()) {
@@ -448,220 +655,316 @@
           </div>
         }
 
-        <form class="space-y-4" [formGroup]="form" (ngSubmit)="saveProforma()">
-          <div class="relative">
-            <span class="label-text font-medium">Cliente</span>
-            <div class="flex gap-2 mt-1">
-              <div class="relative flex-1">
-                <input
-                  class="input input-bordered w-full"
-                  [value]="clientSearchQuery()"
-                  (input)="onClientSearchInput($event)"
-                  (focus)="clientPickerOpen.set(true)"
-                  (blur)="closeClientPickerSoon()"
-                  placeholder="Buscar por nombre o RUC…"
-                  autocomplete="off"
-                />
-                @if (clientPickerOpen()) {
-                  <ul
-                    class="absolute z-20 mt-1 max-h-52 w-full overflow-auto rounded-lg border border-base-300 bg-base-100 shadow-lg"
-                  >
-                    @if (clientsLoading()) {
-                      <li class="px-3 py-2 text-sm text-base-content/70">Cargando…</li>
-                    } @else {
-                      @for (c of filteredClients(); track c.id) {
-                        <li>
-                          <button
-                            type="button"
-                            class="flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left text-sm hover:bg-base-200"
-                            (mousedown)="$event.preventDefault()"
-                            (click)="selectClient(c)"
-                          >
-                            <span class="font-medium">{{ c.name }}</span>
-                            <span class="text-xs text-base-content/60">RUC {{ c.ruc }} · #{{ c.id }}</span>
-                          </button>
-                        </li>
-                      } @empty {
-                        <li class="px-3 py-2 text-sm text-base-content/60">Sin coincidencias</li>
+        <form class="space-y-6" [formGroup]="form" (ngSubmit)="saveProforma()">
+          @if (errorMessage(); as err) {
+            <div role="alert" class="alert alert-error text-sm">{{ err }}</div>
+          }
+
+          <section class="space-y-3">
+            <h3 class="text-sm font-semibold">Cliente</h3>
+            <div class="relative">
+              <div class="flex gap-2">
+                <div class="relative flex-1">
+                  <input
+                    class="input input-bordered w-full"
+                    [value]="clientSearchQuery()"
+                    (input)="onClientSearchInput($event)"
+                    (focus)="onClientSearchFocus()"
+                    (blur)="closeClientPickerSoon()"
+                    placeholder="Buscar por nombre o RUC…"
+                    autocomplete="off"
+                  />
+                  @if (clientPickerOpen()) {
+                    <ul class="absolute z-20 mt-1 max-h-52 w-full overflow-auto rounded-lg border border-base-300 bg-base-100 shadow-lg">
+                      @if (clientSearchQuery().trim().length < 2) {
+                        <li class="px-3 py-2 text-sm text-base-content/60">Escriba al menos 2 caracteres</li>
+                      } @else {
+                        @for (c of filteredClients(); track c.id) {
+                          <li>
+                            <button
+                              type="button"
+                              class="flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left text-sm hover:bg-base-200"
+                              (mousedown)="$event.preventDefault()"
+                              (click)="selectClient(c)"
+                            >
+                              <span class="font-medium">{{ c.name }}</span>
+                              <span class="text-xs text-base-content/60">RUC {{ c.ruc }}</span>
+                            </button>
+                          </li>
+                        }
+                        @if (clientsLoading()) {
+                          <li class="px-3 py-2 text-sm text-base-content/70">Buscando…</li>
+                        } @else if (filteredClients().length === 0) {
+                          <li class="px-3 py-2 text-sm text-base-content/60">Sin coincidencias</li>
+                        }
                       }
+                    </ul>
+                  }
+                </div>
+                @if (form.controls.client.value > 0) {
+                  <button type="button" class="btn btn-ghost btn-sm shrink-0" (click)="clearClientSelection()">Quitar</button>
+                }
+              </div>
+              <button type="button" class="btn btn-link btn-sm px-0 mt-1" (click)="switchToNewClient()">
+                Registrar cliente nuevo
+              </button>
+            </div>
+
+            @if (form.controls.client.value > 0) {
+              @if (clientSalesSummaryLoading()) {
+                <p class="flex items-center gap-2 text-xs text-base-content/70">
+                  <span class="loading loading-spinner loading-xs"></span>
+                  Cargando cartera…
+                </p>
+              } @else if (clientSalesSummary(); as summary) {
+                <div class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-info/30 bg-info/5 p-3">
+                  <div>
+                    <p class="text-sm font-medium">Cartera comercial</p>
+                    <p class="text-sm text-base-content/80">{{ summary.message_for_ui }}</p>
+                    @if (summary.contacts_count > 0) {
+                      <p class="mt-1 text-xs text-base-content/60">{{ summary.contacts_count }} contacto(s)</p>
+                    }
+                  </div>
+                  @if (summary.primary_sales_user; as primary) {
+                    <span class="badge badge-primary">{{ primary.nombre }}</span>
+                  }
+                </div>
+              }
+
+              <div class="rounded-lg border border-base-300 bg-base-200/30 p-3">
+                <div class="mb-2 flex items-center justify-between">
+                  <span class="text-sm font-medium">Contactos</span>
+                  @if (contactsLoading()) {
+                    <span class="loading loading-spinner loading-xs"></span>
+                  }
+                </div>
+                @if (!contactsLoading() && contactsForClient().length === 0) {
+                  <p class="mb-2 text-sm text-warning">Registre un contacto para poder guardar la solicitud.</p>
+                  <div class="grid gap-2 sm:grid-cols-2">
+                    <input class="input input-bordered input-sm" placeholder="Nombre" [formControl]="newContactForm.controls.contact_first_name" />
+                    <input class="input input-bordered input-sm" placeholder="Apellido" [formControl]="newContactForm.controls.contact_last_name" />
+                    <input class="input input-bordered input-sm" placeholder="Email" [formControl]="newContactForm.controls.email" />
+                    <input class="input input-bordered input-sm" placeholder="Teléfono" [formControl]="newContactForm.controls.phone" />
+                  </div>
+                  <button type="button" class="btn btn-secondary btn-sm mt-2" [disabled]="contactSaving()" (click)="saveNewContact()">
+                    Guardar contacto
+                  </button>
+                } @else if (!contactsLoading()) {
+                  <ul class="max-h-24 space-y-1 overflow-y-auto text-sm">
+                    @for (ct of contactsForClient(); track ct.id) {
+                      <li>
+                        {{ ct.contact_first_name }} {{ ct.contact_last_name }}
+                        @if (contactEncargadoLabel(ct); as enc) {
+                          <span class="text-xs text-base-content/60"> · {{ enc }}</span>
+                        }
+                      </li>
                     }
                   </ul>
                 }
               </div>
-              @if (form.controls.client.value > 0) {
-                <button type="button" class="btn btn-ghost btn-sm shrink-0" (click)="clearClientSelection()">
-                  Quitar
-                </button>
-              }
-            </div>
-            <button type="button" class="btn btn-link btn-sm px-0 mt-1" (click)="switchToNewClient()">
-              Registrar nuevo cliente
-            </button>
-          </div>
-
-          @if (form.controls.client.value > 0) {
-            @if (clientSalesSummaryLoading()) {
-              <p class="text-xs text-base-content/70 flex items-center gap-2">
-                <span class="loading loading-spinner loading-xs"></span>
-                Cargando cartera comercial del cliente…
-              </p>
-            } @else if (clientSalesSummary(); as summary) {
-              <div class="rounded-lg border border-info/30 bg-info/5 p-3 space-y-2">
-                <p class="text-sm font-medium text-base-content">Cartera comercial</p>
-                <p class="text-sm text-base-content/80">{{ summary.message_for_ui }}</p>
-                @if (summary.primary_sales_user || summary.other_sales_users.length > 0) {
-                  <div class="flex flex-wrap gap-1 mt-2">
-                    @if (summary.primary_sales_user; as primary) {
-                      <span class="badge badge-primary badge-sm">{{ primary.nombre }}</span>
-                    }
-                    @for (u of summary.other_sales_users; track u.id) {
-                      <span class="badge badge-outline badge-sm">{{ u.nombre }}</span>
-                    }
-                  </div>
-                }
-                @if (summary.contacts_count > 0) {
-                  <p class="text-xs text-base-content/60">{{ summary.contacts_count }} contacto(s) en la empresa</p>
-                }
-              </div>
             }
+          </section>
 
-            <div class="rounded-lg border border-base-300 bg-base-200/30 p-3 space-y-2">
-              <div class="flex items-center justify-between gap-2">
-                <span class="font-medium text-sm">Contactos del cliente</span>
-                @if (contactsLoading()) {
-                  <span class="loading loading-spinner loading-sm"></span>
-                }
-              </div>
-              @if (!contactsLoading() && contactsForClient().length === 0) {
-                <p class="text-sm text-warning">
-                  Debe registrar al menos un contacto antes de crear la solicitud (validación del servidor).
-                </p>
-                <div class="space-y-2 border-t border-base-300 pt-3 mt-2">
-                  <p class="text-xs font-medium text-base-content/70">Alta de contacto</p>
-                  <p class="text-xs text-base-content/60">
-                    Si el nombre y apellido coinciden con un contacto ya cargado (sin importar mayúsculas), se pedirá
-                    confirmación antes de crear otro registro.
-                  </p>
-                  <div class="grid gap-2 sm:grid-cols-2">
-                    <input
-                      class="input input-bordered input-sm"
-                      placeholder="Nombre"
-                      [formControl]="newContactForm.controls.contact_first_name"
-                    />
-                    <input
-                      class="input input-bordered input-sm"
-                      placeholder="Apellido"
-                      [formControl]="newContactForm.controls.contact_last_name"
-                    />
-                  </div>
-                  <div class="grid gap-2 sm:grid-cols-2">
-                    <input
-                      class="input input-bordered input-sm"
-                      placeholder="Email"
-                      [formControl]="newContactForm.controls.email"
-                    />
-                    <input
-                      class="input input-bordered input-sm"
-                      placeholder="Teléfono"
-                      [formControl]="newContactForm.controls.phone"
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    class="btn btn-sm btn-secondary w-full sm:w-auto"
-                    [disabled]="contactSaving()"
-                    (click)="saveNewContact()"
-                  >
-                    @if (contactSaving()) {
-                      <span class="loading loading-spinner loading-sm"></span>
-                    }
-                    Guardar contacto
-                  </button>
-                </div>
-              } @else if (!contactsLoading()) {
-                <ul class="text-sm space-y-1 max-h-28 overflow-y-auto">
-                  @for (ct of contactsForClient(); track ct.id) {
-                    <li class="text-base-content/80 leading-snug">
-                      <span>{{ ct.contact_first_name }} {{ ct.contact_last_name }}</span>
-                      <span class="text-xs text-base-content/50"> #{{ ct.id }}</span>
-                      @if (contactEncargadoLabel(ct); as enc) {
-                        <span class="block text-xs text-base-content/60 mt-0.5">Encargado: {{ enc }}</span>
-                      }
-                    </li>
+          <section class="space-y-3">
+            <h3 class="text-sm font-semibold">Datos de la solicitud</h3>
+            <div class="grid gap-3 sm:grid-cols-2">
+              <div>
+                <p class="mb-1 text-sm font-medium">Medio de entrada</p>
+                <select class="select select-bordered w-full" formControlName="entry_channel">
+                  @for (ch of ENTRY_CHANNELS; track ch) {
+                    <option [ngValue]="ch">{{ channelLabel(ch) }}</option>
                   }
-                </ul>
+                </select>
+              </div>
+              <div>
+                <p class="mb-1 text-sm font-medium">Tipo</p>
+                <select class="select select-bordered w-full" formControlName="proforma_type">
+                  @for (tp of PROFORMA_TYPES_LIST; track tp) {
+                    <option [ngValue]="tp">{{ typeLabel(tp) }}</option>
+                  }
+                </select>
+              </div>
+              <div>
+                <p class="mb-1 text-sm font-medium">Prioridad</p>
+                <select class="select select-bordered w-full" formControlName="priority">
+                  @for (p of PRIORITIES; track p) {
+                    <option [ngValue]="p">{{ priorityLabel(p) }}</option>
+                  }
+                </select>
+              </div>
+              <div>
+                <p class="mb-1 text-sm font-medium">Fecha objetivo</p>
+                <input class="input input-bordered w-full" type="datetime-local" formControlName="due_at" />
+              </div>
+            </div>
+            <div>
+              <p class="mb-1 text-sm font-medium">Descripción general</p>
+              @defer {
+                <app-rich-text-editor formControlName="description" />
+              } @placeholder {
+                <div class="textarea textarea-bordered flex h-28 items-center text-sm text-base-content/50">
+                  Cargando editor…
+                </div>
+              }
+              @if (form.controls.description.touched && form.controls.description.errors?.['required']) {
+                <p class="mt-1 text-xs text-error">Obligatorio</p>
               }
             </div>
+          </section>
+
+          @if (editingId() == null) {
+            <section class="space-y-2">
+              <h3 class="text-sm font-semibold">Productos solicitados</h3>
+              <p class="text-xs text-base-content/60">Opcional. Logística y la cotización automática usan estas líneas.</p>
+              @for (item of requestItems.controls; track $index) {
+                <div class="grid items-end gap-2 rounded-lg border border-base-300 bg-base-200/20 p-3 sm:grid-cols-[7rem_minmax(0,1fr)_4.5rem_4.5rem_auto]" [formGroup]="requestItemGroup($index)">
+                  <div>
+                    <p class="mb-1 text-xs font-medium">N.º parte</p>
+                    <input class="input input-bordered input-sm w-full" formControlName="requested_sku" placeholder="Opcional" />
+                  </div>
+                  <div>
+                    <p class="mb-1 text-xs font-medium">Descripción / especificaciones</p>
+                    <input class="input input-bordered input-sm w-full" formControlName="description" />
+                  </div>
+                  <div>
+                    <p class="mb-1 text-xs font-medium">Cant.</p>
+                    <input class="input input-bordered input-sm w-full" formControlName="quantity" />
+                  </div>
+                  <div>
+                    <p class="mb-1 text-xs font-medium">Unidad</p>
+                    <input class="input input-bordered input-sm w-full" formControlName="requested_unit" />
+                  </div>
+                  <button type="button" class="btn btn-ghost btn-sm btn-square" (click)="removeRequestItem($index)" aria-label="Quitar producto">✕</button>
+                </div>
+              }
+              <button type="button" class="btn btn-outline btn-sm" (click)="addRequestItem()">＋ Agregar producto</button>
+            </section>
           }
 
-          <label class="form-control w-full">
-            <span class="label-text">Derivar a</span>
-            <select
-              class="select select-bordered w-full"
-              [value]="selectedAssignedUserPk() ?? ''"
-              (change)="onDerivarAsesorChange($event)"
-            >
-              <option value="" disabled>Elegir usuario…</option>
-              @for (u of assignableUsers(); track u.id) {
-                <option [value]="u.id">{{ u.nombre }}</option>
-              }
-            </select>
-            @if (form.controls.assigned_user.touched && !hasSelectedAssignedUser()) {
-              <span class="label-text-alt text-error">Seleccione quién atenderá la solicitud</span>
+          <section class="space-y-2">
+            <h3 class="text-sm font-semibold">Archivos e imágenes</h3>
+            <p class="text-xs text-base-content/60">
+              JPEG, PNG, WebP, GIF, PDF o Excel. Máximo 15 MB. Se suben al guardar.
+            </p>
+            <input
+              type="file"
+              class="file-input file-input-bordered w-full"
+              multiple
+              [accept]="attachmentAccept"
+              [disabled]="saving()"
+              (change)="onAttachmentFiles($event)"
+            />
+            @if (attachmentHint(); as hint) {
+              <span class="label-text-alt text-error">{{ hint }}</span>
             }
-            @if (assignedAdvisorNombre(); as nombre) {
-              <span class="label-text-alt text-base-content/70">
-                La solicitud quedará asignada a {{ nombre }}.
-              </span>
+            @if (attachmentsLoading()) {
+              <p class="text-xs text-base-content/70 flex items-center gap-2">
+                <span class="loading loading-spinner loading-xs"></span>
+                Cargando archivos…
+              </p>
             }
-          </label>
-
-          <label class="form-control w-full">
-            <span class="label-text">Medio de entrada</span>
-            <select class="select select-bordered w-full" formControlName="entry_channel">
-              @for (ch of ENTRY_CHANNELS; track ch) {
-                <option [ngValue]="ch">{{ channelLabel(ch) }}</option>
-              }
-            </select>
-          </label>
-
-          <label class="form-control w-full">
-            <span class="label-text">Tipo de proforma</span>
-            <select class="select select-bordered w-full" formControlName="proforma_type">
-              @for (tp of PROFORMA_TYPES_LIST; track tp) {
-                <option [ngValue]="tp">{{ typeLabel(tp) }}</option>
-              }
-            </select>
-          </label>
-
-          <label class="form-control w-full">
-            <span class="label-text">Estado</span>
-            <select class="select select-bordered w-full" formControlName="status">
-              @for (st of PROFORMA_STATUS_LIST; track st) {
-                <option [ngValue]="st">{{ statusLabel(st) }}</option>
-              }
-            </select>
-            @if (editingId() == null) {
+            @if (savedAttachments().length > 0 || pendingFiles().length > 0) {
+              <ul class="space-y-2">
+                @for (att of savedAttachments(); track att.id) {
+                  <li class="flex items-center gap-2 rounded-lg border border-base-300 px-2 py-1.5">
+                    @if (isImageType(att.content_type)) {
+                      <img [src]="att.url" [alt]="att.name" class="h-10 w-10 rounded object-cover" />
+                    } @else {
+                      <span class="badge badge-ghost badge-sm shrink-0">{{ fileKindLabel(att.content_type, att.name) }}</span>
+                    }
+                    <a
+                      class="link link-hover min-w-0 flex-1 truncate text-sm"
+                      [href]="att.url"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      {{ att.name }}
+                    </a>
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-xs text-error"
+                      [disabled]="saving() || deletingAttachmentId() === att.id"
+                      (click)="removeSavedAttachment(att)"
+                    >
+                      @if (deletingAttachmentId() === att.id) {
+                        <span class="loading loading-spinner loading-xs"></span>
+                      }
+                      Quitar
+                    </button>
+                  </li>
+                }
+                @for (item of pendingFiles(); track item.key) {
+                  <li class="flex items-center gap-2 rounded-lg border border-dashed border-base-300 px-2 py-1.5">
+                    @if (item.previewUrl) {
+                      <img [src]="item.previewUrl" [alt]="item.file.name" class="h-10 w-10 rounded object-cover" />
+                    } @else {
+                      <span class="badge badge-ghost badge-sm shrink-0">{{ fileKindLabel(item.file.type, item.file.name) }}</span>
+                    }
+                    <span class="min-w-0 flex-1 truncate text-sm">{{ item.file.name }}</span>
+                    <span class="text-xs text-base-content/50 shrink-0">{{ formatFileSize(item.file.size) }}</span>
+                    <span class="badge badge-outline badge-sm shrink-0">Pendiente</span>
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-xs"
+                      [disabled]="saving()"
+                      (click)="removePendingFile(item.key)"
+                    >
+                      Quitar
+                    </button>
+                  </li>
+                }
+              </ul>
             }
-          </label>
+          </section>
 
-          <label class="form-control w-full">
-            <span class="label-text">Descripción del requerimiento</span>
-            <textarea class="textarea textarea-bordered min-h-[6rem] w-full" formControlName="description"></textarea>
-            @if (form.controls.description.touched && form.controls.description.errors?.['required']) {
-              <span class="label-text-alt text-error">Obligatorio</span>
-            }
-          </label>
+          <section class="space-y-3">
+            <h3 class="text-sm font-semibold">Asignación inicial</h3>
+            <div>
+              <p class="mb-1 text-sm font-medium">Responsable</p>
+              <select
+                class="select select-bordered w-full"
+                [value]="selectedAssignedUserPk() ?? ''"
+                (change)="onDerivarAsesorChange($event)"
+              >
+                <option value="" disabled>Elegir usuario…</option>
+                @for (u of assignableUsers(); track u.id) {
+                  <option [value]="u.id">{{ u.nombre }}</option>
+                }
+              </select>
+              @if (form.controls.assigned_user.touched && !hasSelectedAssignedUser()) {
+                <p class="mt-1 text-xs text-error">Seleccione quién atenderá la solicitud</p>
+              } @else if (assignedAdvisorNombre(); as nombre) {
+                <p class="mt-1 text-xs text-base-content/60">Se notificará a {{ nombre }}.</p>
+              }
+            </div>
+          </section>
 
           @if (editingId() != null) {
-            <label class="label cursor-pointer justify-start gap-3">
-              <input type="checkbox" class="checkbox checkbox-sm" formControlName="unlink_quotation" />
-              <span class="label-text">Desvincular cotización al guardar</span>
-            </label>
+            <section class="grid gap-3 sm:grid-cols-2">
+              <div>
+                <p class="mb-1 text-sm font-medium">Estado comercial</p>
+                <select class="select select-bordered w-full" formControlName="status">
+                  @for (st of formStatusOptions(); track st) {
+                    <option [ngValue]="st">{{ statusLabel(st) }}</option>
+                  }
+                </select>
+              </div>
+              @if (form.controls.client.value > 0) {
+                <div>
+                  <p class="mb-1 text-sm font-medium">Cotización vinculada</p>
+                  <select class="select select-bordered w-full" formControlName="quotation" [compareWith]="sameQuotationId">
+                    <option [ngValue]="0">Sin vincular</option>
+                    @for (q of quotationSummaryOptions(); track q.id) {
+                      <option [ngValue]="q.id">{{ quotationSummaryLabel(q) }}</option>
+                    }
+                  </select>
+                </div>
+              }
+            </section>
           }
 
           <div class="modal-action flex-wrap gap-2">
-            <button type="button" class="btn btn-ghost" (click)="closeModal()">Cancelar</button>
+            <button type="button" class="btn btn-ghost" [disabled]="saving()" (click)="closeModal()">Cancelar</button>
             <button
               type="submit"
               class="btn btn-primary"
@@ -675,7 +978,7 @@
               @if (saving()) {
                 <span class="loading loading-spinner loading-sm"></span>
               }
-              Guardar
+              {{ editingId() == null ? 'Crear y notificar' : 'Guardar' }}
             </button>
           </div>
         </form>
@@ -683,4 +986,416 @@
     </div>
     <button type="button" class="modal-backdrop cursor-default bg-black/50" aria-label="Cerrar" (click)="closeModal()"></button>
   </div>
+}
+
+@if (approvalOpen()) {
+  <div class="modal modal-open z-50">
+    <div class="modal-box max-w-5xl">
+      <h2 class="text-lg font-bold">Aprobar venta</h2>
+      <p class="text-base-content/70 mt-2 text-sm">
+        La cotización se queda como se envió. Cant. es lo que pidió el cliente: puede ser menor o mayor
+        que lo cotizado. Quitar saca el ítem de este pedido y no borra la línea de la cotización.
+        Si hay stock, indícalo. Los borradores de compra salen del proveedor elegido en la solicitud.
+      </p>
+      @if (approvalProforma(); as proforma) {
+        <p class="mt-2 text-sm">
+          Solicitud #{{ proforma.id }}
+          @if (proforma.quotation_correlativo) {
+            · Cotización <strong class="font-mono">{{ proforma.quotation_correlativo }}</strong>
+          }
+        </p>
+      }
+
+      @if (approvalError(); as err) {
+        <div role="alert" class="alert alert-error mt-3 text-sm whitespace-pre-line">{{ err }}</div>
+      }
+
+      @if (approvalLoading()) {
+        <div class="flex justify-center p-8">
+          <span class="loading loading-spinner loading-md text-primary"></span>
+        </div>
+      } @else if (approvalResult(); as result) {
+        <div role="status" class="alert alert-success mt-3 text-sm">
+          <span>
+            Enviado a logística.
+            @if (result.logisticsOrderId; as orderId) {
+              Pedido
+              <a class="link font-semibold" [routerLink]="['/logistica/ordenes-internas', orderId]" (click)="closeApproval()">
+                #{{ orderId }}
+              </a>.
+            }
+          </span>
+        </div>
+        @if (result.drafts.length) {
+          <div class="mt-3 text-sm">
+            <p class="font-medium">Borradores de compra (desde la oferta elegida)</p>
+            <ul class="mt-1 list-disc pl-5">
+              @for (draft of result.drafts; track draft.id) {
+                <li>
+                  <a class="link font-mono" [routerLink]="['/logistica/ordenes-compra', draft.id]" (click)="closeApproval()">
+                    {{ draft.correlativo }}
+                  </a>
+                  · {{ draft.supplierName }}
+                </li>
+              }
+            </ul>
+          </div>
+        }
+        @if (result.stockLines.length) {
+          <p class="mt-3 text-sm">
+            En stock, sin compra: {{ stockSummary(result.stockLines) }}
+          </p>
+        }
+        @for (warning of result.warnings; track warning) {
+          <div role="status" class="alert alert-warning mt-3 text-sm whitespace-pre-line">{{ warning }}</div>
+        }
+      } @else {
+        <app-sale-approval-lines
+          [choices]="approvalChoices()"
+          [money]="approvalMoney()"
+          [disabled]="approvalBusy()"
+          [offerDebug]="approvalContext()?.offerDebug ?? null"
+          (choicesChange)="onApprovalChoices($event)"
+        />
+      }
+
+      <div class="modal-action">
+        <button type="button" class="btn btn-ghost" [disabled]="approvalBusy()" (click)="closeApproval()">
+          {{ approvalResult() ? 'Cerrar' : 'Cancelar' }}
+        </button>
+        @if (!approvalResult()) {
+          <button
+            type="button"
+            class="btn btn-primary"
+            [disabled]="approvalBusy() || approvalLoading() || approvalBlocked()"
+            (click)="confirmApproval()"
+          >
+            @if (approvalBusy()) {
+              <span class="loading loading-spinner loading-sm"></span>
+            }
+            Aprobar y generar borradores
+          </button>
+        }
+      </div>
+    </div>
+    <button
+      type="button"
+      class="modal-backdrop bg-black/50"
+      aria-label="Cerrar"
+      [disabled]="approvalBusy()"
+      (click)="closeApproval()"
+    ></button>
+  </div>
+}
+
+@if (recommendOpen()) {
+  <div class="modal modal-open z-50">
+    <div class="modal-box flex max-h-[92vh] max-w-4xl flex-col overflow-hidden">
+      <ol class="mb-4 flex flex-wrap gap-2 text-xs">
+        <li class="rounded-full bg-success/15 px-3 py-1 font-medium text-success">1. Datos listos</li>
+        <li
+          class="rounded-full px-3 py-1 font-medium"
+          [class.bg-primary]="createFlowStep() === 'recommend'"
+          [class.text-primary-content]="createFlowStep() === 'recommend'"
+          [class.bg-base-200]="createFlowStep() !== 'recommend'"
+          [class.text-base-content/60]="createFlowStep() !== 'recommend'"
+        >
+          2. Recomendación
+        </li>
+        <li
+          class="rounded-full px-3 py-1 font-medium"
+          [class.bg-primary]="createFlowStep() === 'manual'"
+          [class.text-primary-content]="createFlowStep() === 'manual'"
+          [class.bg-base-200]="createFlowStep() !== 'manual'"
+          [class.text-base-content/60]="createFlowStep() !== 'manual'"
+        >
+          3. Cotizar o derivar
+        </li>
+      </ol>
+
+      @if (createFlowStep() === 'recommend') {
+        @switch (recommendPhase()) {
+          @case ('loading') {
+            <div class="flex flex-1 flex-col items-center justify-center gap-3 py-16">
+              <span class="loading loading-spinner loading-lg text-primary"></span>
+              <h2 class="text-lg font-bold">Analizando el requerimiento</h2>
+              <p class="max-w-md text-center text-sm text-base-content/60">
+                El sistema lee la descripción y los archivos para sugerir productos del catálogo.
+              </p>
+            </div>
+          }
+          @case ('error') {
+            <h2 class="text-lg font-bold">No se pudo recomendar</h2>
+            @if (recommendError(); as err) {
+              <div role="alert" class="alert alert-error mt-3 text-sm">{{ err }}</div>
+            }
+            <div class="modal-action">
+              <button type="button" class="btn btn-ghost" (click)="closeRecommend()">Cerrar</button>
+              <button type="button" class="btn btn-outline" (click)="openManualChoice()">Elegir producto por cuenta propia</button>
+              <button type="button" class="btn btn-primary" (click)="confirmRecommendation()">Reintentar</button>
+            </div>
+          }
+          @case ('result') {
+            <div class="min-h-0 flex-1 overflow-y-auto pr-1">
+              <h2 class="text-lg font-bold">Productos recomendados</h2>
+              <p class="mt-1 text-sm text-base-content/60">
+                Marque las opciones que quiere cotizar. Si ninguna sirve, elija un producto del catálogo o derive a Logística.
+              </p>
+              @if (recommend(); as rec) {
+                @if (rec.message) {
+                  <div role="alert" class="alert alert-warning mt-3 text-sm">{{ rec.message }}</div>
+                }
+                @if (rec.unreadable_attachments.length > 0) {
+                  <div role="alert" class="alert alert-warning mt-3 text-sm">
+                    No se pudieron leer: {{ rec.unreadable_attachments.join(', ') }}
+                  </div>
+                }
+                <div class="mt-4 space-y-4">
+                  @for (line of rec.lines; track $index; let lineIndex = $index) {
+                    <section class="rounded-xl border border-base-300 bg-base-200/30 p-4">
+                      <div class="flex flex-wrap items-start justify-between gap-2">
+                        <div>
+                          <p class="text-xs font-medium uppercase tracking-wide text-base-content/50">Pedido</p>
+                          <h3 class="font-semibold leading-snug">{{ line.requested }}</h3>
+                          @if (line.brand) {
+                            <p class="text-xs text-base-content/60">{{ line.brand }}</p>
+                          }
+                        </div>
+                        <div class="flex items-center gap-2">
+                          <span class="badge badge-ghost badge-sm">{{ line.qty }} und</span>
+                          <span
+                            class="badge badge-sm"
+                            [class.badge-success]="line.availability === 'STOCK'"
+                            [class.badge-warning]="line.availability === 'IMPORTACION'"
+                            [class.badge-error]="line.availability === 'NO_ENCONTRADO'"
+                          >
+                            {{ availabilityLabel(line.availability) }}
+                          </span>
+                        </div>
+                      </div>
+                      @if (line.message) {
+                        <p class="mt-2 text-sm text-base-content/70">{{ line.message }}</p>
+                      }
+                      @if (line.matches.length) {
+                        <ul class="mt-3 grid gap-2">
+                          @for (match of line.matches; track match.product_id; let first = $first) {
+                            <li
+                              class="rounded-lg border bg-base-100 p-3"
+                              [class.border-primary]="isRecMatchSelected(lineIndex, match.product_id)"
+                              [class.border-base-300]="!isRecMatchSelected(lineIndex, match.product_id)"
+                            >
+                              <div class="flex flex-wrap items-start justify-between gap-3">
+                                <label class="flex min-w-0 flex-1 cursor-pointer items-start gap-3">
+                                  <input
+                                    type="checkbox"
+                                    class="checkbox checkbox-primary checkbox-sm mt-0.5"
+                                    [checked]="isRecMatchSelected(lineIndex, match.product_id)"
+                                    (change)="toggleRecMatch(lineIndex, match)"
+                                  />
+                                  <div class="min-w-0">
+                                    @if (first) {
+                                      <p class="text-[11px] font-medium uppercase tracking-wide text-primary">Más parecido</p>
+                                    }
+                                    <p class="font-mono text-xs text-base-content/60">{{ match.sku }}</p>
+                                    <p class="text-sm font-medium leading-snug">{{ match.description }}</p>
+                                    <p class="mt-1 text-xs text-base-content/60">
+                                      <span
+                                        class="badge badge-xs mr-1"
+                                        [class.badge-success]="match.availability === 'STOCK'"
+                                        [class.badge-warning]="match.availability === 'IMPORTACION'"
+                                      >
+                                        {{ availabilityLabel(match.availability) }}
+                                      </span>
+                                      Stock {{ match.stock }}
+                                    </p>
+                                  </div>
+                                </label>
+                                <button
+                                  type="button"
+                                  class="btn btn-primary btn-sm"
+                                  (click)="quoteRecommendationMatch(lineIndex, match, line.qty)"
+                                >
+                                  Cotizar esta
+                                </button>
+                              </div>
+                            </li>
+                          }
+                        </ul>
+                      } @else {
+                        <p class="mt-3 text-sm text-base-content/60">Sin coincidencia en el catálogo para esta línea.</p>
+                      }
+                    </section>
+                  } @empty {
+                    <p class="rounded-lg border border-dashed border-base-300 p-6 text-center text-sm text-base-content/60">
+                      El sistema no encontró líneas para recomendar.
+                    </p>
+                  }
+                </div>
+              }
+            </div>
+            <div class="modal-action mt-4 flex-wrap border-t border-base-300 pt-3">
+              <button type="button" class="btn btn-ghost" (click)="closeRecommend()">Cerrar</button>
+              <button type="button" class="btn btn-outline" (click)="confirmRecommendation()">Volver a analizar</button>
+              <button type="button" class="btn btn-outline" (click)="openManualChoice()">Elegir producto por cuenta propia</button>
+              <button
+                type="button"
+                class="btn btn-primary"
+                [disabled]="selectedRecommendationCount() === 0"
+                (click)="quoteSelectedRecommendations()"
+              >
+                Cotizar seleccionadas
+                @if (selectedRecommendationCount() > 0) {
+                  ({{ selectedRecommendationCount() }})
+                }
+              </button>
+            </div>
+          }
+        }
+      } @else {
+        <div class="min-h-0 flex-1 overflow-y-auto pr-1">
+          <button type="button" class="btn btn-ghost btn-sm mb-3 px-0" (click)="backToRecommendations()">
+            ← Volver a recomendaciones
+          </button>
+          <h2 class="text-lg font-bold">Elegir por cuenta propia</h2>
+          <p class="mt-1 text-sm text-base-content/60">
+            Busque un producto del catálogo para cotizarlo, o derive la solicitud a Logística si hay que cotizar afuera.
+          </p>
+
+          @if (manualPath() == null) {
+            <div class="mt-5 grid gap-3 sm:grid-cols-2">
+              <button
+                type="button"
+                class="rounded-xl border border-base-300 bg-base-100 p-5 text-left transition hover:border-primary hover:bg-primary/5"
+                (click)="openCatalogPick()"
+              >
+                <p class="text-sm font-semibold">Buscar en el catálogo</p>
+                <p class="mt-1 text-sm text-base-content/60">Elija un producto del sistema y ábralo como cotización.</p>
+              </button>
+              <button
+                type="button"
+                class="rounded-xl border border-base-300 bg-base-100 p-5 text-left transition hover:border-primary hover:bg-primary/5"
+                (click)="openLogisticsAssign()"
+              >
+                <p class="text-sm font-semibold">Derivar a Logística</p>
+                <p class="mt-1 text-sm text-base-content/60">Asigne un usuario de Logística o un administrador.</p>
+              </button>
+            </div>
+          }
+
+          @if (manualPath() === 'pick') {
+            <section class="mt-5 space-y-3">
+              <label class="form-control">
+                <span class="label-text">Buscar producto</span>
+                <input
+                  class="input input-bordered"
+                  [value]="catalogQuery()"
+                  (input)="catalogQuery.set($any($event.target).value)"
+                  placeholder="SKU o descripción…"
+                />
+              </label>
+              @if (catalogLoading()) {
+                <p class="flex items-center gap-2 text-sm text-base-content/60">
+                  <span class="loading loading-spinner loading-sm"></span>
+                  Cargando catálogo…
+                </p>
+              } @else {
+                <ul class="max-h-64 space-y-1 overflow-auto rounded-xl border border-base-300">
+                  @for (p of filteredCatalogProducts(); track p.id) {
+                    <li>
+                      <button
+                        type="button"
+                        class="flex w-full flex-col items-start px-3 py-2 text-left hover:bg-base-200"
+                        [class.bg-primary/10]="pickedCatalog()?.id === p.id"
+                        (click)="pickedCatalog.set(p)"
+                      >
+                        <span class="font-mono text-xs text-base-content/60">{{ p.sku }}</span>
+                        <span class="text-sm">{{ p.description }}</span>
+                      </button>
+                    </li>
+                  } @empty {
+                    <li class="px-3 py-6 text-center text-sm text-base-content/60">Sin coincidencias</li>
+                  }
+                </ul>
+              }
+              @if (pickedCatalog(); as picked) {
+                <div class="rounded-lg border border-primary/30 bg-primary/5 p-3 text-sm">
+                  <p class="font-medium">{{ picked.description }}</p>
+                  <p class="text-xs text-base-content/60">{{ picked.sku }}</p>
+                </div>
+              }
+            </section>
+          }
+
+          @if (manualPath() === 'logistics') {
+            <section class="mt-5 space-y-3">
+              @if (logisticsError(); as err) {
+                <div role="alert" class="alert alert-error text-sm">{{ err }}</div>
+              }
+              @if (logisticsUsersLoading()) {
+                <p class="flex items-center gap-2 text-sm text-base-content/60">
+                  <span class="loading loading-spinner loading-sm"></span>
+                  Cargando usuarios de Logística…
+                </p>
+              } @else {
+                <label class="form-control">
+                  <span class="label-text">Responsable en Logística o Admin</span>
+                  <select
+                    class="select select-bordered"
+                    [value]="logisticsUserId()"
+                    (change)="logisticsUserId.set(+$any($event.target).value)"
+                  >
+                    <option [value]="0" disabled>Seleccione…</option>
+                    @for (u of logisticsUsers(); track u.id) {
+                      <option [value]="u.id">{{ u.nombre }}</option>
+                    }
+                  </select>
+                </label>
+                <p class="text-xs text-base-content/60">
+                  La solicitud pasará a la cola de Logística y se avisará a esa persona.
+                </p>
+              }
+            </section>
+          }
+        </div>
+        <div class="modal-action mt-4 border-t border-base-300 pt-3">
+          <button type="button" class="btn btn-ghost" [disabled]="logisticsSending()" (click)="closeRecommend()">Cerrar</button>
+          @if (manualPath() === 'pick') {
+            <button type="button" class="btn btn-primary" [disabled]="!pickedCatalog()" (click)="quotePickedCatalogProduct()">
+              Cotizar este producto
+            </button>
+          }
+          @if (manualPath() === 'logistics') {
+            <button
+              type="button"
+              class="btn btn-primary"
+              [disabled]="logisticsSending() || logisticsUserId() <= 0"
+              (click)="submitCreateFlowLogistics()"
+            >
+              @if (logisticsSending()) {
+                <span class="loading loading-spinner loading-sm"></span>
+              }
+              Enviar a Logística
+            </button>
+          }
+        </div>
+      }
+    </div>
+    <button
+      type="button"
+      class="modal-backdrop bg-black/50"
+      aria-label="Cerrar"
+      [disabled]="recommendPhase() === 'loading' || logisticsSending()"
+      (click)="closeRecommend()"
+    ></button>
+  </div>
+}
+
+@if (detailId(); as id) {
+  @defer {
+    <app-proforma-request-detail
+      [requestId]="id"
+      (closed)="closeDetail()"
+      (changed)="onDetailChanged()"
+    />
+  }
 }

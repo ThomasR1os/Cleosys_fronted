@@ -5,15 +5,51 @@
         Hola, {{ auth.displayName() || auth.me()?.user?.username }}
       </h1>
       <p class="text-base-content/70 text-lg">
-        Reporte de cotizaciones aprobadas de {{ auth.companyName() }}.
+        @if (report() === 'quotations') {
+          Reporte de cotizaciones aprobadas de {{ auth.companyName() }}.
+        } @else {
+          Reporte de solicitudes de proforma de {{ auth.companyName() }}.
+        }
       </p>
     </div>
     <div class="flex flex-wrap gap-2">
-      <a routerLink="/ventas/cotizaciones" class="btn btn-primary btn-sm">Ver cotizaciones</a>
+      @if (report() === 'quotations') {
+        <a routerLink="/ventas/cotizaciones" class="btn btn-primary btn-sm">Ver cotizaciones</a>
+      } @else {
+        <a routerLink="/ventas/solicitudes-proforma" class="btn btn-primary btn-sm">Ver solicitudes</a>
+      }
       <a routerLink="/perfil" class="btn btn-outline btn-sm">Mi perfil</a>
     </div>
   </header>
 
+  <div class="flex flex-wrap gap-2" role="tablist" aria-label="Reportes del dashboard">
+    <button
+      type="button"
+      role="tab"
+      class="btn btn-sm"
+      [class.btn-primary]="report() === 'quotations'"
+      [class.btn-outline]="report() !== 'quotations'"
+      [attr.aria-selected]="report() === 'quotations'"
+      (click)="report.set('quotations')"
+    >
+      Cotizaciones
+    </button>
+    <button
+      type="button"
+      role="tab"
+      class="btn btn-sm"
+      [class.btn-primary]="report() === 'proformas'"
+      [class.btn-outline]="report() !== 'proformas'"
+      [attr.aria-selected]="report() === 'proformas'"
+      (click)="report.set('proformas')"
+    >
+      Solicitudes de proforma
+    </button>
+  </div>
+
+  @if (report() === 'proformas') {
+    <app-proforma-dashboard />
+  } @else {
   <!-- Filtros -->
   <section class="card bg-base-100 shadow-md">
     <div class="card-body gap-4">
@@ -335,6 +371,7 @@
       </div>
     </section>
   }
+  }
 
   <!-- Accesos rápidos -->
   <section class="space-y-4">
@@ -389,7 +426,7 @@
         <div class="card-body">
           <span class="text-accent text-3xl" aria-hidden="true">⬡</span>
           <h3 class="card-title text-lg">Logística</h3>
-          <p class="text-base-content/70 text-sm">Tareas y proveedores.</p>
+          <p class="text-base-content/70 text-sm">Tareas, órdenes internas, órdenes de compra y proveedores.</p>
         </div>
       </a>
       <a routerLink="/ventas" class="card bg-base-100 shadow-md transition hover:shadow-lg">

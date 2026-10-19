@@ -134,7 +134,21 @@
                   {{ row.creation_date | shortDateTime }}
                 </td>
                 <td class="text-right">
-                  <div class="flex flex-nowrap justify-end gap-0.5">
+                  <div class="flex flex-wrap justify-end gap-1">
+                    @if (canApproveQuotation(row)) {
+                      <button type="button" class="btn btn-primary btn-xs" (click)="openApproval(row)">
+                        Aprobar
+                      </button>
+                    }
+                    @if (internalOrderId(row); as orderId) {
+                      <a
+                        class="btn btn-ghost btn-xs"
+                        [routerLink]="['/logistica/ordenes-internas', orderId]"
+                        title="Ver orden interna"
+                      >
+                        Orden
+                      </a>
+                    }
                     <button
                       type="button"
                       class="btn btn-ghost btn-sm btn-square"
@@ -378,10 +392,15 @@
         <label class="form-control w-full">
           <span class="label-text">Estado</span>
           <select class="select select-bordered w-full" formControlName="status">
-            @for (opt of statusOpts; track opt.value) {
+            @for (opt of formStatusOptions(); track opt.value) {
               <option [ngValue]="opt.value">{{ opt.label }}</option>
             }
           </select>
+          @if (form.controls.status.value !== 'APROBADA') {
+            <span class="label-text-alt text-base-content/60">
+              Para dejarla aprobada y generar la orden interna, usa Aprobar en el listado.
+            </span>
+          }
         </label>
 
         @if (isPenCurrency()) {
@@ -504,6 +523,16 @@
               </button>
             }
           </div>
+          @if (editingQuotationIsApproved()) {
+            <p class="text-sm text-base-content/70">
+              Esta cotización ya está aprobada. Las líneas no se modifican para no desfasar la orden interna.
+              @if (editingInternalOrderId(); as orderId) {
+                <a class="link" [routerLink]="['/logistica/ordenes-internas', orderId]" (click)="closeQuotationModal()">
+                  Ver orden interna
+                </a>
+              }
+            </p>
+          }
 
           @if (editingQuotationId() == null) {
             <div class="overflow-x-auto">
@@ -1114,6 +1143,101 @@
       [disabled]="sendEmailBusy()"
       (click)="closeSendEmail()"
       aria-label="Cerrar envío"
+    ></button>
+  </div>
+}
+
+@if (approvalOpen()) {
+  <div class="modal modal-open z-50">
+    <div class="modal-box max-w-5xl">
+      <h2 class="text-lg font-bold">Aprobar venta</h2>
+      <p class="text-base-content/70 mt-2 text-sm">
+        La cotización se queda como se envió. Cant. es lo que pidió el cliente: puede ser menor o mayor
+        que lo cotizado. Quitar saca el ítem de este pedido y no borra la línea de la cotización.
+        Si hay stock, indícalo. Los borradores de compra salen del proveedor elegido en la solicitud.
+      </p>
+      @if (approvalQuotation(); as quotation) {
+        <p class="mt-2 text-sm">
+          Cotización <strong class="font-mono">{{ quotation.correlativo }}</strong>
+        </p>
+      }
+
+      @if (approvalError(); as err) {
+        <div role="alert" class="alert alert-error mt-3 text-sm whitespace-pre-line">{{ err }}</div>
+      }
+
+      @if (approvalLoading()) {
+        <div class="flex justify-center p-8">
+          <span class="loading loading-spinner loading-md text-primary"></span>
+        </div>
+      } @else if (approvalResult(); as result) {
+        <div role="status" class="alert alert-success mt-3 text-sm">
+          <span>
+            Enviado a logística.
+            @if (result.logisticsOrderId; as orderId) {
+              Pedido
+              <a class="link font-semibold" [routerLink]="['/logistica/ordenes-internas', orderId]" (click)="closeApproval()">
+                #{{ orderId }}
+              </a>.
+            }
+          </span>
+        </div>
+        @if (result.drafts.length) {
+          <div class="mt-3 text-sm">
+            <p class="font-medium">Borradores de compra (desde la oferta elegida)</p>
+            <ul class="mt-1 list-disc pl-5">
+              @for (draft of result.drafts; track draft.id) {
+                <li>
+                  <a class="link font-mono" [routerLink]="['/logistica/ordenes-compra', draft.id]" (click)="closeApproval()">
+                    {{ draft.correlativo }}
+                  </a>
+                  · {{ draft.supplierName }}
+                </li>
+              }
+            </ul>
+          </div>
+        }
+        @if (result.stockLines.length) {
+          <p class="mt-3 text-sm">En stock, sin compra: {{ stockSummary(result.stockLines) }}</p>
+        }
+        @for (warning of result.warnings; track warning) {
+          <div role="status" class="alert alert-warning mt-3 text-sm whitespace-pre-line">{{ warning }}</div>
+        }
+      } @else {
+        <app-sale-approval-lines
+          [choices]="approvalChoices()"
+          [money]="approvalMoney()"
+          [disabled]="approvalBusy()"
+          [offerDebug]="approvalContext()?.offerDebug ?? null"
+          (choicesChange)="onApprovalChoices($event)"
+        />
+      }
+
+      <div class="modal-action">
+        <button type="button" class="btn btn-ghost" [disabled]="approvalBusy()" (click)="closeApproval()">
+          {{ approvalResult() ? 'Cerrar' : 'Cancelar' }}
+        </button>
+        @if (!approvalResult()) {
+          <button
+            type="button"
+            class="btn btn-primary"
+            [disabled]="approvalBusy() || approvalLoading() || approvalBlocked()"
+            (click)="confirmApproval()"
+          >
+            @if (approvalBusy()) {
+              <span class="loading loading-spinner loading-sm"></span>
+            }
+            Aprobar y generar borradores
+          </button>
+        }
+      </div>
+    </div>
+    <button
+      type="button"
+      class="modal-backdrop bg-black/50"
+      aria-label="Cerrar"
+      [disabled]="approvalBusy()"
+      (click)="closeApproval()"
     ></button>
   </div>
 }

@@ -5,11 +5,42 @@
     <div>
       <h1 class="text-3xl font-bold">Producto por proveedor</h1>
       <p class="text-base-content/70 mt-1 text-sm">
-        Costo, moneda e incoterm. Filtros en pantalla (sin parámetros en el API por ahora).
+        Costo, moneda, incoterm y plazo estimado en días. Si el Excel no trae la columna de plazo, ese dato se
+        conserva.
       </p>
     </div>
     @if (auth.canWriteAlmacen()) {
-      <button type="button" class="btn btn-primary btn-lg" (click)="openNew()">Nueva relación</button>
+      <div class="flex flex-wrap items-center gap-2">
+        <button type="button" class="btn btn-outline btn-sm" [disabled]="importBusy()" (click)="downloadTemplate()">
+          Plantilla Excel
+        </button>
+        <label
+          class="btn btn-outline btn-sm"
+          [class.btn-disabled]="importBusy()"
+          [class.pointer-events-none]="importBusy()"
+        >
+          @if (importBusy()) {
+            <span class="loading loading-spinner loading-xs"></span>
+            @if (importProgress(); as prog) {
+              Lote {{ prog.done }}/{{ prog.total }}
+            } @else {
+              Importando…
+            }
+          } @else {
+            Importar Excel
+          }
+          <input
+            type="file"
+            class="hidden"
+            accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            [disabled]="importBusy()"
+            (change)="onExcelFileSelected($event)"
+          />
+        </label>
+        <button type="button" class="btn btn-primary btn-lg" [disabled]="importBusy()" (click)="openNew()">
+          Nueva relación
+        </button>
+      </div>
     }
   </div>
 
@@ -24,33 +55,131 @@
     <div role="alert" class="alert alert-error text-sm">{{ err }}</div>
   }
 
-  <div class="flex flex-col gap-3 rounded-lg border border-base-300 bg-base-100 p-4 sm:flex-row sm:flex-wrap sm:items-end">
-    <label class="form-control w-full max-w-xs">
-      <span class="label-text">Filtrar por producto</span>
-      <select
-        class="select select-bordered select-sm"
-        [value]="filterProductId() ?? ''"
-        (change)="filterProductId.set($any($event.target).value === '' ? null : +$any($event.target).value)"
-      >
-        <option value="">Todos</option>
-        @for (p of products(); track p.id) {
-          <option [value]="p.id">{{ p.sku }}</option>
+  @if (importSummary(); as sum) {
+    <div
+      role="status"
+      class="alert text-sm"
+      [class.alert-success]="sum.failed === 0"
+      [class.alert-warning]="sum.failed > 0"
+    >
+      <span>
+        Importación:
+        <strong>{{ sum.created }}</strong> altas,
+        <strong>{{ sum.updated }}</strong> actualizaciones
+        @if (sum.failed > 0) {
+          , <strong>{{ sum.failed }}</strong> con error
+        }.
+      </span>
+      @if (sum.errors.length) {
+        <ul class="mt-2 max-h-48 list-inside list-disc overflow-y-auto text-left">
+          @for (issue of sum.errors.slice(0, 30); track $index) {
+            <li><span class="font-medium">{{ issue.label }}</span>: {{ issue.message }}</li>
+          }
+        </ul>
+        @if (sum.errors.length > 30) {
+          <p class="mt-1 text-xs opacity-70">…y {{ sum.errors.length - 30 }} errores más.</p>
         }
-      </select>
-    </label>
-    <label class="form-control w-full max-w-xs">
-      <span class="label-text">Filtrar por proveedor</span>
-      <select
-        class="select select-bordered select-sm"
-        [value]="filterSupplierId() ?? ''"
-        (change)="filterSupplierId.set($any($event.target).value === '' ? null : +$any($event.target).value)"
-      >
-        <option value="">Todos</option>
-        @for (s of suppliers(); track s.id) {
-          <option [value]="s.id">{{ s.name }}</option>
+      }
+    </div>
+  }
+
+  <div class="grid grid-cols-1 gap-3 rounded-lg border border-base-300 bg-base-100 p-4 sm:grid-cols-2 lg:items-end">
+    <div class="flex min-w-0 flex-col gap-1">
+      <span class="text-sm font-medium">Filtrar por producto</span>
+      <div class="relative">
+        <input
+          class="input input-bordered input-sm w-full"
+          [value]="filterProductQuery()"
+          (input)="onFilterProductQuery($any($event.target).value)"
+          (focus)="filterProductMenuOpen.set(true)"
+          (blur)="closeFilterProductMenuSoon()"
+          placeholder="SKU o descripción"
+          autocomplete="off"
+        />
+        @if (filterProductMenuOpen()) {
+          <ul class="border-base-300 bg-base-100 absolute z-30 mt-1 max-h-60 w-full overflow-auto rounded-lg border shadow-lg">
+            <li>
+              <button
+                type="button"
+                class="hover:bg-base-200 w-full px-3 py-2 text-left text-sm"
+                (mousedown)="pickFilterProduct(null, $event)"
+              >
+                Todos
+              </button>
+            </li>
+            @for (product of filterProductMatches(); track product.id) {
+              <li>
+                <button
+                  type="button"
+                  class="hover:bg-base-200 w-full px-3 py-2 text-left text-sm"
+                  (mousedown)="pickFilterProduct(product, $event)"
+                >
+                  <span class="font-medium">{{ product.sku }}</span>
+                  <span class="text-base-content/60 block text-xs">{{ product.description }}</span>
+                </button>
+              </li>
+            } @empty {
+              <li class="text-base-content/60 px-3 py-2 text-sm">Ningún producto coincide.</li>
+            }
+          </ul>
         }
-      </select>
-    </label>
+      </div>
+    </div>
+    <div class="flex min-w-0 flex-col gap-1">
+      <span class="text-sm font-medium">Filtrar por proveedor</span>
+      <div class="relative">
+        <input
+          class="input input-bordered input-sm w-full"
+          [value]="filterSupplierQuery()"
+          (input)="onFilterSupplierQuery($any($event.target).value)"
+          (focus)="filterSupplierMenuOpen.set(true)"
+          (blur)="closeFilterSupplierMenuSoon()"
+          placeholder="Nombre o RUC"
+          autocomplete="off"
+        />
+        @if (filterSupplierMenuOpen()) {
+          <ul class="border-base-300 bg-base-100 absolute z-30 mt-1 max-h-60 w-full overflow-auto rounded-lg border shadow-lg">
+            <li>
+              <button
+                type="button"
+                class="hover:bg-base-200 w-full px-3 py-2 text-sm text-left"
+                (mousedown)="pickFilterSupplier(null, $event)"
+              >
+                Todos
+              </button>
+            </li>
+            @for (supplier of filterSupplierMatches(); track supplier.id) {
+              <li>
+                <button
+                  type="button"
+                  class="hover:bg-base-200 flex w-full items-start justify-between gap-3 px-3 py-2 text-left text-sm"
+                  (mousedown)="pickFilterSupplier(supplier, $event)"
+                >
+                  <span>
+                    <span class="font-medium">{{ supplier.name }}</span>
+                    @if (supplier.ruc) {
+                      <span class="text-base-content/60 block text-xs">RUC {{ supplier.ruc }}</span>
+                    }
+                  </span>
+                  <span
+                    class="badge badge-sm shrink-0"
+                    [class.badge-warning]="supplier.type === 'EXTRANJERO'"
+                    [class.badge-ghost]="supplier.type !== 'EXTRANJERO'"
+                  >
+                    {{ supplier.type === 'EXTRANJERO' ? 'Extranjero' : 'Nacional' }}
+                  </span>
+                </button>
+              </li>
+            } @empty {
+              <li class="text-base-content/60 px-3 py-2 text-sm">Ningún proveedor coincide.</li>
+            }
+          </ul>
+        }
+      </div>
+    </div>
+    @if (hasFilters()) {
+      <button type="button" class="btn btn-ghost btn-sm w-fit" (click)="clearFilters()">Limpiar filtros</button>
+    }
   </div>
 
   <div class="overflow-x-auto rounded-lg border border-base-300 bg-base-100">
@@ -68,11 +197,12 @@
             <th>Moneda</th>
             <th>Costo</th>
             <th>Incoterm</th>
+            <th>Plazo (días)</th>
             <th class="text-right">Acciones</th>
           </tr>
         </thead>
         <tbody>
-          @for (row of filteredItems(); track row.id) {
+          @for (row of pagedItems(); track row.id) {
             <tr>
               <td>{{ row.id }}</td>
               <td class="max-w-[12rem]">
@@ -85,6 +215,7 @@
               <td>{{ row.money }}</td>
               <td>{{ row.cost }}</td>
               <td>{{ row.incoterm }}</td>
+              <td>{{ row.estimated_lead_time_days ?? '—' }}</td>
               <td class="text-right space-x-1">
                 @if (auth.canWriteAlmacen()) {
                   <button type="button" class="btn btn-ghost btn-sm" (click)="openEdit(row)">Editar</button>
@@ -96,7 +227,7 @@
             </tr>
           } @empty {
             <tr>
-              <td colspan="7" class="text-base-content/60 text-center">
+              <td colspan="8" class="text-base-content/60 text-center">
                 @if (items().length === 0) {
                   No hay relaciones producto–proveedor.
                 } @else {
@@ -107,6 +238,50 @@
           }
         </tbody>
       </table>
+      @if (totalCount() > 0) {
+        <div class="flex flex-col gap-3 border-t border-base-300 bg-base-200/40 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <p class="text-sm text-base-content/70">
+            Mostrando {{ rangeStart() }}–{{ rangeEnd() }} de {{ totalCount() }}
+          </p>
+          <div class="flex flex-wrap items-center gap-2">
+            <label class="flex items-center gap-2 text-sm text-base-content/70">
+              <span>Por página</span>
+              <select
+                class="select select-bordered select-sm w-[4.75rem] min-h-8"
+                [value]="pageSize()"
+                (change)="setPageSize(+$any($event.target).value)"
+              >
+                @for (opt of pageSizeOptions; track opt) {
+                  <option [value]="opt">{{ opt }}</option>
+                }
+              </select>
+            </label>
+            <div class="join border border-base-300">
+              <button
+                type="button"
+                class="btn btn-sm join-item"
+                [disabled]="pageIndex() === 0"
+                (click)="prevPage()"
+                aria-label="Página anterior"
+              >
+                «
+              </button>
+              <span class="btn btn-sm join-item btn-ghost pointer-events-none cursor-default no-animation">
+                {{ pageIndex() + 1 }} / {{ totalPages() }}
+              </span>
+              <button
+                type="button"
+                class="btn btn-sm join-item"
+                [disabled]="totalPages() === 0 || pageIndex() >= totalPages() - 1"
+                (click)="nextPage()"
+                aria-label="Página siguiente"
+              >
+                »
+              </button>
+            </div>
+          </div>
+        </div>
+      }
     }
   </div>
 </div>
@@ -114,47 +289,150 @@
 @if (modalOpen()) {
   <div class="modal modal-open">
     <div class="modal-box max-h-[90vh] max-w-lg overflow-y-auto">
-      <h2 class="font-bold text-lg mb-4">{{ editingId() == null ? 'Nueva relación' : 'Editar relación' }}</h2>
-      <form class="flex flex-col gap-3" [formGroup]="form" (ngSubmit)="save()">
+      <h2 class="mb-1 text-lg font-bold">{{ editingId() == null ? 'Nueva relación' : 'Editar relación' }}</h2>
+      <p class="text-base-content/60 mb-4 text-sm">Busca el producto y el proveedor antes de guardar.</p>
+      <form class="flex flex-col gap-4" [formGroup]="form" (ngSubmit)="save()">
         @if (editingId() != null) {
-          <label class="form-control">
-            <span class="label-text">ID</span>
-            <input class="input input-bordered" type="number" formControlName="id" readonly />
-          </label>
+          <div class="flex flex-col gap-1">
+            <span class="text-sm font-medium">ID</span>
+            <input class="input input-bordered w-full" type="number" formControlName="id" readonly />
+          </div>
         }
-        <label class="form-control">
-          <span class="label-text">Producto</span>
-          <select class="select select-bordered" formControlName="product">
-            @for (p of products(); track p.id) {
-              <option [ngValue]="p.id">{{ p.sku }} — {{ p.description }}</option>
-            }
-          </select>
-        </label>
-        <label class="form-control">
-          <span class="label-text">Proveedor</span>
-          <select class="select select-bordered" formControlName="supplier">
-            @for (s of suppliers(); track s.id) {
-              <option [ngValue]="s.id">{{ s.name }}</option>
-            }
-          </select>
-        </label>
-        <label class="form-control">
-          <span class="label-text">Moneda</span>
-          <select class="select select-bordered" formControlName="money">
-            @for (opt of moneyOptions; track opt.value) {
-              <option [ngValue]="opt.value">{{ opt.label }}</option>
-            }
-          </select>
-        </label>
-        <label class="form-control">
-          <span class="label-text">Costo</span>
-          <input class="input input-bordered" type="number" step="0.01" min="0" formControlName="cost" />
-        </label>
-        <label class="form-control">
-          <span class="label-text">Incoterm (3 letras)</span>
-          <input class="input input-bordered uppercase" maxlength="3" formControlName="incoterm" />
-        </label>
-        <div class="modal-action">
+
+        <div class="flex flex-col gap-1">
+          <span class="text-sm font-medium">Producto</span>
+          <input
+            class="input input-bordered w-full"
+            [class.input-error]="form.controls.product.touched && form.controls.product.invalid"
+            [value]="productQuery()"
+            (input)="onProductQuery($any($event.target).value)"
+            (focus)="productMenuOpen.set(true)"
+            (blur)="closeProductMenuSoon()"
+            placeholder="Busca por SKU o descripción"
+            autocomplete="off"
+          />
+          @if (productMenuOpen()) {
+            <ul class="border-base-300 bg-base-100 max-h-48 overflow-auto rounded-lg border">
+              @for (product of modalProductMatches(); track product.id) {
+                <li>
+                  <button
+                    type="button"
+                    class="hover:bg-base-200 w-full px-3 py-2 text-left text-sm"
+                    (mousedown)="pickProduct(product, $event)"
+                  >
+                    <span class="font-medium">{{ product.sku }}</span>
+                    <span class="text-base-content/60 block text-xs">{{ product.description }}</span>
+                  </button>
+                </li>
+              } @empty {
+                <li class="text-base-content/60 px-3 py-2 text-sm">Ningún producto coincide.</li>
+              }
+            </ul>
+          }
+          @if (form.controls.product.touched && form.controls.product.invalid) {
+            <span class="text-error text-xs">Elige un producto de la lista.</span>
+          }
+        </div>
+
+        <div class="flex flex-col gap-1">
+          <span class="text-sm font-medium">Proveedor</span>
+          <input
+            class="input input-bordered w-full"
+            [class.input-error]="form.controls.supplier.touched && form.controls.supplier.invalid"
+            [value]="supplierQuery()"
+            (input)="onSupplierQuery($any($event.target).value)"
+            (focus)="supplierMenuOpen.set(true)"
+            (blur)="closeSupplierMenuSoon()"
+            placeholder="Busca por nombre o RUC"
+            autocomplete="off"
+          />
+          @if (supplierMenuOpen()) {
+            <ul class="border-base-300 bg-base-100 max-h-48 overflow-auto rounded-lg border">
+              @for (supplier of modalSupplierMatches(); track supplier.id) {
+                <li>
+                  <button
+                    type="button"
+                    class="hover:bg-base-200 flex w-full items-start justify-between gap-3 px-3 py-2 text-left text-sm"
+                    (mousedown)="pickSupplier(supplier, $event)"
+                  >
+                    <span>
+                      <span class="font-medium">{{ supplier.name }}</span>
+                      @if (supplier.ruc) {
+                        <span class="text-base-content/60 block text-xs">RUC {{ supplier.ruc }}</span>
+                      }
+                    </span>
+                    <span
+                      class="badge badge-sm shrink-0"
+                      [class.badge-warning]="supplier.type === 'EXTRANJERO'"
+                      [class.badge-ghost]="supplier.type !== 'EXTRANJERO'"
+                    >
+                      {{ supplier.type === 'EXTRANJERO' ? 'Extranjero' : 'Nacional' }}
+                    </span>
+                  </button>
+                </li>
+              } @empty {
+                <li class="text-base-content/60 px-3 py-2 text-sm">Ningún proveedor coincide.</li>
+              }
+            </ul>
+          }
+          @if (form.controls.supplier.touched && form.controls.supplier.invalid) {
+            <span class="text-error text-xs">Elige un proveedor de la lista.</span>
+          }
+        </div>
+
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div class="flex flex-col gap-1">
+            <span class="text-sm font-medium">Moneda</span>
+            <select class="select select-bordered w-full" formControlName="money">
+              @for (opt of moneyOptions; track opt.value) {
+                <option [ngValue]="opt.value">{{ opt.label }}</option>
+              }
+            </select>
+          </div>
+          <div class="flex flex-col gap-1">
+            <span class="text-sm font-medium">Costo</span>
+            <input class="input input-bordered w-full" type="number" step="0.01" min="0" formControlName="cost" />
+          </div>
+        </div>
+
+        <div class="flex flex-col gap-1">
+          <span class="text-sm font-medium">Incoterm</span>
+          <input
+            class="input input-bordered w-full uppercase"
+            maxlength="3"
+            formControlName="incoterm"
+            placeholder="EXW"
+            autocomplete="off"
+            [class.input-error]="form.controls.incoterm.touched && form.controls.incoterm.invalid"
+          />
+          <span class="text-base-content/60 text-xs">3 letras. Se envía siempre en mayúsculas.</span>
+          @if (form.controls.incoterm.touched && form.controls.incoterm.invalid) {
+            <span class="text-error text-xs">Escribe un incoterm de 3 letras, por ejemplo EXW.</span>
+          }
+        </div>
+
+        <div class="flex flex-col gap-1">
+          <span class="text-sm font-medium">Tiempo de espera estimado</span>
+          <input
+            class="input input-bordered w-full"
+            type="number"
+            min="0"
+            step="1"
+            inputmode="numeric"
+            formControlName="estimated_lead_time_days"
+            placeholder="Días"
+            [class.input-error]="
+              form.controls.estimated_lead_time_days.touched && form.controls.estimated_lead_time_days.invalid
+            "
+          />
+          @if (form.controls.estimated_lead_time_days.touched && form.controls.estimated_lead_time_days.invalid) {
+            <span class="text-error text-xs">Debe ser un número entero de días, 0 o mayor.</span>
+          } @else {
+            <span class="text-base-content/60 text-xs">Vacío si aún no hay plazo. 0 es entrega inmediata.</span>
+          }
+        </div>
+
+        <div class="modal-action mt-0">
           <button type="button" class="btn" (click)="closeModal()">Cancelar</button>
           <button type="submit" class="btn btn-primary" [disabled]="saving()">
             @if (saving()) {

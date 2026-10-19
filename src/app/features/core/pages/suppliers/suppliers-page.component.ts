@@ -1,5 +1,5 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import {
   FormBuilder,
   ReactiveFormsModule,
@@ -24,6 +24,22 @@ export class SuppliersPageComponent implements OnInit {
   readonly errorMessage = signal<string | null>(null);
   readonly modalOpen = signal(false);
   readonly editingId = signal<number | null>(null);
+  readonly pageIndex = signal(0);
+  readonly pageSize = signal(10);
+  readonly pageSizeOptions = [10, 25, 50] as const;
+
+  readonly totalCount = computed(() => this.items().length);
+  readonly totalPages = computed(() => {
+    const count = this.totalCount();
+    if (count === 0) return 0;
+    return Math.ceil(count / this.pageSize());
+  });
+  readonly pagedItems = computed(() => {
+    const start = this.pageIndex() * this.pageSize();
+    return this.items().slice(start, start + this.pageSize());
+  });
+  readonly rangeStart = computed(() => (this.totalCount() === 0 ? 0 : this.pageIndex() * this.pageSize() + 1));
+  readonly rangeEnd = computed(() => Math.min((this.pageIndex() + 1) * this.pageSize(), this.totalCount()));
 
   readonly typeOptions: { value: SupplierType; label: string }[] = [
     { value: 'NACIONAL', label: 'Nacional' },
@@ -53,6 +69,7 @@ export class SuppliersPageComponent implements OnInit {
       next: (rows) => {
         this.items.set(rows);
         this.loading.set(false);
+        this.clampPage();
       },
       error: (err) => {
         this.loading.set(false);
@@ -97,6 +114,21 @@ export class SuppliersPageComponent implements OnInit {
     this.modalOpen.set(false);
   }
 
+  setPageSize(size: number): void {
+    if (!this.pageSizeOptions.includes(size as (typeof this.pageSizeOptions)[number])) return;
+    this.pageSize.set(size);
+    this.pageIndex.set(0);
+  }
+
+  prevPage(): void {
+    this.pageIndex.update((index) => Math.max(0, index - 1));
+  }
+
+  nextPage(): void {
+    const last = Math.max(0, this.totalPages() - 1);
+    this.pageIndex.update((index) => Math.min(last, index + 1));
+  }
+
   /** Muestra error bajo el campo tras intentar guardar o al tocar el control. */
   isFieldInvalid(name: string): boolean {
     const c = this.form.get(name);
@@ -119,6 +151,16 @@ export class SuppliersPageComponent implements OnInit {
   }
 
   save(): void {
+    const current = this.form.getRawValue();
+    this.form.patchValue({
+      ruc: this.toUpper(current.ruc),
+      name: this.toUpper(current.name),
+      address: this.toUpper(current.address),
+      contact: this.toUpper(current.contact),
+      email: this.toUpper(current.email),
+      phone: this.toUpper(current.phone),
+      bank_accounts: this.toUpper(current.bank_accounts),
+    });
     if (this.form.invalid) {
       this.form.markAllAsTouched();
       return;
@@ -129,13 +171,13 @@ export class SuppliersPageComponent implements OnInit {
     const id = this.editingId();
     const payload = {
       type: v.type,
-      ruc: v.ruc,
-      name: v.name,
-      address: v.address,
-      contact: v.contact,
-      email: v.email,
-      phone: v.phone,
-      bank_accounts: v.bank_accounts,
+      ruc: this.toUpper(v.ruc),
+      name: this.toUpper(v.name),
+      address: this.toUpper(v.address),
+      contact: this.toUpper(v.contact),
+      email: this.toUpper(v.email),
+      phone: this.toUpper(v.phone),
+      bank_accounts: this.toUpper(v.bank_accounts),
     };
     const req =
       id == null
@@ -167,6 +209,15 @@ export class SuppliersPageComponent implements OnInit {
       next: () => this.reload(),
       error: (err) => this.errorMessage.set(this.formatError(err)),
     });
+  }
+
+  private toUpper(value: string | null | undefined): string {
+    return String(value ?? '').toLocaleUpperCase('es-PE');
+  }
+
+  private clampPage(): void {
+    const last = Math.max(0, this.totalPages() - 1);
+    if (this.pageIndex() > last) this.pageIndex.set(last);
   }
 
   private formatError(err: unknown): string {

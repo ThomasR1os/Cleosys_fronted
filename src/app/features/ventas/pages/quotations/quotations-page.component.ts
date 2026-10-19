@@ -14,6 +14,7 @@ import {
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { textMatchesLooseQuery } from '../../../../core/utils/text-search.utils';
 import {
+  Observable,
   catchError,
   concatMap,
   debounceTime,
@@ -23,7 +24,7 @@ import {
   from,
   of,
 } from 'rxjs';
-import { map, toArray } from 'rxjs/operators';
+import { map, switchMap, toArray } from 'rxjs/operators';
 import type { AdminUser, Company, CompanyBranding, UserRole } from '../../../admin/models/admin-users.models';
 import { AdminUserService } from '../../../admin/services/admin-user.service';
 import { CompanyService } from '../../../admin/services/company.service';
@@ -55,6 +56,16 @@ import { PaymentMethodService } from '../../services/payment-method.service';
 import { QuotationProductService } from '../../services/quotation-product.service';
 import { ProformaRequestService } from '../../services/proforma-request.service';
 import { QuotationService } from '../../services/quotation.service';
+import {
+  SaleApprovalService,
+  type SaleApprovalContext,
+  type SaleApprovalResult,
+} from '../../services/sale-approval.service';
+import { approvalChoicesError, soldItemsPayload, type ApprovalChoice } from '../../utils/sale-approval';
+import { SaleApprovalLinesComponent } from '../proforma-requests/sale-approval-lines.component';
+import { LogisticsOrderService } from '../../../logistica/services/logistics-order.service';
+import { ProductSupplierService } from '../../../logistica/services/product-supplier.service';
+import { logisticsOrderIdByQuotation } from '../../../logistica/models/logistics-order.models';
 
 /** Máximo de filas en desplegables buscables (rendimiento con catálogos grandes). */
 const PICKER_PAGE = 100;
@@ -93,7 +104,7 @@ interface DraftQuotationLine {
 
 @Component({
   selector: 'app-quotations-page',
-  imports: [ReactiveFormsModule, RouterLink, ShortDateTimePipe],
+  imports: [ReactiveFormsModule, RouterLink, ShortDateTimePipe, SaleApprovalLinesComponent],
   templateUrl: './quotations-page.component.html',
 })
 export class QuotationsPageComponent implements OnInit {
@@ -107,14 +118,28 @@ export class QuotationsPageComponent implements OnInit {
   private readonly companyApi = inject(CompanyService);
   private readonly payApi = inject(PaymentMethodService);
   private readonly productService = inject(ProductService);
+  private readonly productSuppliersApi = inject(ProductSupplierService);
   private readonly productImageApi = inject(ProductImageService);
   private readonly fb = inject(FormBuilder);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
   private readonly proformaRequestsApi = inject(ProformaRequestService);
+  private readonly saleApproval = inject(SaleApprovalService);
+  private readonly logisticsOrdersApi = inject(LogisticsOrderService);
   readonly auth = inject(AuthService);
 
   readonly quotations = signal<QuotationRow[]>([]);
+  /** Cotización aprobada → orden interna, cuando el GET de la cotización no trae el id. */
+  readonly logisticsOrderByQuotation = signal<Record<number, number>>({});
+
+  readonly approvalOpen = signal(false);
+  readonly approvalQuotationId = signal<number | null>(null);
+  readonly approvalChoices = signal<ApprovalChoice[]>([]);
+  readonly approvalContext = signal<SaleApprovalContext | null>(null);
+  readonly approvalLoading = signal(false);
+  readonly approvalBusy = signal(false);
+  readonly approvalError = signal<string | null>(null);
+  readonly approvalResult = signal<SaleApprovalResult | null>(null);
 
   /** Búsqueda en listado (correlativo, cliente, asesor, estado, etc.). */
   readonly listSearchQuery = signal('');
@@ -217,6 +242,8 @@ export class QuotationsPageComponent implements OnInit {
   });
 
   readonly qpItems = signal<QuotationProductRow[]>([]);
+  /** Cotizaciones cuyas líneas ya se pidieron. El listado no espera el catálogo completo. */
+  private readonly quotationLinesReady = new Set<number>();
   readonly clients = signal<ClientRow[]>([]);
   readonly paymentMethods = signal<PaymentMethodRow[]>([]);
   /** Catálogo completo de productos (carga diferida para líneas). */
@@ -876,11 +903,15 @@ export class QuotationsPageComponent implements OnInit {
     );
   }
 
-  /** Total neto: subtotal − descuento (no negativo). */
+  /** Total neto: subtotal − descuento (no negativo). En el listado usa el total guardado. */
   netForQuotation(row: QuotationRow): number {
+    if (!this.quotationLinesReady.has(row.id)) {
+      const stored = Number(row.final_price);
+      if (Number.isFinite(stored)) return Math.max(0, stored);
+    }
     const sub = this.subtotalForQuotationId(row.id);
     const disc = Number(row.discount);
-    return Math.max(0, sub - disc);
+    return Math.max(0, sub - (Number.isFinite(disc) ? disc : 0));
   }
 
   /** Vista previa en el modal: borrador (cotización nueva) o líneas guardadas. */
@@ -982,43 +1013,246 @@ export class QuotationsPageComponent implements OnInit {
     const id = this.editingQuotationId();
     if (id == null) return true;
     const row = this.quotations().find((x) => x.id === id);
-    return row != null && this.canEditQuotation(row);
+    return row != null && this.canEditQuotation(row) && row.status !== 'APROBADA';
+  }
+
+  /** Aprobar solo por el apartado: el select de guardado no pasa la cotización a APROBADA. */
+  formStatusOptions(): { value: QuotationStatus; label: string }[] {
+    if (this.form.controls.status.value === 'APROBADA' || this.editingQuotationIsApproved()) {
+      return [{ value: 'APROBADA', label: 'Aprobada' }];
+    }
+    return [
+      { value: 'PENDIENTE', label: 'Pendiente' },
+      { value: 'RECHAZADA', label: 'Rechazada' },
+    ];
+  }
+
+  editingQuotationIsApproved(): boolean {
+    const id = this.editingQuotationId();
+    if (id == null) return false;
+    return this.quotations().find((row) => row.id === id)?.status === 'APROBADA';
+  }
+
+  editingInternalOrderId(): number | null {
+    const id = this.editingQuotationId();
+    if (id == null) return null;
+    const row = this.quotations().find((item) => item.id === id);
+    return row ? this.internalOrderId(row) : null;
+  }
+
+  canApproveQuotation(row: QuotationRow): boolean {
+    return this.canEditQuotation(row) && row.status !== 'APROBADA';
+  }
+
+  internalOrderId(row: QuotationRow): number | null {
+    if (row.status !== 'APROBADA') return null;
+    if (row.logistics_order_id != null && row.logistics_order_id > 0) return row.logistics_order_id;
+    return this.logisticsOrderByQuotation()[row.id] ?? null;
+  }
+
+  approvalQuotation(): QuotationRow | null {
+    const id = this.approvalQuotationId();
+    if (id == null) return null;
+    return this.quotations().find((row) => row.id === id) ?? null;
+  }
+
+  openApproval(row: QuotationRow): void {
+    if (!this.canApproveQuotation(row)) return;
+    this.approvalQuotationId.set(row.id);
+    this.approvalChoices.set([]);
+    this.approvalContext.set(null);
+    this.approvalError.set(null);
+    this.approvalResult.set(null);
+    this.approvalLoading.set(true);
+    this.approvalOpen.set(true);
+    this.saleApproval.loadChoices(row.id, null).subscribe({
+      next: (context) => {
+        this.approvalContext.set(context);
+        this.approvalChoices.set(context.choices);
+        this.approvalLoading.set(false);
+      },
+      error: (err) => {
+        this.approvalLoading.set(false);
+        this.approvalError.set(this.fmt(err));
+      },
+    });
+  }
+
+  closeApproval(): void {
+    if (this.approvalBusy()) return;
+    this.approvalOpen.set(false);
+  }
+
+  approvalBlocked(): boolean {
+    return approvalChoicesError(this.approvalChoices()) != null;
+  }
+
+  onApprovalChoices(choices: ApprovalChoice[]): void {
+    this.approvalChoices.set(choices);
+  }
+
+  stockSummary(lines: { sku: string; qty: number }[]): string {
+    return lines.map((row) => `${row.sku} x ${row.qty}`).join(', ');
+  }
+
+  approvalMoney(): QuotationMoney {
+    return this.approvalContext()?.quotation.money ?? this.approvalQuotation()?.money ?? 'USD';
+  }
+
+  confirmApproval(): void {
+    const id = this.approvalQuotationId();
+    const context = this.approvalContext();
+    const choices = this.approvalChoices();
+    if (id == null || context == null || this.approvalBusy() || this.approvalLoading()) return;
+    const blocked = approvalChoicesError(choices);
+    if (blocked) {
+      this.approvalError.set(blocked);
+      return;
+    }
+    const proformaId = context.proforma?.id;
+    if (proformaId == null) {
+      this.approvalError.set(
+        'Esta cotización no está ligada a una solicitud. El pedido se aprueba desde la solicitud de proforma.',
+      );
+      return;
+    }
+    this.approvalBusy.set(true);
+    this.approvalError.set(null);
+    const reference =
+      context.proforma?.correlativo?.trim() ||
+      context.quotation.correlativo?.trim() ||
+      `Cotización #${id}`;
+    this.proformaRequestsApi
+      .patch(proformaId, { status: 'APROBADA', sold_items: soldItemsPayload(choices) })
+      .pipe(
+        switchMap((updated) =>
+          this.saleApproval
+            .finishApprovedSale({
+              quotationId: id,
+              logisticsOrderId: updated.logistics_order_id,
+              choices,
+              paymentMethods: context.quotation.payment_methods,
+              money: context.quotation.money,
+              reference,
+            })
+            .pipe(
+              catchError((err) =>
+                of({
+                  logisticsOrderId: updated.logistics_order_id ?? null,
+                  drafts: [],
+                  stockLines: [],
+                  warnings: [
+                    `La venta quedó aprobada, pero no se pudieron armar los borradores. ${this.fmt(err)}`,
+                  ],
+                } satisfies SaleApprovalResult),
+              ),
+            ),
+        ),
+      )
+      .subscribe({
+        next: (result) => this.finishApproval(id, result),
+        error: (err) => {
+          this.approvalBusy.set(false);
+          this.approvalError.set(this.fmt(err));
+        },
+      });
+  }
+
+  private finishApproval(quotationId: number, result: SaleApprovalResult): void {
+    this.approvalBusy.set(false);
+    this.approvalResult.set(result);
+    const orderId = result.logisticsOrderId;
+    if (orderId != null && orderId > 0) {
+      this.logisticsOrderByQuotation.update((current) => ({ ...current, [quotationId]: orderId }));
+    }
+    this.reload();
+  }
+
+  private refreshLogisticsOrderIndex(): void {
+    this.logisticsOrdersApi.list().subscribe({
+      next: (orders) => this.logisticsOrderByQuotation.set(logisticsOrderIdByQuotation(orders)),
+      error: () => undefined,
+    });
   }
 
   reload(): void {
-    this.loading.set(true);
+    const firstLoad = this.quotations().length === 0;
+    if (firstLoad) this.loading.set(true);
     this.errorMessage.set(null);
-    this.clientsLoading.set(true);
-    forkJoin({
-      q: this.quotationsApi.list(),
-      qp: this.qpApi.list(),
-      pm: this.payApi.list(),
-      cl: this.clientsApi.list(),
-    }).subscribe({
-      next: ({ q, qp, pm, cl }) => {
-        this.quotations.set([...q].sort((a, b) => b.id - a.id));
+    this.quotationsApi.list().subscribe({
+      next: (q) => {
+        const rows = Array.isArray(q) ? q : [];
+        this.quotations.set([...rows].sort((a, b) => b.id - a.id));
         this.clampQuotationPageIndex();
-        this.mergeUserDetailsFromQuotations(q);
-        this.hydrateSalesUsersFromQuotations(q);
-        this.qpItems.set(qp);
-        this.paymentMethods.set(pm);
-        this.clients.set(cl);
-        this.clientsLoading.set(false);
+        this.mergeUserDetailsFromQuotations(rows);
+        this.hydrateSalesUsersFromQuotations(rows);
         this.loading.set(false);
-        if (cl.length && this.form.controls.client.value === 0) {
-          this.form.patchValue({ client: cl[0].id });
-        }
-        if (pm.length && this.form.controls.payment_methods.value === 0) {
-          this.form.patchValue({ payment_methods: pm[0].id });
-        }
         this.tryConsumeRouterQueryParams();
+        this.loadQuotationCatalogs();
+        if (firstLoad) this.refreshLogisticsOrderIndex();
       },
       error: (err) => {
         this.loading.set(false);
-        this.clientsLoading.set(false);
         this.errorMessage.set(this.fmt(err));
       },
     });
+  }
+
+  /** Formas de pago y clientes no bloquean la tabla. */
+  private loadQuotationCatalogs(): void {
+    if (!this.paymentMethods().length) {
+      this.payApi.list().subscribe({
+        next: (pm) => {
+          this.paymentMethods.set(pm);
+          if (pm.length && this.form.controls.payment_methods.value === 0) {
+            this.form.patchValue({ payment_methods: pm[0].id });
+          }
+        },
+        error: () => undefined,
+      });
+    }
+    if (this.clients().length || this.clientsLoading()) return;
+    this.clientsLoading.set(true);
+    this.clientsApi.list().subscribe({
+      next: (cl) => {
+        this.clients.set(cl);
+        this.clientsLoading.set(false);
+        if (cl.length && this.form.controls.client.value === 0) {
+          this.form.patchValue({ client: cl[0].id });
+        }
+      },
+      error: () => this.clientsLoading.set(false),
+    });
+  }
+
+  private rememberQuotationLines(quotationId: number, lines: QuotationProductRow[]): void {
+    this.qpItems.update((prev) => [...prev.filter((line) => line.quotation !== quotationId), ...lines]);
+    this.quotationLinesReady.add(quotationId);
+  }
+
+  private ensureQuotationLines(quotationId: number, done?: () => void): void {
+    if (quotationId <= 0) {
+      done?.();
+      return;
+    }
+    if (this.quotationLinesReady.has(quotationId)) {
+      done?.();
+      return;
+    }
+    this.qpApi.listByQuotation(quotationId).subscribe({
+      next: (lines) => {
+        this.rememberQuotationLines(quotationId, lines);
+        done?.();
+      },
+      error: (err) => {
+        this.errorMessage.set(this.fmt(err));
+        done?.();
+      },
+    });
+  }
+
+  private ensureQuotationLinesAsync(quotationId: number): Promise<void> {
+    return new Promise((resolve) => this.ensureQuotationLines(quotationId, () => resolve()));
   }
 
   /**
@@ -1051,18 +1285,20 @@ export class QuotationsPageComponent implements OnInit {
         const asgRaw = qpm.get('assignedUser');
         const aid = asgRaw != null ? Number(asgRaw) : NaN;
         const assignedUserId = Number.isFinite(aid) && aid > 0 ? aid : null;
+        const pendingProducts = this.parseProductQtyList(qpm.get('products'));
         void this.router.navigate([], {
           relativeTo: this.route,
           queryParams: {
             proformaRequest: null,
             client: null,
             assignedUser: null,
+            products: null,
           },
           queryParamsHandling: 'merge',
           replaceUrl: true,
         });
         this.pendingProformaRequestId.set(pid);
-        queueMicrotask(() => this.openNewQuotationFromProforma(cid, assignedUserId));
+        queueMicrotask(() => this.openNewQuotationFromProforma(cid, assignedUserId, pendingProducts));
       }
     }
   }
@@ -1094,7 +1330,93 @@ export class QuotationsPageComponent implements OnInit {
   /**
    * Nueva cotización pre-rellenada desde `/ventas/cotizaciones?proformaRequest=&client=` (y opcional `assignedUser`).
    */
-  openNewQuotationFromProforma(clientId: number, assignedUserId: number | null): void {
+  private parseProductQtyList(raw: string | null): { id: number; qty: number; inStock: boolean }[] {
+    if (!raw?.trim()) return [];
+    const out: { id: number; qty: number; inStock: boolean }[] = [];
+    for (const part of raw.split(',')) {
+      const [idRaw, qtyRaw, stockRaw] = part.split(':');
+      const id = Number(idRaw);
+      const qty = qtyRaw != null && qtyRaw !== '' ? Number(qtyRaw) : 1;
+      if (!Number.isInteger(id) || id <= 0) continue;
+      out.push({
+        id,
+        qty: Number.isFinite(qty) && qty > 0 ? qty : 1,
+        inStock: stockRaw === 'S',
+      });
+    }
+    return out;
+  }
+
+  private addDraftLineFromProduct(p: Product, cant = 1, inStock = false): void {
+    const unit = this.unitPriceForCurrentMoney(this.productBaseUnitPriceUsdForQuotationType(p));
+    const tempId = crypto.randomUUID();
+    this.draftLines.update((lines) => {
+      if (lines.some((line) => line.product === p.id)) return lines;
+      return [
+        ...lines,
+        {
+          tempId,
+          product: p.id,
+          cant,
+          product_price: unit,
+          line_sku: p.sku,
+          line_description: p.description,
+          line_datasheet: p.datasheet ?? '',
+          delivery_time: inStock ? '0' : '',
+          line_warranty: this.productWarrantyFromCatalog(p),
+        },
+      ];
+    });
+    if (!inStock) this.applySystemDeliveryToDraft(tempId, p.id);
+  }
+
+  /** Plazo del producto–proveedor, sin pisar un valor que el usuario ya escribió. */
+  private applySystemDeliveryToDraft(tempId: string, productId: number): void {
+    this.productSuppliersApi.leadTimeLabel(productId).subscribe((delivery) => {
+      if (!delivery) return;
+      this.draftLines.update((lines) =>
+        lines.map((line) =>
+          line.tempId === tempId && !line.delivery_time.trim() ? { ...line, delivery_time: delivery } : line,
+        ),
+      );
+    });
+  }
+
+  private applySystemDeliveryToLineForm(productId: number): void {
+    this.productSuppliersApi.leadTimeLabel(productId).subscribe((delivery) => {
+      if (!delivery) return;
+      if (this.lineForm.controls.product.value !== productId) return;
+      if (this.lineForm.controls.delivery_time.value.trim()) return;
+      this.lineForm.patchValue({ delivery_time: delivery }, { emitEvent: false });
+    });
+  }
+
+  private preloadDraftProducts(products: { id: number; qty: number; inStock: boolean }[]): void {
+    if (!products.length) return;
+    const apply = (): void => {
+      for (const item of products) {
+        const found = this.productsCatalog().find((p) => p.id === item.id);
+        if (found) {
+          this.addDraftLineFromProduct(found, item.qty, item.inStock);
+          continue;
+        }
+        this.productService.get(item.id).subscribe({
+          next: (p) => {
+            this.productsCatalog.update((rows) => (rows.some((row) => row.id === p.id) ? rows : [...rows, p]));
+            this.addDraftLineFromProduct(p, item.qty, item.inStock);
+          },
+          error: () => undefined,
+        });
+      }
+    };
+    this.ensureProductsCatalog(apply, apply);
+  }
+
+  openNewQuotationFromProforma(
+    clientId: number,
+    assignedUserId: number | null,
+    products: { id: number; qty: number; inStock?: boolean }[] = [],
+  ): void {
     this.editingQuotationId.set(null);
     this.quotationModalReadonly.set(false);
     this.draftLines.set([]);
@@ -1145,6 +1467,7 @@ export class QuotationsPageComponent implements OnInit {
         this.refreshSellerEligibility(clientId);
       }
     }
+    this.preloadDraftProducts(products.map((item) => ({ ...item, inStock: !!item.inStock })));
   }
 
   /** Incorpora `user_detail` del API al catálogo para pickers y etiquetas sin GET extra. */
@@ -1537,6 +1860,7 @@ export class QuotationsPageComponent implements OnInit {
       },
       { emitEvent: false },
     );
+    this.applySystemDeliveryToLineForm(p.id);
   }
 
   selectProduct(p: Product): void {
@@ -1650,6 +1974,9 @@ export class QuotationsPageComponent implements OnInit {
       return;
     }
     this.form.enable({ emitEvent: false });
+    if (this.editingQuotationIsApproved()) {
+      this.form.controls.status.disable({ emitEvent: false });
+    }
     if (this.lineEditorMode() === 'idle') {
       this.lineForm.disable({ emitEvent: false });
     } else {
@@ -1735,33 +2062,7 @@ export class QuotationsPageComponent implements OnInit {
     this.draftLines.set([]);
     this.resetLineEditor();
     this.clientSearchQuery.set(this.clientDisplayForRow(row));
-    const sub = this.subtotalForQuotationId(row.id);
-    this.form.patchValue(
-      {
-        id: row.id,
-        quotation_type: row.quotation_type,
-        money: row.money,
-        exchangeRate: this.exchangeRateFromRow(row),
-        rental_unit: row.rental_unit ?? null,
-        rental_quantity: row.rental_quantity ?? null,
-        status: row.status,
-        client: row.client,
-        client_contact: row.client_contact ?? null,
-        user: row.user,
-        discountPercent: this.discountPercentFromStoredAmount(sub, Number(row.discount)),
-        delivery_time: String(row.delivery_time ?? '').trim(),
-        conditions: row.conditions ?? '',
-        payment_methods: row.payment_methods,
-        works: row.works ?? '',
-        see_sku: row.see_sku,
-      },
-      { emitEvent: false },
-    );
-    this.prevMoneyForLines = row.money;
-    this.linePricesCurrency = row.money;
-    this.syncExchangeRateValidators(row.money);
-    this.syncRentalValidators(row.quotation_type);
-    this.syncDeliveryValidators(row.quotation_type);
+    this.patchQuotationForm(row);
     this.modalOpen.set(true);
     this.clientPickerOpen.set(false);
     this.sellerPickerOpen.set(false);
@@ -1773,6 +2074,7 @@ export class QuotationsPageComponent implements OnInit {
       this.refreshSellerEligibility(row.client);
     }
     this.applyQuotationModalReadonlyToForm();
+    this.ensureQuotationLines(row.id, () => this.refreshOpenDiscount(row));
     this.ensureProductsCatalog();
   }
 
@@ -1783,33 +2085,7 @@ export class QuotationsPageComponent implements OnInit {
     this.draftLines.set([]);
     this.resetLineEditor();
     this.clientSearchQuery.set(this.clientDisplayForRow(row));
-    const sub = this.subtotalForQuotationId(row.id);
-    this.form.patchValue(
-      {
-        id: row.id,
-        quotation_type: row.quotation_type,
-        money: row.money,
-        exchangeRate: this.exchangeRateFromRow(row),
-        rental_unit: row.rental_unit ?? null,
-        rental_quantity: row.rental_quantity ?? null,
-        status: row.status,
-        client: row.client,
-        client_contact: row.client_contact ?? null,
-        user: row.user,
-        discountPercent: this.discountPercentFromStoredAmount(sub, Number(row.discount)),
-        delivery_time: String(row.delivery_time ?? '').trim(),
-        conditions: row.conditions ?? '',
-        payment_methods: row.payment_methods,
-        works: row.works ?? '',
-        see_sku: row.see_sku,
-      },
-      { emitEvent: false },
-    );
-    this.prevMoneyForLines = row.money;
-    this.linePricesCurrency = row.money;
-    this.syncExchangeRateValidators(row.money);
-    this.syncRentalValidators(row.quotation_type);
-    this.syncDeliveryValidators(row.quotation_type);
+    this.patchQuotationForm(row);
     this.modalOpen.set(true);
     this.clientPickerOpen.set(false);
     this.sellerPickerOpen.set(false);
@@ -1823,7 +2099,119 @@ export class QuotationsPageComponent implements OnInit {
       this.refreshSellerEligibility(row.client);
     }
     this.applyQuotationModalReadonlyToForm();
+    this.ensureQuotationLines(row.id, () => {
+      this.completeStoredQuotationFromSystem(row);
+      this.refreshOpenDiscount(row);
+    });
     this.ensureProductsCatalog();
+  }
+
+  /**
+   * Una cotización ya guardada puede haber quedado sin precio o sin plazo.
+   * Los completa con el precio del producto y el tiempo del proveedor, sin pisar lo escrito.
+   */
+  private completeStoredQuotationFromSystem(row: QuotationRow): void {
+    if (!this.canEditQuotation(row)) return;
+    const lines = this.linesForQuotationId(row.id).filter((line) => this.storedLineNeedsSystemData(line));
+    if (!lines.length) return;
+    forkJoin(lines.map((line) => this.systemPatchForStoredLine(line))).subscribe((patches) => {
+      const updates = patches.filter(
+        (item): item is { id: number; body: Partial<QuotationProductRow> } => item != null,
+      );
+      if (!updates.length) return;
+      from(updates)
+        .pipe(
+          concatMap((item) => this.qpApi.update(item.id, item.body)),
+          toArray(),
+        )
+        .subscribe({
+          next: () => {
+            this.quotationLinesReady.delete(row.id);
+            this.ensureQuotationLines(row.id, () => {
+              this.refreshOpenDiscount(row);
+              this.syncQuotationFinalPriceAfterLinesChange(row.id, { touchCreationDate: false });
+            });
+          },
+          error: () => undefined,
+        });
+    });
+  }
+
+  private storedLineNeedsSystemData(line: QuotationProductRow): boolean {
+    return !(Number(line.product_price) > 0) || !(line.delivery_time ?? '').trim();
+  }
+
+  private systemPatchForStoredLine(
+    line: QuotationProductRow,
+  ): Observable<{ id: number; body: Partial<QuotationProductRow> } | null> {
+    const priceMissing = !(Number(line.product_price) > 0);
+    const deliveryMissing = !(line.delivery_time ?? '').trim();
+    if (!priceMissing && !deliveryMissing) return of(null);
+    return this.productService.get(line.product).pipe(
+      catchError(() => of(null)),
+      concatMap((product) => {
+        const body: Partial<QuotationProductRow> = {};
+        if (priceMissing && product) {
+          const unit = this.unitPriceForCurrentMoney(this.productBaseUnitPriceUsdForQuotationType(product));
+          if (unit > 0) body.product_price = unit.toFixed(2);
+        }
+        if (!deliveryMissing) return of(Object.keys(body).length ? { id: line.id, body } : null);
+        return this.productSuppliersApi.leadTimeLabel(line.product).pipe(
+          map((delivery) => {
+            if (delivery) body.delivery_time = delivery;
+            return Object.keys(body).length ? { id: line.id, body } : null;
+          }),
+        );
+      }),
+    );
+  }
+
+  private patchQuotationForm(row: QuotationRow): void {
+    const sub = this.quotationLinesReady.has(row.id)
+      ? this.subtotalForQuotationId(row.id)
+      : this.storedSubtotal(row);
+    this.form.patchValue(
+      {
+        id: row.id,
+        quotation_type: row.quotation_type,
+        money: row.money,
+        exchangeRate: this.exchangeRateFromRow(row),
+        rental_unit: row.rental_unit ?? null,
+        rental_quantity: row.rental_quantity ?? null,
+        status: row.status,
+        client: row.client,
+        client_contact: row.client_contact ?? null,
+        user: row.user,
+        discountPercent: this.discountPercentFromStoredAmount(sub, Number(row.discount)),
+        delivery_time: String(row.delivery_time ?? '').trim(),
+        conditions: row.conditions ?? '',
+        payment_methods: row.payment_methods,
+        works: row.works ?? '',
+        see_sku: row.see_sku,
+      },
+      { emitEvent: false },
+    );
+    this.prevMoneyForLines = row.money;
+    this.linePricesCurrency = row.money;
+    this.syncExchangeRateValidators(row.money);
+    this.syncRentalValidators(row.quotation_type);
+    this.syncDeliveryValidators(row.quotation_type);
+  }
+
+  private refreshOpenDiscount(row: QuotationRow): void {
+    if (this.editingQuotationId() !== row.id) return;
+    const sub = this.subtotalForQuotationId(row.id);
+    this.form.patchValue(
+      { discountPercent: this.discountPercentFromStoredAmount(sub, Number(row.discount)) },
+      { emitEvent: false },
+    );
+  }
+
+  private storedSubtotal(row: QuotationRow): number {
+    const net = Number(row.final_price);
+    const disc = Number(row.discount);
+    if (Number.isFinite(net) && Number.isFinite(disc)) return Math.max(0, net + disc);
+    return 0;
   }
 
   closeQuotationModal(): void {
@@ -1894,7 +2282,6 @@ export class QuotationsPageComponent implements OnInit {
     const body: Record<string, unknown> = {
       quotation_type: v.quotation_type,
       money: v.money,
-      status: v.status,
       client: v.client,
       client_contact: clientContactId,
       user: quotationUserId,
@@ -1907,6 +2294,10 @@ export class QuotationsPageComponent implements OnInit {
       works: v.works,
       see_sku: v.see_sku,
     };
+    const existing = id == null ? null : this.quotations().find((row) => row.id === id);
+    if (existing?.status !== 'APROBADA') {
+      body['status'] = v.status;
+    }
     if (v.money === 'PEN') {
       body['exchange_rate'] = Number(v.exchangeRate).toFixed(4);
     } else {
@@ -2017,7 +2408,7 @@ export class QuotationsPageComponent implements OnInit {
     const qid = this.editingQuotationId();
     if (qid != null) {
       const row = this.quotations().find((x) => x.id === qid);
-      if (!row || !this.canEditQuotation(row)) return;
+      if (!row || !this.canEditQuotation(row) || row.status === 'APROBADA') return;
     }
     this.ensureProductsCatalog(() => {
       const first = this.productsCatalog()[0];
@@ -2038,7 +2429,7 @@ export class QuotationsPageComponent implements OnInit {
   beginEditServerLineInModal(row: QuotationProductRow): void {
     if (this.quotationModalReadonly()) return;
     const q = this.quotations().find((x) => x.id === row.quotation);
-    if (!q || !this.canEditQuotation(q)) return;
+    if (!q || !this.canEditQuotation(q) || q.status === 'APROBADA') return;
     this.ensureProductsCatalog(() => {
       this.lineEditorMode.set('edit');
       this.editingLineId.set(row.id);
@@ -2096,7 +2487,7 @@ export class QuotationsPageComponent implements OnInit {
   }
 
   commitLineEditorInModal(): void {
-    if (this.quotationModalReadonly()) return;
+    if (this.quotationModalReadonly() || this.editingQuotationIsApproved()) return;
     if (this.lineForm.invalid) {
       this.lineForm.markAllAsTouched();
       return;
@@ -2195,7 +2586,7 @@ export class QuotationsPageComponent implements OnInit {
 
   removeServerLineInModal(row: QuotationProductRow): void {
     const q = this.quotations().find((x) => x.id === row.quotation);
-    if (!q || !this.canEditQuotation(q)) return;
+    if (!q || !this.canEditQuotation(q) || q.status === 'APROBADA') return;
     if (!window.confirm('¿Eliminar esta línea?')) return;
     this.errorMessage.set(null);
     this.qpApi.delete(row.id).subscribe({
@@ -2246,14 +2637,14 @@ export class QuotationsPageComponent implements OnInit {
     quotationId: number,
     options?: { touchCreationDate?: boolean },
   ): void {
-    this.qpApi.list().subscribe({
-      next: (qp) => {
+    this.qpApi.listByQuotation(quotationId).subscribe({
+      next: (qLines) => {
+        this.rememberQuotationLines(quotationId, qLines);
         const row = this.quotations().find((x) => x.id === quotationId);
         if (!row) {
           this.reload();
           return;
         }
-        const qLines = qp.filter((l) => l.quotation === quotationId);
         const sub = qLines.reduce((sum, l) => sum + l.cant * Number(l.product_price), 0);
         const net = Math.max(0, sub - Number(row.discount));
         const patch: Partial<QuotationRow> = { final_price: net.toFixed(2) };
@@ -2610,6 +3001,7 @@ export class QuotationsPageComponent implements OnInit {
     row: QuotationRow,
   ): Promise<{ blob: Blob; filename: string }> {
     await this.loadSalesUsersCatalogIfEmpty();
+    await this.ensureQuotationLinesAsync(row.id);
     const qpLines = this.linesForQuotationId(row.id);
     const creatorUser = await this.resolveCreatorUserForPdf(row);
     const companyId = this.resolveQuotationPdfCompanyId(row, creatorUser);

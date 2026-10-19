@@ -13,62 +13,143 @@
     <div role="alert" class="alert alert-error text-sm">{{ err }}</div>
   }
 
-  <div class="overflow-x-auto rounded-lg border border-base-300 bg-base-100">
+  @if (!loading()) {
+    <div
+      class="flex flex-col gap-3 rounded-lg border border-base-300 bg-base-100 p-4 sm:flex-row sm:flex-wrap sm:items-end"
+    >
+      <label class="form-control min-w-0 flex-1 sm:min-w-[14rem]">
+        <span class="label-text">Buscar</span>
+        <input
+          type="search"
+          class="input input-bordered input-sm w-full"
+          placeholder="Usuario, nombre, rol, empresa, prefijo o ID…"
+          autocomplete="off"
+          [value]="searchQuery()"
+          (input)="setSearchQuery($any($event.target).value)"
+        />
+      </label>
+      @if (hasActiveSearch()) {
+        <button type="button" class="btn btn-ghost btn-sm" (click)="clearSearch()">Limpiar búsqueda</button>
+      }
+    </div>
+  }
+
+  <div class="overflow-hidden rounded-lg border border-base-300 bg-base-100">
     @if (loading()) {
       <div class="flex justify-center p-12">
         <span class="loading loading-spinner loading-lg text-primary"></span>
       </div>
     } @else {
-      <table class="table table-zebra text-sm">
-        <thead>
-          <tr>
-            <th>ID</th>
-            <th>Usuario</th>
-            <th>Nombre</th>
-            <th>Celular</th>
-            <th>Activo</th>
-            <th>Rol</th>
-            <th>Empresa</th>
-            <th>Prefijo</th>
-            <th class="text-right">Acciones</th>
-          </tr>
-        </thead>
-        <tbody>
-          @for (row of items(); track row.id) {
-            <tr [class.opacity-60]="!row.is_active">
-              <td>{{ row.id }}</td>
-              <td class="font-mono">{{ row.username }}</td>
-              <td class="font-medium">{{ displayName(row) }}</td>
-              <td class="whitespace-nowrap">{{ row.cellphone?.trim() || '—' }}</td>
-              <td>
-                @if (row.is_active) {
-                  <span class="badge badge-success badge-sm">Sí</span>
-                } @else {
-                  <span class="badge badge-ghost badge-sm">No</span>
-                }
-              </td>
-              <td>{{ roleLabel(row.profile?.role) }}</td>
-              <td>{{ companyLabel(row) }}</td>
-              <td class="font-mono">{{ prefixLabel(row) }}</td>
-              <td class="text-right space-x-1">
-                <button type="button" class="btn btn-ghost btn-sm" (click)="openEdit(row)">Editar</button>
-                <button
-                  type="button"
-                  class="btn btn-outline btn-error btn-sm"
-                  (click)="remove(row)"
-                  [disabled]="auth.me()?.user?.id === row.id"
-                >
-                  Eliminar
-                </button>
-              </td>
-            </tr>
-          } @empty {
+      <div class="overflow-x-auto">
+        <table class="table table-zebra text-sm">
+          <thead>
             <tr>
-              <td colspan="9" class="text-base-content/60 text-center">No hay usuarios o no se pudo cargar la lista.</td>
+              <th>ID</th>
+              <th>Usuario</th>
+              <th>Nombre</th>
+              <th>Celular</th>
+              <th>Activo</th>
+              <th>Rol</th>
+              <th>Empresa</th>
+              <th>Prefijo</th>
+              <th class="text-right">Acciones</th>
             </tr>
-          }
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            @for (row of pagedItems(); track row.id) {
+              <tr [class.opacity-60]="!row.is_active">
+                <td>{{ row.id }}</td>
+                <td class="font-mono">{{ row.username }}</td>
+                <td class="font-medium">{{ displayName(row) }}</td>
+                <td class="whitespace-nowrap">{{ row.cellphone?.trim() || '—' }}</td>
+                <td>
+                  @if (row.is_active) {
+                    <span class="badge badge-success badge-sm">Sí</span>
+                  } @else {
+                    <span class="badge badge-ghost badge-sm">No</span>
+                  }
+                </td>
+                <td>{{ roleLabel(row.profile?.role) }}</td>
+                <td>{{ companyLabel(row) }}</td>
+                <td class="font-mono">{{ prefixLabel(row) }}</td>
+                <td class="text-right space-x-1">
+                  <button type="button" class="btn btn-ghost btn-sm" (click)="openEdit(row)">Editar</button>
+                  <button
+                    type="button"
+                    class="btn btn-outline btn-error btn-sm"
+                    (click)="remove(row)"
+                    [disabled]="auth.me()?.user?.id === row.id"
+                  >
+                    Eliminar
+                  </button>
+                </td>
+              </tr>
+            } @empty {
+              <tr>
+                <td colspan="9" class="text-base-content/60 text-center py-8">
+                  @if (hasActiveSearch()) {
+                    No hay usuarios que coincidan con la búsqueda.
+                    @if (totalLoaded() > 0) {
+                      <span class="block text-xs mt-1">({{ totalLoaded() }} en total)</span>
+                    }
+                  } @else {
+                    No hay usuarios o no se pudo cargar la lista.
+                  }
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+      @if (totalCount() > 0) {
+        <div
+          class="flex flex-col gap-3 border-t border-base-300 bg-base-200/40 px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <p class="text-sm text-base-content/70">
+            Mostrando {{ rangeStart() }}–{{ rangeEnd() }} de {{ totalCount() }}
+            @if (hasActiveSearch() && totalLoaded() !== totalCount()) {
+              <span class="text-base-content/50"> ({{ totalLoaded() }} en total)</span>
+            }
+          </p>
+          <div class="flex flex-wrap items-center gap-2">
+            <label class="flex items-center gap-2 text-sm text-base-content/70">
+              <span>Por página</span>
+              <select
+                class="select select-bordered select-sm w-[4.75rem] min-h-8"
+                [value]="pageSize()"
+                (change)="setPageSize(+$any($event.target).value)"
+              >
+                @for (opt of pageSizeOptions; track opt) {
+                  <option [value]="opt">{{ opt }}</option>
+                }
+              </select>
+            </label>
+            <div class="join border border-base-300">
+              <button
+                type="button"
+                class="btn btn-sm join-item"
+                [disabled]="pageIndex() === 0"
+                (click)="prevPage()"
+                aria-label="Página anterior"
+              >
+                «
+              </button>
+              <span class="btn btn-sm join-item btn-ghost pointer-events-none cursor-default no-animation">
+                {{ pageIndex() + 1 }} / {{ totalPages() }}
+              </span>
+              <button
+                type="button"
+                class="btn btn-sm join-item"
+                [disabled]="pageIndex() >= totalPages() - 1"
+                (click)="nextPage()"
+                aria-label="Página siguiente"
+              >
+                »
+              </button>
+            </div>
+          </div>
+        </div>
+      }
     }
   </div>
 </div>
