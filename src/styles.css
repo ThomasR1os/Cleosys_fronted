@@ -1,3 +1,100 @@
 @import 'tailwindcss';
 @source "./**/*.{html,ts}";
 @plugin 'daisyui';
+
+/* Tablets (hasta 1279px, incluido Android en vertical y horizontal).
+   Por encima de ese ancho el menú vuelve a ir fijo y aplica el layout de escritorio. */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  min-width: 0;
+}
+
+@media (max-width: 1279px) {
+  .drawer-content {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .drawer-content > main {
+    min-width: 0;
+    max-width: 100%;
+    padding: 0.75rem;
+  }
+
+  .drawer-side > aside {
+    max-height: 100vh;
+    max-height: 100dvh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .navbar {
+    height: auto;
+    min-height: 4rem;
+    flex-wrap: wrap;
+    align-items: center;
+    row-gap: 0.25rem;
+  }
+
+  .sm\:flex-row,
+  .md\:flex-row,
+  .lg\:flex-row {
+    flex-wrap: wrap;
+  }
+
+  .grid > * {
+    min-width: 0;
+  }
+
+  h1.text-3xl,
+  h1.text-4xl {
+    font-size: 1.5rem;
+    line-height: 2rem;
+    overflow-wrap: anywhere;
+  }
+
+  .modal-box {
+    width: calc(100vw - 1.5rem);
+    max-width: calc(100vw - 1.5rem);
+    margin-inline: auto;
+  }
+
+  .overflow-x-auto,
+  .overflow-x-scroll {
+    max-width: 100%;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .tabs {
+    max-width: 100%;
+  }
+
+  .card-body {
+    padding: 1rem;
+  }
+
+  .input,
+  .select,
+  .textarea {
+    max-width: 100%;
+    font-size: 16px;
+  }
+
+  .btn-lg {
+    min-height: 2.5rem;
+    height: auto;
+    padding-inline: 1rem;
+    font-size: 0.875rem;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1279px) {
+  .drawer-content > main {
+    padding: 1rem;
+  }
+}

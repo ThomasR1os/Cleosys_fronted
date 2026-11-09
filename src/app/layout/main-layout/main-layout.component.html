@@ -1,4 +1,4 @@
-<div class="drawer" [class.drawer-open]="sidebarOpen()">
+<div class="drawer" [class.drawer-open]="sidebarOpen() && dockedSidebar()">
   <input
     id="main-drawer"
     type="checkbox"
@@ -7,8 +7,8 @@
     (change)="onDrawerToggle($event)"
   />
 
-  <div class="drawer-content flex min-h-screen flex-col">
-    <header class="navbar border-b border-base-300 bg-base-100 px-2 lg:px-4">
+  <div class="drawer-content flex min-h-screen min-w-0 flex-col">
+    <header class="navbar h-auto min-h-16 flex-wrap gap-y-1 border-b border-base-300 bg-base-100 px-2 py-1 xl:px-4">
       <div class="flex-none">
         <button
           type="button"
@@ -52,19 +52,19 @@
       </div>
       <div class="flex-1">
         <span class="text-lg font-semibold">CleoSystem</span>
-        <span class="text-base-content/60 ml-2 hidden text-sm sm:inline">
+        <span class="text-base-content/60 ml-2 hidden max-w-[14rem] truncate text-sm xl:inline">
           Empresa: {{ authService.companyName() }}
         </span>
       </div>
-      <div class="flex-none gap-2">
-        <a routerLink="/perfil" class="btn btn-ghost btn-sm lg:btn-md">Mi perfil</a>
-        <button type="button" class="btn btn-outline btn-sm lg:btn-md" (click)="logout()">
+      <div class="flex flex-none flex-wrap items-center justify-end gap-2">
+        <a routerLink="/perfil" class="btn btn-ghost btn-sm">Mi perfil</a>
+        <button type="button" class="btn btn-outline btn-sm" (click)="logout()">
           Salir
         </button>
       </div>
     </header>
 
-    <main class="flex-1 bg-base-200 p-4 md:p-6">
+    <main class="min-w-0 flex-1 bg-base-200 p-3 sm:p-4 xl:p-6">
       <router-outlet />
     </main>
   </div>
@@ -72,7 +72,7 @@
   <div class="drawer-side z-40">
     <label for="main-drawer" aria-label="Cerrar menú" class="drawer-overlay"></label>
     <aside
-      class="sidebar-branded flex min-h-full w-64 flex-col"
+      class="sidebar-branded flex min-h-full w-64 max-w-[85vw] flex-col overflow-y-auto"
       [style.--sidebar-primary]="primaryColor()"
       [style.--sidebar-fg]="sidebarFg()"
     >

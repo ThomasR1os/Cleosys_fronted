@@ -24,7 +24,7 @@
       }
     </div>
 
-    <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+    <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
       <label class="form-control w-full">
         <div class="label py-0"><span class="label-text text-xs">Año</span></div>
         <select
@@ -111,7 +111,7 @@
 } @else if (kpis(); as k) {
   <section class="space-y-3">
     <h2 class="text-xl font-semibold">Indicadores {{ periodLabel() }} · {{ segmentLabel() }}</h2>
-    <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+    <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
       <app-kpi-card title="Total solicitudes" [value]="k.total.toString()" variant="info" />
       <app-kpi-card title="Abiertas" [value]="k.open.toString()" variant="warning" />
       <app-kpi-card title="Finalizadas" [value]="k.completed.toString()" variant="success" />

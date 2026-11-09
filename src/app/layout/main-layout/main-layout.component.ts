@@ -1,4 +1,4 @@
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { catchError, of, switchMap } from 'rxjs';
 import { AuthService } from '../../core/services/auth.service';
@@ -37,13 +37,18 @@ import {
   `,
 })
 export class MainLayoutComponent implements OnInit {
+  /** Menú fijo solo en escritorio. En tablet queda como overlay para no robar ancho. */
+  private static readonly dockedSidebarQuery = '(min-width: 1280px)';
+
   private readonly auth = inject(AuthService);
   private readonly companies = inject(CompanyService);
+  private readonly destroyRef = inject(DestroyRef);
 
   readonly authService = this.auth;
 
-  /** Visible por defecto; se puede ocultar desde el botón del navbar. */
-  readonly sidebarOpen = signal(true);
+  readonly dockedSidebar = signal(this.prefersDockedSidebar());
+  /** En tablet arranca cerrado para que el contenido use todo el ancho. */
+  readonly sidebarOpen = signal(this.prefersDockedSidebar());
   readonly primaryColor = signal(DEFAULT_COMPANY_BRANDING.primary);
 
   readonly sidebarFg = computed(() => {
@@ -53,6 +58,7 @@ export class MainLayoutComponent implements OnInit {
   });
 
   ngOnInit(): void {
+    this.bindSidebarToViewport();
     this.auth
       .loadProfile()
       .pipe(
@@ -76,6 +82,27 @@ export class MainLayoutComponent implements OnInit {
 
   toggleSidebar(): void {
     this.sidebarOpen.update((open) => !open);
+  }
+
+  private prefersDockedSidebar(): boolean {
+    return (
+      typeof window !== 'undefined' &&
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia(MainLayoutComponent.dockedSidebarQuery).matches
+    );
+  }
+
+  private bindSidebarToViewport(): void {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const query = window.matchMedia(MainLayoutComponent.dockedSidebarQuery);
+    const apply = () => {
+      const docked = query.matches;
+      this.dockedSidebar.set(docked);
+      this.sidebarOpen.set(docked);
+    };
+    apply();
+    query.addEventListener('change', apply);
+    this.destroyRef.onDestroy(() => query.removeEventListener('change', apply));
   }
 
   onDrawerToggle(event: Event): void {
