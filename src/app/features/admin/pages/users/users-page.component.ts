@@ -97,6 +97,8 @@ export class UsersPageComponent implements OnInit {
     { value: 'ALMACEN', label: 'Almacén' },
     { value: 'LOGISTICA', label: 'Logística' },
     { value: 'VENTAS', label: 'Ventas' },
+    { value: 'SERVICIOS', label: 'Servicios' },
+    { value: 'TECNICO', label: 'Técnico' },
   ];
 
   readonly form = this.fb.nonNullable.group({

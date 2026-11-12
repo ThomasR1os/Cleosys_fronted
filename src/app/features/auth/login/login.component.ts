@@ -35,8 +35,17 @@ export class LoginComponent {
     this.submitting.set(true);
     this.auth.login(username, password).subscribe({
       next: () => {
-        this.submitting.set(false);
-        void this.router.navigate(['/inicio']);
+        this.auth.loadProfile().subscribe({
+          next: (me) => {
+            this.submitting.set(false);
+            const home = me.profile?.role === 'TECNICO' ? '/servicios' : '/inicio';
+            void this.router.navigate([home]);
+          },
+          error: () => {
+            this.submitting.set(false);
+            void this.router.navigate(['/inicio']);
+          },
+        });
       },
       error: (err: unknown) => {
         this.submitting.set(false);

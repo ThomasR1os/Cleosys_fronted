@@ -56,7 +56,7 @@ export interface Company {
   branding?: CompanyBranding;
 }
 
-export type UserRole = 'ALMACEN' | 'VENTAS' | 'LOGISTICA' | 'ADMIN';
+export type UserRole = 'ALMACEN' | 'VENTAS' | 'LOGISTICA' | 'SERVICIOS' | 'ADMIN' | 'TECNICO';
 
 export interface UserProfileNested {
   id: number;

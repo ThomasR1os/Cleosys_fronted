@@ -70,6 +70,20 @@ export class AuthService {
     return role === 'ALMACEN' || role === 'LOGISTICA' || role === 'ADMIN';
   });
 
+  /**
+   * Alta, edición y baja de marcas (`BrandWritePermission`).
+   * Almacén, Logística, Servicios o Admin.
+   */
+  readonly canWriteBrands = computed(() => {
+    const role = this.me()?.profile?.role;
+    return (
+      role === 'ALMACEN' ||
+      role === 'LOGISTICA' ||
+      role === 'SERVICIOS' ||
+      role === 'ADMIN'
+    );
+  });
+
   /** POST/PATCH/DELETE en logística (LogisticaWritePermission). */
   readonly canWriteLogistica = computed(() => {
     const role = this.me()?.profile?.role;
@@ -104,6 +118,9 @@ export class AuthService {
   });
 
   readonly isAdmin = computed(() => this.me()?.profile?.role === 'ADMIN');
+
+  /** Técnicos: solo el módulo Servicios (consulta). */
+  readonly isTecnico = computed(() => this.me()?.profile?.role === 'TECNICO');
 
   constructor() {
     this.hydrateFromStorage();

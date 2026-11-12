@@ -57,7 +57,9 @@
         </span>
       </div>
       <div class="flex flex-none flex-wrap items-center justify-end gap-2">
-        <a routerLink="/perfil" class="btn btn-ghost btn-sm">Mi perfil</a>
+        @if (!authService.isTecnico()) {
+          <a routerLink="/perfil" class="btn btn-ghost btn-sm">Mi perfil</a>
+        }
         <button type="button" class="btn btn-outline btn-sm" (click)="logout()">
           Salir
         </button>
@@ -106,6 +108,7 @@
         </button>
       </div>
       <ul class="menu w-full flex-1 gap-1 p-2 text-base">
+        @if (!authService.isTecnico()) {
         <li>
           <a routerLink="/inicio" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">
             <svg
@@ -220,6 +223,7 @@
             Ventas
           </a>
         </li>
+        }
         <li>
           <a routerLink="/servicios" routerLinkActive="active">
             <svg

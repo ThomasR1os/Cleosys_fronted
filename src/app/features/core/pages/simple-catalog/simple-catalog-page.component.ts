@@ -2,11 +2,13 @@ import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import {
   Component,
   OnInit,
+  computed,
   inject,
   input,
   signal,
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { AuthService } from '../../../../core/services/auth.service';
 import {
   FormBuilder,
   FormControl,
@@ -34,6 +36,15 @@ export class SimpleCatalogPageComponent implements OnInit {
 
   private readonly http = inject(HttpClient);
   private readonly fb = inject(FormBuilder);
+  readonly auth = inject(AuthService);
+
+  /**
+   * Marcas: Almacén, Logística, Servicios o Admin.
+   * El resto de catálogos de esta pantalla no cambia de criterio.
+   */
+  readonly canMutate = computed(() =>
+    this.catalogKey() === 'brands' ? this.auth.canWriteBrands() : true,
+  );
 
   readonly items = signal<Row[]>([]);
   readonly loading = signal(false);
@@ -113,6 +124,7 @@ export class SimpleCatalogPageComponent implements OnInit {
   }
 
   openNew(): void {
+    if (!this.canMutate()) return;
     this.editingId.set(null);
     this.form.reset();
     this.form.get('id')?.setValue(null);
@@ -127,6 +139,7 @@ export class SimpleCatalogPageComponent implements OnInit {
   }
 
   openEdit(row: Row): void {
+    if (!this.canMutate()) return;
     const id = row['id'] as number;
     this.editingId.set(id);
     this.form.get('id')?.setValue(row['id'] != null ? Number(row['id']) : null);
@@ -148,6 +161,7 @@ export class SimpleCatalogPageComponent implements OnInit {
   }
 
   save(): void {
+    if (!this.canMutate()) return;
     if (this.form.invalid) {
       this.form.markAllAsTouched();
       return;
@@ -221,6 +235,7 @@ export class SimpleCatalogPageComponent implements OnInit {
   }
 
   remove(row: Row): void {
+    if (!this.canMutate()) return;
     const id = row['id'] as number;
     const name = String(row['name'] ?? id);
     if (!window.confirm(`¿Eliminar "${name}"?`)) return;

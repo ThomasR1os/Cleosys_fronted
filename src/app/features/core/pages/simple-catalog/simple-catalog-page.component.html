@@ -10,8 +10,17 @@
         <h1 class="text-3xl font-bold">{{ def.title }}</h1>
         <p class="text-base-content/70 mt-1 text-sm">{{ def.description }}</p>
       </div>
-      <button type="button" class="btn btn-primary btn-lg" (click)="openNew()">Nuevo</button>
+      @if (canMutate()) {
+        <button type="button" class="btn btn-primary btn-lg" (click)="openNew()">Nuevo</button>
+      }
     </div>
+
+    @if (catalogKey() === 'brands' && !canMutate()) {
+      <div role="status" class="alert alert-warning text-sm">
+        Solo consulta. Alta y edición de marcas requieren rol <strong>Almacén</strong>,
+        <strong>Logística</strong>, <strong>Servicios</strong> o <strong>Administrador</strong>.
+      </div>
+    }
 
     <div class="overflow-x-auto rounded-lg border border-base-300 bg-base-100">
       @if (loading()) {
@@ -25,7 +34,9 @@
               @for (col of def.listColumns; track col.key) {
                 <th>{{ col.label }}</th>
               }
-              <th class="text-right">Acciones</th>
+              @if (canMutate()) {
+                <th class="text-right">Acciones</th>
+              }
             </tr>
           </thead>
           <tbody>
@@ -34,18 +45,20 @@
                 @for (col of def.listColumns; track col.key) {
                   <td>{{ row[col.key] }}</td>
                 }
-                <td class="text-right space-x-1">
-                  <button type="button" class="btn btn-ghost btn-sm" (click)="openEdit(row)">
-                    Editar
-                  </button>
-                  <button type="button" class="btn btn-outline btn-error btn-sm" (click)="remove(row)">
-                    Eliminar
-                  </button>
-                </td>
+                @if (canMutate()) {
+                  <td class="text-right space-x-1">
+                    <button type="button" class="btn btn-ghost btn-sm" (click)="openEdit(row)">
+                      Editar
+                    </button>
+                    <button type="button" class="btn btn-outline btn-error btn-sm" (click)="remove(row)">
+                      Eliminar
+                    </button>
+                  </td>
+                }
               </tr>
             } @empty {
               <tr>
-                <td [attr.colspan]="def.listColumns.length + 1" class="text-base-content/60 text-center">
+                <td [attr.colspan]="def.listColumns.length + (canMutate() ? 1 : 0)" class="text-base-content/60 text-center">
                   Sin registros.
                 </td>
               </tr>

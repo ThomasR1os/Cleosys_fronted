@@ -3180,7 +3180,9 @@ export class QuotationsPageComponent implements OnInit {
       ALMACEN: 'Área: Almacén',
       VENTAS: 'Área: Ventas',
       LOGISTICA: 'Área: Logística',
+      SERVICIOS: 'Área: Servicios',
       ADMIN: 'Área: Administración',
+      TECNICO: 'Área: Técnico',
     };
     return labels[role] ?? role;
   }
