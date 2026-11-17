@@ -9,6 +9,7 @@ function normalizeWarehouseProduct(row: Record<string, unknown>): WarehouseProdu
     id: Number(row['id']),
     warehouse: Number(row['warehouse']),
     product: Number(row['product']),
+    owner_company: Number(row['owner_company'] ?? 0),
     stock: Number(row['stock'] ?? 0),
     location: String(row['location'] ?? row['ubication'] ?? ''),
     creation_date: row['creation_date'] != null ? String(row['creation_date']) : undefined,

@@ -1,7 +1,3 @@
-@if (errorMessage(); as err) {
-  <div role="alert" class="alert alert-error text-sm mb-4">{{ err }}</div>
-}
-
 @if (def) {
   <div class="space-y-4">
     <a routerLink="/core" class="link link-hover text-sm">← Volver a Core</a>
@@ -10,61 +6,224 @@
         <h1 class="text-3xl font-bold">{{ def.title }}</h1>
         <p class="text-base-content/70 mt-1 text-sm">{{ def.description }}</p>
       </div>
-      @if (canMutate()) {
-        <button type="button" class="btn btn-primary btn-lg" (click)="openNew()">Nuevo</button>
-      }
+      <div class="flex flex-wrap items-center gap-2">
+        @if (isBrands()) {
+          <button
+            type="button"
+            class="btn btn-outline btn-sm"
+            [disabled]="loading() || items().length === 0"
+            (click)="downloadBrandsExport()"
+          >
+            Descargar Excel
+          </button>
+          @if (canMutate()) {
+            <button type="button" class="btn btn-outline btn-sm" (click)="downloadBrandsTemplate()">
+              Plantilla Excel
+            </button>
+            <label class="btn btn-outline btn-sm cursor-pointer">
+              @if (importBusy()) {
+                <span class="loading loading-spinner loading-xs"></span>
+                @if (importProgress(); as prog) {
+                  {{ prog.done }}/{{ prog.total }}
+                } @else {
+                  Importando…
+                }
+              } @else {
+                Importar Excel
+              }
+              <input
+                type="file"
+                class="hidden"
+                accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                [disabled]="importBusy()"
+                (change)="onBrandsExcelSelected($event)"
+              />
+            </label>
+          }
+        }
+        @if (canMutate()) {
+          <button type="button" class="btn btn-primary btn-lg" (click)="openNew()">Nuevo</button>
+        }
+      </div>
     </div>
 
-    @if (catalogKey() === 'brands' && !canMutate()) {
+    @if (isBrands() && !canMutate()) {
       <div role="status" class="alert alert-warning text-sm">
         Solo consulta. Alta y edición de marcas requieren rol <strong>Almacén</strong>,
         <strong>Logística</strong>, <strong>Servicios</strong> o <strong>Administrador</strong>.
       </div>
     }
 
-    <div class="overflow-x-auto rounded-lg border border-base-300 bg-base-100">
+    @if (errorMessage(); as err) {
+      <div role="alert" class="alert alert-error text-sm">{{ err }}</div>
+    }
+
+    @if (isBrands()) {
+      @if (importSummary(); as sum) {
+        <div
+          role="status"
+          class="alert text-sm"
+          [class.alert-success]="sum.failed === 0"
+          [class.alert-warning]="sum.failed > 0"
+        >
+          <span>
+            Importación:
+            <strong>{{ sum.created }}</strong> altas,
+            <strong>{{ sum.updated }}</strong> actualizaciones,
+            <strong>{{ sum.skipped }}</strong> omitidas
+            @if (sum.failed > 0) {
+              , <strong>{{ sum.failed }}</strong> con error
+            }.
+          </span>
+          @if (sum.errors.length) {
+            <ul class="mt-2 max-h-48 list-inside list-disc overflow-y-auto text-left">
+              @for (e of sum.errors.slice(0, 30); track $index) {
+                <li>
+                  <span class="font-medium">{{ e.label }}</span>: {{ e.message }}
+                </li>
+              }
+            </ul>
+            @if (sum.errors.length > 30) {
+              <p class="mt-1 text-xs opacity-70">…y {{ sum.errors.length - 30 }} más.</p>
+            }
+          }
+        </div>
+      }
+      @if (canMutate()) {
+        <p class="text-base-content/50 text-xs">
+          Excel (.xlsx): columna <code>nombre</code> (obligatoria) e <code>id</code> (opcional).
+          Si el ID ya existe se actualiza el nombre; si el nombre ya está, se omite.
+        </p>
+      }
+    }
+
+    @if (!loading()) {
+      <div
+        class="flex flex-col gap-3 rounded-lg border border-base-300 bg-base-100 p-4 sm:flex-row sm:flex-wrap sm:items-end"
+      >
+        <label class="flex min-w-0 flex-1 flex-col gap-1.5 sm:min-w-[14rem]">
+          <span class="label-text font-medium">Buscar</span>
+          <input
+            type="search"
+            class="input input-bordered input-sm w-full"
+            [placeholder]="searchPlaceholder()"
+            autocomplete="off"
+            [value]="searchQuery()"
+            (input)="setSearchQuery($any($event.target).value)"
+          />
+        </label>
+        @if (hasActiveSearch()) {
+          <button type="button" class="btn btn-ghost btn-sm" (click)="clearSearch()">
+            Limpiar búsqueda
+          </button>
+        }
+      </div>
+    }
+
+    <div class="overflow-hidden rounded-lg border border-base-300 bg-base-100">
       @if (loading()) {
         <div class="flex justify-center p-12">
           <span class="loading loading-spinner loading-lg text-primary"></span>
         </div>
       } @else {
-        <table class="table table-zebra">
-          <thead>
-            <tr>
-              @for (col of def.listColumns; track col.key) {
-                <th>{{ col.label }}</th>
-              }
-              @if (canMutate()) {
-                <th class="text-right">Acciones</th>
-              }
-            </tr>
-          </thead>
-          <tbody>
-            @for (row of items(); track row['id']) {
+        <div class="overflow-x-auto">
+          <table class="table table-zebra">
+            <thead>
               <tr>
                 @for (col of def.listColumns; track col.key) {
-                  <td>{{ row[col.key] }}</td>
+                  <th>{{ col.label }}</th>
                 }
                 @if (canMutate()) {
-                  <td class="text-right space-x-1">
-                    <button type="button" class="btn btn-ghost btn-sm" (click)="openEdit(row)">
-                      Editar
-                    </button>
-                    <button type="button" class="btn btn-outline btn-error btn-sm" (click)="remove(row)">
-                      Eliminar
-                    </button>
-                  </td>
+                  <th class="text-right">Acciones</th>
                 }
               </tr>
-            } @empty {
-              <tr>
-                <td [attr.colspan]="def.listColumns.length + (canMutate() ? 1 : 0)" class="text-base-content/60 text-center">
-                  Sin registros.
-                </td>
-              </tr>
-            }
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              @for (row of pagedItems(); track row['id']) {
+                <tr>
+                  @for (col of def.listColumns; track col.key) {
+                    <td>{{ row[col.key] }}</td>
+                  }
+                  @if (canMutate()) {
+                    <td class="text-right space-x-1">
+                      <button type="button" class="btn btn-ghost btn-sm" (click)="openEdit(row)">
+                        Editar
+                      </button>
+                      <button type="button" class="btn btn-outline btn-error btn-sm" (click)="remove(row)">
+                        Eliminar
+                      </button>
+                    </td>
+                  }
+                </tr>
+              } @empty {
+                <tr>
+                  <td
+                    [attr.colspan]="def.listColumns.length + (canMutate() ? 1 : 0)"
+                    class="text-base-content/60 text-center py-8"
+                  >
+                    @if (hasActiveSearch()) {
+                      No hay registros que coincidan con la búsqueda.
+                      @if (totalLoaded() > 0) {
+                        <span class="block text-xs mt-1">({{ totalLoaded() }} en total)</span>
+                      }
+                    } @else {
+                      Sin registros.
+                    }
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+        @if (totalCount() > 0) {
+          <div
+            class="flex flex-col gap-3 border-t border-base-300 bg-base-200/40 px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
+          >
+            <p class="text-sm text-base-content/70">
+              Mostrando {{ rangeStart() }}–{{ rangeEnd() }} de {{ totalCount() }}
+              @if (hasActiveSearch() && totalLoaded() !== totalCount()) {
+                <span class="text-base-content/50"> ({{ totalLoaded() }} en total)</span>
+              }
+            </p>
+            <div class="flex flex-wrap items-center gap-2">
+              <label class="flex items-center gap-2 text-sm text-base-content/70">
+                <span>Por página</span>
+                <select
+                  class="select select-bordered select-sm w-[4.75rem] min-h-8"
+                  [value]="pageSize()"
+                  (change)="setPageSize(+$any($event.target).value)"
+                >
+                  @for (opt of pageSizeOptions; track opt) {
+                    <option [value]="opt">{{ opt }}</option>
+                  }
+                </select>
+              </label>
+              <div class="join border border-base-300">
+                <button
+                  type="button"
+                  class="btn btn-sm join-item"
+                  [disabled]="pageIndex() === 0"
+                  (click)="prevPage()"
+                  aria-label="Página anterior"
+                >
+                  «
+                </button>
+                <span class="btn btn-sm join-item btn-ghost pointer-events-none cursor-default no-animation">
+                  {{ pageIndex() + 1 }} / {{ totalPages() }}
+                </span>
+                <button
+                  type="button"
+                  class="btn btn-sm join-item"
+                  [disabled]="pageIndex() >= totalPages() - 1"
+                  (click)="nextPage()"
+                  aria-label="Página siguiente"
+                >
+                  »
+                </button>
+              </div>
+            </div>
+          </div>
+        }
       }
     </div>
   </div>
@@ -72,27 +231,39 @@
 
 @if (modalOpen() && def) {
   <div class="modal modal-open">
-    <div class="modal-box max-h-[90vh] max-w-lg overflow-y-auto">
-      <h2 class="font-bold text-lg mb-4">
+    <div class="modal-box max-h-[90vh] max-w-md overflow-y-auto">
+      <h2 class="mb-1 text-lg font-bold">
         {{ editingId() == null ? 'Nuevo' : 'Editar' }} — {{ def.title }}
       </h2>
-      <form class="flex flex-col gap-3" [formGroup]="form" (ngSubmit)="save()">
+      <p class="text-base-content/60 mb-5 text-sm">
+        Completa los datos y guarda para {{ editingId() == null ? 'crear el registro' : 'actualizar los cambios' }}.
+      </p>
+      <form class="flex flex-col gap-4" [formGroup]="form" (ngSubmit)="save()">
         @if (editingId() != null) {
-          <label class="form-control">
-            <span class="label-text">ID</span>
-            <input class="input input-bordered" type="number" formControlName="id" readonly />
+          <label class="flex w-full flex-col gap-1.5">
+            <span class="label-text font-medium">ID</span>
+            <input
+              class="input input-bordered w-full bg-base-200"
+              type="number"
+              formControlName="id"
+              readonly
+            />
           </label>
         }
         @for (f of def.formFields; track f.key) {
           @if (f.type === 'textarea') {
-            <label class="form-control">
-              <span class="label-text">{{ f.label }}</span>
-              <textarea class="textarea textarea-bordered" [formControlName]="f.key" rows="3"></textarea>
+            <label class="flex w-full flex-col gap-1.5">
+              <span class="label-text font-medium">{{ f.label }}</span>
+              <textarea
+                class="textarea textarea-bordered w-full"
+                [formControlName]="f.key"
+                rows="3"
+              ></textarea>
             </label>
           } @else if (f.type === 'select') {
-            <label class="form-control">
-              <span class="label-text">{{ f.label }}</span>
-              <select class="select select-bordered" [formControlName]="f.key">
+            <label class="flex w-full flex-col gap-1.5">
+              <span class="label-text font-medium">{{ f.label }}</span>
+              <select class="select select-bordered w-full" [formControlName]="f.key">
                 <option [ngValue]="null">— Elija —</option>
                 @for (opt of optionsFor(f.key); track opt.value) {
                   <option [ngValue]="opt.value">{{ opt.label }}</option>
@@ -100,17 +271,18 @@
               </select>
             </label>
           } @else {
-            <label class="form-control">
-              <span class="label-text">{{ f.label }}</span>
+            <label class="flex w-full flex-col gap-1.5">
+              <span class="label-text font-medium">{{ f.label }}</span>
               <input
-                class="input input-bordered"
+                class="input input-bordered w-full"
                 [type]="f.type === 'number' ? 'number' : 'text'"
                 [formControlName]="f.key"
+                autocomplete="off"
               />
             </label>
           }
         }
-        <div class="modal-action">
+        <div class="modal-action mt-2">
           <button type="button" class="btn" (click)="closeModal()">Cancelar</button>
           <button type="submit" class="btn btn-primary" [disabled]="saving()">
             @if (saving()) {

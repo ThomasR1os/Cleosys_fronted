@@ -42,7 +42,7 @@
         <input
           type="search"
           class="input input-bordered input-sm w-full"
-          placeholder="SKU, descripción, ubicación o stock…"
+          placeholder="SKU, dueño, descripción, ubicación o stock…"
           autocomplete="off"
           [value]="searchQuery()"
           (input)="setSearchQuery($any($event.target).value)"
@@ -66,6 +66,7 @@
             <tr>
               <th>Producto</th>
               <th>SKU</th>
+              <th>Dueño</th>
               <th>Stock</th>
               <th>Ubicación</th>
             </tr>
@@ -78,6 +79,7 @@
                   <span class="text-base-content/50 block text-xs">ID {{ row.product }}</span>
                 </td>
                 <td class="font-mono text-sm">{{ sku(row.product) }}</td>
+                <td>{{ ownerName(row.owner_company) }}</td>
                 <td>
                   <span
                     class="badge font-semibold"

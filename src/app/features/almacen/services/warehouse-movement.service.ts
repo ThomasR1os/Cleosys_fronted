@@ -17,6 +17,7 @@ function normalizeMovement(row: Record<string, unknown>): WarehouseMovement {
     id: Number(row['id']),
     warehouse: Number(row['warehouse']),
     product: Number(row['product']),
+    owner_company: Number(row['owner_company'] ?? 0),
     cant: row['cant'] == null ? '' : String(row['cant']),
     movement_type,
     observation:

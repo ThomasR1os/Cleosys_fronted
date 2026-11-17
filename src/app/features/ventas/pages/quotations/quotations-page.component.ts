@@ -2771,15 +2771,28 @@ export class QuotationsPageComponent implements OnInit {
     if (!row) return;
     if (this.sendEmailForm.invalid) {
       this.sendEmailForm.markAllAsTouched();
+      this.sendEmailError.set('Revisa los campos del formulario antes de enviar.');
       return;
     }
     const v = this.sendEmailForm.getRawValue();
-    const to = this.parseEmailList(v.to);
-    if (to.length === 0) {
-      this.sendEmailError.set('Indica al menos un correo destinatario.');
+    const toCheck = this.validateEmailListInput(v.to, 'Destinatario');
+    if (toCheck.error) {
+      this.sendEmailError.set(toCheck.error);
       return;
     }
-    const cc = this.parseEmailList(v.cc);
+    if (toCheck.emails.length === 0) {
+      this.sendEmailError.set(
+        'Indica al menos un correo destinatario válido (ejemplo: cliente@empresa.com).',
+      );
+      return;
+    }
+    const ccCheck = this.validateEmailListInput(v.cc, 'Copia (CC)');
+    if (ccCheck.error) {
+      this.sendEmailError.set(ccCheck.error);
+      return;
+    }
+    const to = toCheck.emails;
+    const cc = ccCheck.emails;
     this.sendEmailBusy.set(true);
     this.sendEmailError.set(null);
     this.sendEmailSuccess.set(null);
@@ -2787,7 +2800,7 @@ export class QuotationsPageComponent implements OnInit {
       await this.ensureProductsCatalogAsync();
       const { blob, filename } = await this.buildQuotationPdfBlob(row);
       if (blob.size > 10 * 1024 * 1024) {
-        throw new Error('El PDF supera el límite de 10 MB.');
+        throw new Error('El PDF supera el límite de 10 MB y no se puede adjuntar al correo.');
       }
       const pdf_base64 = await this.blobToBase64(blob);
       const bodies = this.buildQuotationEmailBodies(v.message.trim());
@@ -2804,10 +2817,22 @@ export class QuotationsPageComponent implements OnInit {
           ...(signatureUrl ? { signature_url: signatureUrl } : {}),
         }),
       );
+      const status = (res.status ?? '').toString().toLowerCase();
+      if (/error|fail|invalid|denied|reject/.test(status)) {
+        this.sendEmailError.set(
+          `No se pudo enviar el correo: el servidor respondió con estado «${res.status}». Revisa la configuración SMTP de la empresa.`,
+        );
+        return;
+      }
+      const recipients = (res.to?.length ? res.to : to).join(', ');
+      const ccLabel =
+        (res.cc?.length ?? 0) > 0
+          ? ` Copia (CC): ${res.cc!.join(', ')}.`
+          : cc.length > 0
+            ? ` Copia (CC): ${cc.join(', ')}.`
+            : '';
       this.sendEmailSuccess.set(
-        `Enviado a ${(res.to ?? to).join(', ')}${
-          (res.cc?.length ?? 0) > 0 ? ` (CC: ${res.cc!.join(', ')})` : ''
-        }.`,
+        `Correo enviado correctamente a ${recipients}.${ccLabel} El PDF de la cotización ${row.correlativo} fue adjuntado.`,
       );
     } catch (e: unknown) {
       this.sendEmailError.set(this.formatSendEmailError(e, row.id));
@@ -2868,11 +2893,28 @@ export class QuotationsPageComponent implements OnInit {
     });
   }
 
-  private parseEmailList(raw: string): string[] {
-    return raw
-      .split(/[,;\s]+/)
+  /** Separa tokens y valida formato; no descarta direcciones inválidas en silencio. */
+  private validateEmailListInput(
+    raw: string,
+    fieldLabel: string,
+  ): { emails: string[]; error: string | null } {
+    const tokens = raw
+      .split(/[,;]+/)
+      .flatMap((part) => part.trim().split(/\s+/))
       .map((s) => s.trim())
-      .filter((s) => s.length > 0 && s.includes('@'));
+      .filter((s) => s.length > 0);
+    if (tokens.length === 0) {
+      return { emails: [], error: null };
+    }
+    const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const invalid = tokens.filter((t) => !emailRe.test(t));
+    if (invalid.length > 0) {
+      return {
+        emails: [],
+        error: `${fieldLabel}: dirección de correo inválida (${invalid.join(', ')}). Usa el formato nombre@dominio.com.`,
+      };
+    }
+    return { emails: tokens, error: null };
   }
 
   private blobToBase64(blob: Blob): Promise<string> {
@@ -2881,13 +2923,13 @@ export class QuotationsPageComponent implements OnInit {
       reader.onload = () => {
         const result = reader.result;
         if (typeof result !== 'string') {
-          reject(new Error('No se pudo codificar el PDF.'));
+          reject(new Error('No se pudo codificar el PDF para adjuntarlo al correo.'));
           return;
         }
         const comma = result.indexOf(',');
         resolve(comma >= 0 ? result.slice(comma + 1) : result);
       };
-      reader.onerror = () => reject(new Error('No se pudo leer el PDF.'));
+      reader.onerror = () => reject(new Error('No se pudo leer el PDF para adjuntarlo al correo.'));
       reader.readAsDataURL(blob);
     });
   }
@@ -2903,36 +2945,107 @@ export class QuotationsPageComponent implements OnInit {
         parsed.fields.length ? `Campos:\n  - ${parsed.fields.join('\n  - ')}` : null,
       ].filter((line): line is string => !!line);
       console.error(lines.join('\n'), err.error);
-
-      if (err.status === 502) {
-        return 'Falló el envío SMTP. Revisa la configuración de correo de la empresa.';
-      }
-      if (err.status === 403) return 'No tienes permiso para enviar esta cotización.';
-      if (err.status === 413 || /too big|RequestDataTooBig|exced/i.test(parsed.message)) {
-        return 'El PDF es demasiado grande para el servidor. Prueba una cotización más liviana o pide subir el límite de subida en Django.';
-      }
-      if (/inactivo/i.test(parsed.message)) {
-        return (
-          parsed.message +
-          ' Un administrador debe marcar «Activo» en Empresas → Correo SMTP (o reenviar la prueba de correo).'
-        );
-      }
-      return parsed.message;
+      return this.explainSendEmailFailure(err.status, parsed.message, parsed.fields);
     }
     if (err instanceof Error) {
       console.error('[Enviar cotización] Error local (antes de llamar al API):', err.message, err);
-      return err.message;
+      return `No se pudo enviar el correo. ${err.message}`;
     }
     console.error('[Enviar cotización] Error desconocido:', err);
-    return 'Error desconocido al enviar.';
+    return 'No se pudo enviar el correo por un error desconocido. Intenta de nuevo o contacta a un administrador.';
+  }
+
+  /** Mensaje claro para el usuario según HTTP / texto del backend. */
+  private explainSendEmailFailure(status: number, rawMessage: string, fields: string[]): string {
+    const msg = (rawMessage || '').trim();
+    const hay = `${msg} ${fields.join(' ')}`.toLowerCase();
+
+    if (status === 0) {
+      return 'No se pudo enviar el correo: el servidor no responde o no hay conexión a internet. Verifica tu red e intenta de nuevo.';
+    }
+    if (status === 408 || status === 504) {
+      return 'No se pudo enviar el correo: el servidor tardó demasiado en responder (tiempo de espera agotado). Intenta de nuevo en unos minutos.';
+    }
+    if (status === 401) {
+      return 'No se pudo enviar el correo: tu sesión expiró o no estás autenticado. Vuelve a iniciar sesión e intenta otra vez.';
+    }
+    if (status === 403) {
+      return 'No se pudo enviar el correo: no tienes permiso para enviar esta cotización.';
+    }
+    if (status === 404) {
+      return 'No se pudo enviar el correo: la cotización no existe o ya no está disponible.';
+    }
+    if (status === 413 || /too big|requestdatatobig|exced|demasiado grande|payload/i.test(hay)) {
+      return 'No se pudo enviar el correo: el PDF es demasiado grande para el servidor. Prueba con una cotización más liviana o pide subir el límite de subida.';
+    }
+    if (status === 502 || status === 503) {
+      return (
+        'No se pudo enviar el correo: falló la conexión con el servidor de correo (SMTP). ' +
+        'Revisa en Empresas → Correo SMTP que el host, puerto y credenciales sean correctos y que esté activo.'
+      );
+    }
+    if (/inactivo|not active|is_active/i.test(hay)) {
+      return (
+        'No se pudo enviar el correo: el SMTP de la empresa está inactivo. ' +
+        'Un administrador debe activarlo en Empresas → Correo SMTP (o reenviar la prueba de correo).'
+      );
+    }
+    if (
+      /invalid.*(email|address|recipient|to|cc)|dirección.*(inválid|incorrect)|malformed|not a valid/i.test(
+        hay,
+      )
+    ) {
+      return `No se pudo enviar el correo: hay una dirección de correo inválida. ${msg || 'Revisa destinatario y copia (CC).'}`;
+    }
+    if (
+      /recipient.*(refus|reject|invalid)|user unknown|mailbox unavailable|does not exist|relay access denied|550|551|553|554/i.test(
+        hay,
+      )
+    ) {
+      return `No se pudo enviar el correo: el servidor rechazó el destinatario (dirección inexistente o no permitida). ${msg}`;
+    }
+    if (
+      /auth|credential|password|login|535|username|usuario|contraseña/i.test(hay)
+    ) {
+      return (
+        'No se pudo enviar el correo: falló la autenticación SMTP (usuario o contraseña incorrectos). ' +
+        'Revisa la configuración en Empresas → Correo SMTP.'
+      );
+    }
+    if (
+      /connection refused|timed? ?out|getaddrinfo|name or service not known|network is unreachable|could not connect|econnrefused|enotfound|smtp.*(connect|server)|host/i.test(
+        hay,
+      )
+    ) {
+      return (
+        'No se pudo enviar el correo: el servidor SMTP no responde o el host/puerto son incorrectos. ' +
+        'Revisa Empresas → Correo SMTP e intenta una prueba de correo.'
+      );
+    }
+    if (/smtp|mail|correo/i.test(hay) && (status === 400 || status === 500)) {
+      return `No se pudo enviar el correo. ${msg} Si el problema continúa, revisa Empresas → Correo SMTP.`;
+    }
+    if (status === 400) {
+      const fieldHint = fields.length ? ` Detalle: ${fields.join(' · ')}.` : '';
+      return `No se pudo enviar el correo: datos inválidos o SMTP mal configurado.${fieldHint}${msg ? ` ${msg}` : ''}`;
+    }
+    if (status >= 500) {
+      return `No se pudo enviar el correo: error interno del servidor (${status}). ${msg || 'Intenta de nuevo más tarde.'}`;
+    }
+    if (msg) {
+      return `No se pudo enviar el correo. ${msg}`;
+    }
+    return `No se pudo enviar el correo (error HTTP ${status || 'desconocido'}). Intenta de nuevo o contacta a un administrador.`;
   }
 
   /** Extrae `detail` y errores por campo típicos de DRF para UI y consola. */
   private parseSendEmailHttpError(err: HttpErrorResponse): { message: string; fields: string[] } {
     const fallback =
-      err.status === 400
-        ? 'No se pudo enviar: SMTP no configurado o datos inválidos.'
-        : err.message || `Error HTTP ${err.status} al enviar el correo.`;
+      err.status === 0
+        ? 'El servidor no responde o no hay conexión.'
+        : err.status === 400
+          ? 'SMTP no configurado o datos inválidos.'
+          : err.message || `Error HTTP ${err.status} al enviar el correo.`;
     const body = err.error;
     if (body == null || body === '') {
       return { message: fallback, fields: [] };

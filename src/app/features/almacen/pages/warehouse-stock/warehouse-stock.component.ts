@@ -2,6 +2,8 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { forkJoin } from 'rxjs';
+import type { Company } from '../../../admin/models/admin-users.models';
+import { CompanyService } from '../../../admin/services/company.service';
 import type { AlmacenProduct, Warehouse, WarehouseProduct } from '../../models/almacen.models';
 import { AlmacenProductService } from '../../services/almacen-product.service';
 import { WarehouseProductService } from '../../services/warehouse-product.service';
@@ -17,6 +19,7 @@ export class WarehouseStockComponent implements OnInit {
   private readonly warehousesApi = inject(WarehouseService);
   private readonly wpApi = inject(WarehouseProductService);
   private readonly productsApi = inject(AlmacenProductService);
+  private readonly companiesApi = inject(CompanyService);
 
   readonly warehouse = signal<Warehouse | null>(null);
   readonly rows = signal<WarehouseProduct[]>([]);
@@ -28,6 +31,7 @@ export class WarehouseStockComponent implements OnInit {
   readonly pageSizeOptions = [10, 25, 50] as const;
 
   private readonly productMap = signal<Map<number, AlmacenProduct>>(new Map());
+  private readonly companyMap = signal<Map<number, string>>(new Map());
 
   readonly sku = (productId: number): string =>
     this.productMap().get(productId)?.sku ?? '—';
@@ -35,9 +39,13 @@ export class WarehouseStockComponent implements OnInit {
   readonly description = (productId: number): string =>
     this.productMap().get(productId)?.description ?? '';
 
+  readonly ownerName = (companyId: number): string =>
+    this.companyMap().get(companyId) ?? `#${companyId}`;
+
   readonly filteredRows = computed(() => {
     const q = this.searchQuery().trim().toLowerCase();
     const map = this.productMap();
+    const companies = this.companyMap();
     const rows = this.rows();
     if (!q) return rows;
     return rows.filter((row) => {
@@ -46,6 +54,7 @@ export class WarehouseStockComponent implements OnInit {
         String(row.product),
         product?.sku ?? '',
         product?.description ?? '',
+        companies.get(row.owner_company) ?? String(row.owner_company),
         row.location,
         String(row.stock),
       ]
@@ -119,14 +128,20 @@ export class WarehouseStockComponent implements OnInit {
       w: this.warehousesApi.retrieve(wid),
       wps: this.wpApi.list(),
       products: this.productsApi.list(),
+      companies: this.companiesApi.list(),
     }).subscribe({
-      next: ({ w, wps, products }) => {
+      next: ({ w, wps, products, companies }) => {
         this.warehouse.set(w);
         const pmap = new Map<number, AlmacenProduct>();
         for (const p of products) {
           pmap.set(p.id, p);
         }
         this.productMap.set(pmap);
+        const cmap = new Map<number, string>();
+        for (const c of companies as Company[]) {
+          cmap.set(c.id, c.name);
+        }
+        this.companyMap.set(cmap);
         this.rows.set(wps.filter((x) => x.warehouse === wid));
         this.loading.set(false);
         this.clampPage();

@@ -339,25 +339,59 @@ export function excelRowToProductPayload(
   return o;
 }
 
+/** Cabeceras de plantilla / exportación (mismo orden para import y export). */
+export const PRODUCT_EXCEL_HEADERS = [
+  'sku',
+  'description',
+  'category',
+  'subcategory',
+  'type',
+  'brand',
+  'unit_measurement',
+  'datasheet',
+  'price',
+  'rental_price_without_operator',
+  'rental_price_with_operator',
+  'warranty',
+  'status',
+  'dimensions',
+  'gross_weight',
+  'Tiempo de espera estimado',
+] as const;
+
+function moneyCell(v: number | null | undefined): string {
+  if (v == null || Number.isNaN(Number(v))) return '';
+  return Number(v).toFixed(2);
+}
+
+function fkCell(v: number | null | undefined): number | '' {
+  if (v == null || Number.isNaN(Number(v))) return '';
+  return Number(v);
+}
+
+/** Fila de datos alineada con `PRODUCT_EXCEL_HEADERS`. */
+export function productToExcelRow(p: Product): (string | number)[] {
+  return [
+    p.sku ?? '',
+    p.description ?? '',
+    fkCell(p.category),
+    fkCell(p.subcategory),
+    fkCell(p.type),
+    fkCell(p.brand),
+    fkCell(p.unit_measurement),
+    p.datasheet ?? '',
+    moneyCell(p.price),
+    moneyCell(p.rental_price_without_operator),
+    moneyCell(p.rental_price_with_operator),
+    p.warranty ?? p.warrannty ?? '',
+    p.status || 'ACTIVE',
+    p.dimensions ?? '',
+    p.gross_weight ?? '',
+    p.estimated_lead_time_days ?? '',
+  ];
+}
+
 export function downloadProductExcelTemplate(): void {
-  const headers = [
-    'sku',
-    'description',
-    'category',
-    'subcategory',
-    'type',
-    'brand',
-    'unit_measurement',
-    'datasheet',
-    'price',
-    'rental_price_without_operator',
-    'rental_price_with_operator',
-    'warranty',
-    'status',
-    'dimensions',
-    'gross_weight',
-    'Tiempo de espera estimado',
-  ] as const;
   const example = [
     'EJ-SKU-001',
     'Producto ejemplo',
@@ -376,8 +410,30 @@ export function downloadProductExcelTemplate(): void {
     '2.5 kg',
     45,
   ];
-  const ws = XLSX.utils.aoa_to_sheet([headers as unknown as string[], example]);
+  const ws = XLSX.utils.aoa_to_sheet([
+    PRODUCT_EXCEL_HEADERS as unknown as string[],
+    example,
+  ]);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Productos');
   XLSX.writeFile(wb, 'plantilla_productos.xlsx');
+}
+
+/** Exporta productos con las mismas columnas que la plantilla de importación. */
+export function downloadProductsExcel(
+  products: Product[],
+  filenamePrefix = 'productos',
+): void {
+  const data: (string | number)[][] = [
+    PRODUCT_EXCEL_HEADERS as unknown as string[],
+    ...products.map(productToExcelRow),
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(data);
+  ws['!cols'] = PRODUCT_EXCEL_HEADERS.map((h) => ({
+    wch: Math.min(40, Math.max(12, h.length + 2)),
+  }));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Productos');
+  const stamp = new Date().toISOString().slice(0, 10);
+  XLSX.writeFile(wb, `${filenamePrefix}_${stamp}.xlsx`);
 }

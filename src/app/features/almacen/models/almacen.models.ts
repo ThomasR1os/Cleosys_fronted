@@ -1,6 +1,8 @@
 export interface Warehouse {
   id: number;
   supplier: number;
+  /** Empresa que custodia el almacén. */
+  company?: number;
   address: string;
 }
 
@@ -56,6 +58,8 @@ export interface WarehouseProduct {
   id: number;
   warehouse: number;
   product: number;
+  /** Empresa dueña del saldo en ese almacén. */
+  owner_company: number;
   stock: number;
   /** Ubicación dentro del almacén. */
   location: string;
@@ -75,6 +79,8 @@ export interface WarehouseMovement {
   id: number;
   warehouse: number;
   product: number;
+  /** Empresa dueña del saldo que se mueve. */
+  owner_company: number;
   cant: string;
   movement_type: MovementType;
   /** Nota libre. Vacía llega como `null`. */
@@ -82,13 +88,19 @@ export interface WarehouseMovement {
   creation_date?: string;
 }
 
-/** Alta manual. `cant` va como decimal en texto (`"1.00"`). Sin nota, se omite `observation`. */
+/**
+ * Alta manual / POST `/api/almacen/warehouse-movements/`.
+ * `cant` va como decimal en texto (`"5.00"`). Sin nota, se omite `observation`.
+ */
 export interface WarehouseMovementWrite {
   warehouse: number;
   product: number;
+  owner_company: number;
   movement_type: MovementType;
   cant: string;
   observation?: string | null;
+  /** Opcional; si viene del Excel se reenvía al API. */
+  creation_date?: string;
 }
 
 export interface WarehouseMovementImportError {

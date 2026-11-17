@@ -21,6 +21,7 @@ import { ProductImageService } from '../../../almacen/services/product-image.ser
 import { ProductService } from '../../../almacen/services/product.service';
 import {
   downloadProductExcelTemplate,
+  downloadProductsExcel,
   excelRowToBulkItem,
   parseProductExcel,
 } from './product-excel-import.util';
@@ -177,6 +178,61 @@ export class ProductosPageComponent implements OnInit {
   readonly fichaPdfBusyId = signal<number | null>(null);
   /** Resultado de comprobar si el SKU ya existe en el catálogo. */
   readonly skuCheckStatus = signal<SkuCheckStatus>('idle');
+
+  /** Exportación Excel (solo admin): modal con filtros. */
+  readonly exportModalOpen = signal(false);
+  readonly exportSearchQuery = signal('');
+  readonly exportCategoryId = signal<number | null>(null);
+  readonly exportSubcategoryId = signal<number | null>(null);
+  readonly exportBrandId = signal<number | null>(null);
+  readonly exportTypeId = signal<number | null>(null);
+  readonly exportStatus = signal<StatusFilter>('ALL');
+
+  readonly exportSubcategoryOptions = computed(() => {
+    const catId = this.exportCategoryId();
+    const subs = this.subcategories();
+    if (catId == null) return subs;
+    return subs.filter((s) => Number(s.category) === Number(catId));
+  });
+
+  readonly exportPreviewItems = computed(() => {
+    const q = this.exportSearchQuery();
+    const catId = this.exportCategoryId();
+    const subId = this.exportSubcategoryId();
+    const brandId = this.exportBrandId();
+    const typeId = this.exportTypeId();
+    const status = this.exportStatus();
+    const catById = new Map(this.categories().map((c) => [c.id, c.name]));
+    const subById = new Map(this.subcategories().map((s) => [s.id, s.name]));
+    const brandById = new Map(this.brands().map((b) => [b.id, b.name]));
+    const typeById = new Map(this.types().map((t) => [t.id, t.name]));
+
+    return this.items().filter((p) => {
+      if (catId != null && this.resolveProductCategoryId(p) !== catId) return false;
+      if (subId != null && this.coerceFk(p.subcategory) !== subId) return false;
+      if (brandId != null && this.coerceFk(p.brand) !== brandId) return false;
+      if (typeId != null && this.coerceFk(p.type) !== typeId) return false;
+      if (status !== 'ALL' && (p.status || 'ACTIVE') !== status) return false;
+      if (!q.trim()) return true;
+      const blob = [
+        String(p.id),
+        p.sku,
+        p.description,
+        p.status ?? '',
+        p.price ?? '',
+        p.datasheet ?? '',
+        p.warranty ?? '',
+        p.estimated_lead_time_days ?? '',
+        catById.get(this.resolveProductCategoryId(p) ?? -1) ?? p.category_name ?? '',
+        subById.get(this.coerceFk(p.subcategory) ?? -1) ?? '',
+        brandById.get(this.coerceFk(p.brand) ?? -1) ?? '',
+        typeById.get(this.coerceFk(p.type) ?? -1) ?? '',
+      ].join(' ');
+      return textMatchesLooseQuery(blob, q);
+    });
+  });
+
+  readonly exportPreviewCount = computed(() => this.exportPreviewItems().length);
 
   /** Carga masiva: misma imagen para varios productos. */
   readonly bulkImageOpen = signal(false);
@@ -751,6 +807,85 @@ export class ProductosPageComponent implements OnInit {
 
   downloadProductTemplate(): void {
     downloadProductExcelTemplate();
+  }
+
+  openExportModal(): void {
+    if (!this.auth.isAdmin()) return;
+    this.exportSearchQuery.set(this.searchQuery());
+    this.exportCategoryId.set(this.filterCategoryId());
+    this.exportSubcategoryId.set(this.filterSubcategoryId());
+    this.exportBrandId.set(this.filterBrandId());
+    this.exportTypeId.set(this.filterTypeId());
+    this.exportStatus.set(this.filterStatus());
+    this.exportModalOpen.set(true);
+  }
+
+  closeExportModal(): void {
+    this.exportModalOpen.set(false);
+  }
+
+  setExportCategory(value: string): void {
+    const id = value === '' ? null : Number(value);
+    this.exportCategoryId.set(id != null && !Number.isNaN(id) ? id : null);
+    const subId = this.exportSubcategoryId();
+    if (subId != null) {
+      const ok = this.exportSubcategoryOptions().some((s) => s.id === subId);
+      if (!ok) this.exportSubcategoryId.set(null);
+    }
+  }
+
+  setExportSubcategory(value: string): void {
+    const id = value === '' ? null : Number(value);
+    this.exportSubcategoryId.set(id != null && !Number.isNaN(id) ? id : null);
+  }
+
+  setExportBrand(value: string): void {
+    const id = value === '' ? null : Number(value);
+    this.exportBrandId.set(id != null && !Number.isNaN(id) ? id : null);
+  }
+
+  setExportType(value: string): void {
+    const id = value === '' ? null : Number(value);
+    this.exportTypeId.set(id != null && !Number.isNaN(id) ? id : null);
+  }
+
+  setExportStatus(value: string): void {
+    const next: StatusFilter =
+      value === 'ACTIVE' || value === 'INACTIVE' ? value : 'ALL';
+    this.exportStatus.set(next);
+  }
+
+  clearExportFilters(): void {
+    this.exportSearchQuery.set('');
+    this.exportCategoryId.set(null);
+    this.exportSubcategoryId.set(null);
+    this.exportBrandId.set(null);
+    this.exportTypeId.set(null);
+    this.exportStatus.set('ALL');
+  }
+
+  useListFiltersInExport(): void {
+    this.exportSearchQuery.set(this.searchQuery());
+    this.exportCategoryId.set(this.filterCategoryId());
+    this.exportSubcategoryId.set(this.filterSubcategoryId());
+    this.exportBrandId.set(this.filterBrandId());
+    this.exportTypeId.set(this.filterTypeId());
+    this.exportStatus.set(this.filterStatus());
+  }
+
+  confirmExportExcel(): void {
+    if (!this.auth.isAdmin()) return;
+    const list = this.exportPreviewItems();
+    if (!list.length) {
+      this.errorMessage.set('No hay productos que coincidan con los filtros de exportación.');
+      return;
+    }
+    const rows = list.map((p) => ({
+      ...p,
+      category: this.resolveProductCategoryId(p) ?? p.category,
+    }));
+    downloadProductsExcel(rows);
+    this.closeExportModal();
   }
 
   async onExcelFileSelected(event: Event): Promise<void> {

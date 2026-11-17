@@ -8,7 +8,9 @@ import {
   signal,
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { lastValueFrom } from 'rxjs';
 import { AuthService } from '../../../../core/services/auth.service';
+import { textMatchesLooseQuery } from '../../../../core/utils/text-search.utils';
 import {
   FormBuilder,
   FormControl,
@@ -22,8 +24,22 @@ import {
   type CatalogDefinition,
   type CatalogRegistryKey,
 } from '../../catalog/catalog-config';
+import {
+  downloadBrandsExcel,
+  downloadBrandsExcelTemplate,
+  parseBrandsExcel,
+  type BrandExcelIssue,
+} from './brand-excel.util';
 
 type Row = Record<string, unknown>;
+
+type BrandImportSummary = {
+  created: number;
+  updated: number;
+  skipped: number;
+  failed: number;
+  errors: BrandExcelIssue[];
+};
 
 @Component({
   selector: 'app-simple-catalog-page',
@@ -47,12 +63,64 @@ export class SimpleCatalogPageComponent implements OnInit {
   );
 
   readonly items = signal<Row[]>([]);
+  readonly searchQuery = signal('');
+  /** Página actual (0-based). */
+  readonly pageIndex = signal(0);
+  /** Filas por página. */
+  readonly pageSize = signal(10);
+  readonly pageSizeOptions = [10, 25, 50] as const;
+
+  readonly filteredItems = computed(() => {
+    const raw = this.searchQuery().trim();
+    const rows = this.items();
+    if (!raw || !this.def) return rows;
+    const keys = this.def.listColumns.map((c) => c.key);
+    return rows.filter((r) => {
+      const haystack = keys.map((k) => String(r[k] ?? '')).join(' ');
+      return textMatchesLooseQuery(haystack, raw);
+    });
+  });
+
+  readonly totalCount = computed(() => this.filteredItems().length);
+  readonly totalLoaded = computed(() => this.items().length);
+  readonly totalPages = computed(() => {
+    const n = this.totalCount();
+    const ps = this.pageSize();
+    if (n === 0) return 0;
+    return Math.ceil(n / ps);
+  });
+  readonly pagedItems = computed(() => {
+    const all = this.filteredItems();
+    const ps = this.pageSize();
+    const start = this.pageIndex() * ps;
+    return all.slice(start, start + ps);
+  });
+
+  readonly hasActiveSearch = computed(() => this.searchQuery().trim() !== '');
+  readonly rangeStart = computed(() => {
+    const n = this.totalCount();
+    if (n === 0) return 0;
+    return this.pageIndex() * this.pageSize() + 1;
+  });
+  readonly rangeEnd = computed(() => {
+    const n = this.totalCount();
+    if (n === 0) return 0;
+    return Math.min((this.pageIndex() + 1) * this.pageSize(), n);
+  });
+
   readonly loading = signal(false);
   readonly saving = signal(false);
   readonly errorMessage = signal<string | null>(null);
   readonly modalOpen = signal(false);
   readonly editingId = signal<number | null>(null);
   readonly selectOptions = signal<Record<string, { value: number; label: string }[]>>({});
+
+  /** Solo Marcas: importación Excel. */
+  readonly importBusy = signal(false);
+  readonly importProgress = signal<{ done: number; total: number } | null>(null);
+  readonly importSummary = signal<BrandImportSummary | null>(null);
+
+  readonly isBrands = computed(() => this.catalogKey() === 'brands');
 
   form!: FormGroup;
   def!: CatalogDefinition;
@@ -106,6 +174,169 @@ export class SimpleCatalogPageComponent implements OnInit {
     }
   }
 
+  setSearchQuery(value: string): void {
+    this.searchQuery.set(value);
+    this.pageIndex.set(0);
+  }
+
+  clearSearch(): void {
+    this.searchQuery.set('');
+    this.pageIndex.set(0);
+  }
+
+  setPageSize(size: number): void {
+    this.pageSize.set(size);
+    this.pageIndex.set(0);
+  }
+
+  prevPage(): void {
+    this.pageIndex.update((i) => Math.max(0, i - 1));
+  }
+
+  nextPage(): void {
+    const last = Math.max(0, this.totalPages() - 1);
+    this.pageIndex.update((i) => Math.min(last, i + 1));
+  }
+
+  private clampPageIndex(): void {
+    const tp = this.totalPages();
+    if (tp === 0) {
+      this.pageIndex.set(0);
+      return;
+    }
+    if (this.pageIndex() >= tp) {
+      this.pageIndex.set(tp - 1);
+    }
+  }
+
+  searchPlaceholder(): string {
+    if (!this.def) return 'Buscar…';
+    const labels = this.def.listColumns.map((c) => c.label.toLowerCase());
+    return labels.length ? `${labels.join(', ')}…` : 'Buscar…';
+  }
+
+  downloadBrandsExport(): void {
+    if (!this.isBrands()) return;
+    const rows = this.items()
+      .map((r) => ({
+        id: r['id'] as number | string,
+        name: String(r['name'] ?? '').trim(),
+      }))
+      .filter((r) => r.name !== '' || r.id != null);
+    if (!rows.length) {
+      this.errorMessage.set('No hay marcas para exportar.');
+      return;
+    }
+    downloadBrandsExcel(rows);
+  }
+
+  downloadBrandsTemplate(): void {
+    if (!this.isBrands() || !this.canMutate()) return;
+    downloadBrandsExcelTemplate();
+  }
+
+  async onBrandsExcelSelected(event: Event): Promise<void> {
+    if (!this.isBrands() || !this.canMutate()) return;
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+
+    this.importSummary.set(null);
+    this.importProgress.set(null);
+    this.errorMessage.set(null);
+    this.importBusy.set(true);
+
+    try {
+      const buf = await file.arrayBuffer();
+      const parsed = parseBrandsExcel(buf);
+      if (!parsed.ok) {
+        this.errorMessage.set(parsed.error);
+        return;
+      }
+
+      const existingById = new Map<number, Row>();
+      const existingByName = new Map<string, Row>();
+      for (const row of this.items()) {
+        const id = Number(row['id']);
+        if (Number.isFinite(id)) existingById.set(id, row);
+        const name = String(row['name'] ?? '')
+          .trim()
+          .toLowerCase();
+        if (name) existingByName.set(name, row);
+      }
+
+      const urlBase = `${environment.apiUrl}/${this.def.apiPath}/`;
+      let created = 0;
+      let updated = 0;
+      let skipped = 0;
+      const errors: BrandExcelIssue[] = [];
+      const total = parsed.rows.length;
+
+      for (let i = 0; i < parsed.rows.length; i++) {
+        const row = parsed.rows[i];
+        this.importProgress.set({ done: i + 1, total });
+        const label = `Fila ${row.excelRow} · ${row.name}`;
+        const nameKey = row.name.toLowerCase();
+
+        try {
+          if (row.id != null) {
+            const byId = existingById.get(row.id);
+            if (byId) {
+              const currentName = String(byId['name'] ?? '').trim();
+              if (currentName.toLowerCase() === nameKey) {
+                skipped += 1;
+                continue;
+              }
+              await lastValueFrom(
+                this.http.patch<Row>(`${urlBase}${row.id}/`, { name: row.name }),
+              );
+              byId['name'] = row.name;
+              existingByName.delete(currentName.toLowerCase());
+              existingByName.set(nameKey, byId);
+              updated += 1;
+              continue;
+            }
+            const createdRow = await lastValueFrom(
+              this.http.post<Row>(urlBase, { id: row.id, name: row.name }),
+            );
+            existingById.set(row.id, createdRow);
+            existingByName.set(nameKey, createdRow);
+            created += 1;
+            continue;
+          }
+
+          const byName = existingByName.get(nameKey);
+          if (byName) {
+            skipped += 1;
+            continue;
+          }
+          const createdRow = await lastValueFrom(
+            this.http.post<Row>(urlBase, { name: row.name }),
+          );
+          const newId = Number(createdRow['id']);
+          if (Number.isFinite(newId)) existingById.set(newId, createdRow);
+          existingByName.set(nameKey, createdRow);
+          created += 1;
+        } catch (err) {
+          errors.push({ label, message: this.formatError(err) });
+        }
+      }
+
+      this.importSummary.set({
+        created,
+        updated,
+        skipped,
+        failed: errors.length,
+        errors: [...parsed.issues, ...errors],
+      });
+      this.reload();
+    } finally {
+      this.importBusy.set(false);
+      this.importProgress.set(null);
+      input.value = '';
+    }
+  }
+
   reload(): void {
     const d = this.def;
     if (!d) return;
@@ -114,6 +345,7 @@ export class SimpleCatalogPageComponent implements OnInit {
     this.http.get<Row[]>(`${environment.apiUrl}/${d.apiPath}/`).subscribe({
       next: (rows) => {
         this.items.set(this.normalizeRows(rows));
+        this.clampPageIndex();
         this.loading.set(false);
       },
       error: (err) => {

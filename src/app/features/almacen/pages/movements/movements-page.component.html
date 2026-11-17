@@ -10,13 +10,25 @@
     </div>
     @if (auth.canWriteAlmacen()) {
       <div class="flex flex-wrap items-center gap-2">
-        <button type="button" class="btn btn-outline btn-sm" (click)="downloadTemplate()" [disabled]="importBusy()">
+        <button
+          type="button"
+          class="btn btn-outline btn-sm"
+          (click)="downloadTemplate()"
+          [disabled]="importBusy() || bulkDeleting()"
+        >
           Plantilla Excel
         </button>
-        <label class="btn btn-outline btn-sm cursor-pointer" [class.btn-disabled]="importBusy()">
+        <label
+          class="btn btn-outline btn-sm cursor-pointer"
+          [class.btn-disabled]="importBusy() || bulkDeleting()"
+        >
           @if (importBusy()) {
             <span class="loading loading-spinner loading-xs"></span>
-            Importando…
+            @if (importProgress(); as prog) {
+              Importando {{ prog.done }}/{{ prog.total }}
+            } @else {
+              Leyendo Excel…
+            }
           } @else {
             Importar Excel
           }
@@ -24,11 +36,16 @@
             type="file"
             class="hidden"
             accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            [disabled]="importBusy()"
+            [disabled]="importBusy() || bulkDeleting()"
             (change)="onExcelSelected($event)"
           />
         </label>
-        <button type="button" class="btn btn-primary" (click)="openNew()" [disabled]="importBusy()">
+        <button
+          type="button"
+          class="btn btn-primary"
+          (click)="openNew()"
+          [disabled]="importBusy() || bulkDeleting()"
+        >
           Registrar movimiento
         </button>
       </div>
@@ -44,13 +61,21 @@
 
   @if (auth.canWriteAlmacen()) {
     <p class="text-base-content/60 text-xs">
-      Excel (.xlsx), hoja activa, máximo 500 filas, de la fecha más antigua a la más reciente. Columnas:
-      <code>sku</code>, <code>warehouse_id</code>, <code>movement_type</code> (ENTRADA o SALIDA),
-      <code>cant</code>, <code>observation</code> (opcional) y <code>creation_date</code> (opcional:
+      Excel (.xlsx), hoja activa, máximo {{ movementImportMaxRows }} filas. Se registran una a una en
+      orden (como el alta manual). Orden recomendado: de la fecha más antigua a la más reciente. Columnas:
+      <code>sku</code>, <code>warehouse_id</code>, <code>owner_company_id</code> (empresa dueña del saldo),
+      <code>movement_type</code> (ENTRADA o SALIDA), <code>cant</code>,
+      <code>observation</code> (opcional) y <code>creation_date</code> (opcional:
       <code>2026-03-15</code>, <code>2026-03-15 14:30</code>, <code>15/03/2026</code> o
-      <code>15/03/2026 14:30</code>). Si la fecha va vacía, se usa la de la importación.
+      <code>15/03/2026 14:30</code>). Si la fecha va vacía, se usa la del servidor.
       Subir el mismo archivo otra vez crea los movimientos de nuevo.
     </p>
+  }
+
+  @if (importBusy() && importProgress(); as prog) {
+    <div role="status" class="alert alert-info text-sm">
+      Registrando movimientos {{ prog.done }} de {{ prog.total }}. No cierre esta página.
+    </div>
   }
 
   @if (importSummary(); as sum) {
@@ -60,7 +85,14 @@
   @if (importErrors().length) {
     <div role="alert" class="alert alert-error items-start text-sm">
       <div>
-        <p class="font-medium">No se guardó ninguna fila. El stock no cambió.</p>
+        @if (importPartialSaved() > 0) {
+          <p class="font-medium">
+            Se guardaron {{ importPartialSaved() }} movimientos, pero el lote siguiente falló. El stock de
+            esas filas sí cambió.
+          </p>
+        } @else {
+          <p class="font-medium">No se guardó ninguna fila. El stock no cambió.</p>
+        }
         <ul class="mt-2 list-disc space-y-1 pl-5">
           @for (item of importErrors(); track $index) {
             <li>Fila {{ item.row }}: {{ item.error }}</li>
@@ -81,9 +113,10 @@
         <input
           type="search"
           class="input input-bordered input-sm w-full"
-          placeholder="Almacén, producto, cantidad u observación…"
+          placeholder="Almacén, producto, dueño, cantidad u observación…"
           autocomplete="off"
           [value]="searchQuery()"
+          [disabled]="bulkDeleting()"
           (input)="setSearchQuery($any($event.target).value)"
         />
       </label>
@@ -92,6 +125,7 @@
         <select
           class="select select-bordered select-sm w-full"
           [value]="typeFilter()"
+          [disabled]="bulkDeleting()"
           (change)="setTypeFilter($any($event.target).value)"
         >
           <option value="ALL">Todos</option>
@@ -101,8 +135,57 @@
         </select>
       </label>
       @if (hasActiveFilters()) {
-        <button type="button" class="btn btn-ghost btn-sm" (click)="clearFilters()">Limpiar</button>
+        <button type="button" class="btn btn-ghost btn-sm" [disabled]="bulkDeleting()" (click)="clearFilters()">
+          Limpiar
+        </button>
       }
+    </div>
+  }
+
+  @if (auth.canWriteAlmacen() && (selectedCount() > 0 || bulkDeleting())) {
+    <div
+      class="flex flex-col gap-3 rounded-xl border border-error/30 bg-error/5 p-4 sm:flex-row sm:items-center sm:justify-between"
+    >
+      <div class="text-sm">
+        @if (bulkDeleteProgress(); as prog) {
+          <p class="font-medium">Eliminando {{ prog.done }}/{{ prog.total }}…</p>
+        } @else {
+          <p class="font-medium">
+            {{ selectedCount() }} seleccionado{{ selectedCount() === 1 ? '' : 's' }}
+          </p>
+        }
+        <div class="mt-2 flex flex-wrap gap-2">
+          <button
+            type="button"
+            class="btn btn-ghost btn-xs"
+            [disabled]="bulkDeleting() || filteredMovements().length === 0"
+            (click)="selectAllFiltered()"
+          >
+            Seleccionar filtrados ({{ totalCount() }})
+          </button>
+          <button
+            type="button"
+            class="btn btn-ghost btn-xs"
+            [disabled]="bulkDeleting() || selectedCount() === 0"
+            (click)="clearSelection()"
+          >
+            Limpiar selección
+          </button>
+        </div>
+      </div>
+      <button
+        type="button"
+        class="btn btn-error btn-sm"
+        [disabled]="bulkDeleting() || importBusy() || selectedCount() === 0"
+        (click)="removeSelected()"
+      >
+        @if (bulkDeleting()) {
+          <span class="loading loading-spinner loading-xs"></span>
+          Eliminando…
+        } @else {
+          Eliminar seleccionados
+        }
+      </button>
     </div>
   }
 
@@ -116,10 +199,24 @@
         <table class="table table-zebra text-sm">
           <thead>
             <tr>
+              @if (auth.canWriteAlmacen()) {
+                <th class="w-10">
+                  <input
+                    type="checkbox"
+                    class="checkbox checkbox-sm"
+                    [checked]="allPageSelected()"
+                    [indeterminate]="somePageSelected()"
+                    [disabled]="bulkDeleting() || pagedMovements().length === 0"
+                    (change)="toggleSelectPage($any($event.target).checked)"
+                    aria-label="Seleccionar página"
+                  />
+                </th>
+              }
               <th>ID</th>
               <th>Fecha</th>
               <th>Almacén</th>
               <th>Producto</th>
+              <th>Dueño</th>
               <th>Cantidad</th>
               <th>Tipo</th>
               <th>Observación</th>
@@ -128,7 +225,19 @@
           </thead>
           <tbody>
             @for (row of pagedMovements(); track row.id) {
-              <tr>
+              <tr [class.bg-primary/5]="isSelected(row.id)">
+                @if (auth.canWriteAlmacen()) {
+                  <td>
+                    <input
+                      type="checkbox"
+                      class="checkbox checkbox-sm"
+                      [checked]="isSelected(row.id)"
+                      [disabled]="bulkDeleting()"
+                      (change)="toggleSelected(row.id, $any($event.target).checked)"
+                      [attr.aria-label]="'Seleccionar movimiento #' + row.id"
+                    />
+                  </td>
+                }
                 <td class="font-mono text-xs">#{{ row.id }}</td>
                 <td class="whitespace-nowrap">{{ formatDate(row.creation_date) }}</td>
                 <td class="max-w-[12rem] truncate" [title]="warehouseLabel().get(row.warehouse) ?? ''">
@@ -136,6 +245,9 @@
                 </td>
                 <td class="max-w-[14rem] truncate" [title]="productLabel().get(row.product) ?? ''">
                   {{ productLabel().get(row.product) ?? row.product }}
+                </td>
+                <td class="max-w-[10rem] truncate" [title]="companyLabel().get(row.owner_company) ?? ''">
+                  {{ companyLabel().get(row.owner_company) ?? ('#' + row.owner_company) }}
                 </td>
                 <td class="font-medium">{{ row.cant }}</td>
                 <td>
@@ -152,7 +264,12 @@
                 </td>
                 <td class="text-right">
                   @if (auth.canWriteAlmacen()) {
-                    <button type="button" class="btn btn-outline btn-error btn-sm" (click)="remove(row)">
+                    <button
+                      type="button"
+                      class="btn btn-outline btn-error btn-sm"
+                      [disabled]="bulkDeleting() || importBusy()"
+                      (click)="remove(row)"
+                    >
                       Eliminar
                     </button>
                   }
@@ -160,7 +277,7 @@
               </tr>
             } @empty {
               <tr>
-                <td colspan="8" class="text-base-content/60 py-10 text-center">
+                <td [attr.colspan]="auth.canWriteAlmacen() ? 10 : 9" class="text-base-content/60 py-10 text-center">
                   @if (hasActiveFilters()) {
                     No hay movimientos que coincidan con los filtros.
                     @if (totalLoaded() > 0) {
@@ -245,7 +362,7 @@
         <div class="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-5">
           @if (showModalValidationHint()) {
             <div role="alert" class="alert alert-warning text-sm">
-              Revise almacén, producto y cantidad antes de guardar.
+              Revise almacén, producto, dueño y cantidad antes de guardar.
             </div>
           }
           @if (modalError(); as err) {
@@ -291,6 +408,25 @@
               }
             </select>
             @if (fieldError('warehouse'); as msg) {
+              <span class="text-error text-xs">{{ msg }}</span>
+            }
+          </label>
+
+          <label class="flex flex-col gap-1.5">
+            <span class="text-sm font-medium">Empresa dueña del saldo</span>
+            <select
+              class="select select-bordered w-full"
+              [class.select-error]="isFieldInvalid('owner_company')"
+              formControlName="owner_company"
+            >
+              @if (companies().length === 0) {
+                <option [ngValue]="0" disabled>No hay empresas</option>
+              }
+              @for (c of companies(); track c.id) {
+                <option [ngValue]="c.id">#{{ c.id }} — {{ c.name }}</option>
+              }
+            </select>
+            @if (fieldError('owner_company'); as msg) {
               <span class="text-error text-xs">{{ msg }}</span>
             }
           </label>
